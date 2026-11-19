@@ -92,7 +92,7 @@ async fn bridge_health(
 ///
 /// Empty request bodies map to an empty JSON object so no-argument commands can
 /// use the same endpoint as typed commands. Malformed JSON is rejected before
-/// dispatch, while command-level errors keep the existing string envelope.
+/// dispatch. Command failures carry the native error envelope and its legacy message alias.
 ///
 /// The command runs on the blocking pool, like a desktop command: run on the
 /// bridge's one thread, an import answered nothing else until it was done, so a
@@ -129,23 +129,10 @@ fn bad_request(message: String) -> (StatusCode, axum::Json<Value>) {
     (StatusCode::BAD_REQUEST, axum::Json(json!({ "error": message })))
 }
 
-/// Shapes command dispatch failures as JSON.
-///
-/// Mirrors the Tauri path's [`CommandError`] envelope: `error` stays the
-/// legacy message string, while `code` / `actionHint` / `retryHint` carry the
-/// structured classification so browser-preview-over-bridge sessions get the
-/// same remediation behavior as the desktop app.
+/// Preserve the native command error and expose its message under the legacy HTTP alias.
 fn internal_error(error: crate::command_error::CommandError) -> (StatusCode, axum::Json<Value>) {
-    let mut body = json!({ "error": error.message, "message": error.message });
-    if let Some(code) = error.code {
-        body["code"] = json!(code);
-    }
-    if let Some(action_hint) = error.action_hint {
-        body["actionHint"] = json!(action_hint);
-    }
-    if let Some(retry_hint) = error.retry_hint {
-        body["retryHint"] = json!(retry_hint);
-    }
+    let mut body = json!(error);
+    body["error"] = Value::String(error.message);
     (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(body))
 }
 
@@ -163,6 +150,36 @@ mod tests {
             port: 43117,
             allowed_origins: vec!["http://127.0.0.1:1420".to_string()],
         }
+    }
+
+    #[test]
+    fn command_error_body_matches_native_serialization_plus_error_alias() {
+        use crate::command_error::CommandError;
+        use vault_store::{Db, Error, OpenStage, StoreOpenFailure};
+
+        let cause = Error::AccessUnavailable(std::sync::Arc::new(StoreOpenFailure {
+            role: Db::AgentHistoryEvidence,
+            path: "archive/agent-history.db".into(),
+            stage: OpenStage::Read,
+            cause: Error::Io(std::io::ErrorKind::PermissionDenied.into()),
+        }));
+        let error = CommandError::from_backend(&cause.into());
+        // Keep this fixture exhaustive when CommandError gains another field.
+        assert!(matches!(
+            &error,
+            CommandError {
+                message: _,
+                code: Some(_),
+                action_hint: Some(_),
+                retry_hint: Some(_),
+                affected_file: Some(_)
+            }
+        ));
+        let mut expected = serde_json::to_value(&error).unwrap();
+        expected["error"] = json!(error.message);
+        let (status, axum::Json(body)) = internal_error(error);
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body, expected);
     }
 
     #[test]
