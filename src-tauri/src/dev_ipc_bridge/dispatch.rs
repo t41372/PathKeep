@@ -150,6 +150,29 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "get_agent_overview" => {
             worker_bridge::get_agent_overview_impl(&state.session, surface_request(payload)?)
         }
+        "preview_archive_safety_copy" => {
+            json_value!(worker_bridge::preview_archive_safety_copy_impl(
+                &state.session,
+                surface_request(payload)?
+            )?)
+        }
+        "create_archive_safety_copy" => {
+            json_value!(worker_bridge::create_archive_safety_copy_impl(
+                &state.session,
+                surface_request(payload)?
+            )?)
+        }
+        "preview_agent_history_repair" => {
+            json_value!(worker_bridge::preview_agent_history_repair_impl(
+                &state.session,
+                surface_request(payload)?
+            )?)
+        }
+        "repair_agent_history" => json_value!(worker_bridge::repair_agent_history_impl(
+            &state.session,
+            surface_request(payload)?,
+            changed
+        )?),
         "retry_agent_store" => json_value!(worker_bridge::retry_agent_store_impl(
             &state.session,
             surface_request(payload)?,
@@ -425,7 +448,9 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(worker_bridge::star_counts_impl(&state.session,)?)
         }
         "get_maintenance_progress" => json_value!(worker_bridge::maintenance_progress_impl()?),
-        "cancel_maintenance" => json_value!(worker_bridge::cancel_maintenance_impl()?),
+        "cancel_maintenance" => {
+            json_value!(worker_bridge::cancel_maintenance_impl(&state.session)?)
+        }
         "export_app_data" => {
             let payload = parse_payload::<ExportAppDataPayload>(payload)?;
             json_value!(worker_bridge::export_app_data_impl(
@@ -1187,7 +1212,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "relaunch_after_update" => {
             let app = require_app_handle(state)?;
-            json_value!(updater::relaunch_after_update(app))
+            json_value!(updater::relaunch_after_update(app).await)
         }
         "get_desktop_integration" => {
             let app = require_app_handle(state)?;

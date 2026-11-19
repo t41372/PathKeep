@@ -129,26 +129,36 @@ pub(crate) async fn download_and_install_app_update<R: Runtime>(
     let progress_for_install = Arc::clone(&progress);
     let version_for_download = version.clone();
     let version_for_install = version.clone();
-    let result = update
-        .download_and_install(
-            move |chunk_length, total_length| {
-                let mut progress = progress_for_download.lock().expect("progress lock");
-                progress.0 += chunk_length as u64;
-                progress.1 = total_length;
-                emit_update_progress(
-                    &progress_app,
-                    downloading_state(&version_for_download, progress.0, progress.1),
-                );
-            },
-            move || {
-                let progress = progress_for_install.lock().expect("progress lock");
-                emit_update_progress(
-                    &install_app,
-                    installing_state(&version_for_install, progress.0, progress.1),
-                );
-            },
-        )
-        .await;
+    let downloading = move |chunk_length, total_length| {
+        let mut progress = progress_for_download.lock().expect("progress lock");
+        progress.0 += chunk_length as u64;
+        progress.1 = total_length;
+        emit_update_progress(
+            &progress_app,
+            downloading_state(&version_for_download, progress.0, progress.1),
+        );
+    };
+    let downloaded = move || {
+        let progress = progress_for_install.lock().expect("progress lock");
+        emit_update_progress(
+            &install_app,
+            installing_state(&version_for_install, progress.0, progress.1),
+        );
+    };
+    #[cfg(not(windows))]
+    let result = update.download_and_install(downloading, downloaded).await;
+    // The Windows installer exits the process itself, outside ExitRequested.
+    #[cfg(windows)]
+    let result = match update.download(downloading, downloaded).await {
+        Err(error) => Err(error),
+        Ok(bytes) => {
+            if let Err(error) = protect_before_restart(&app).await {
+                let (done, total) = *progress.lock().expect("progress lock");
+                return install_error_state(Some(update.version), Some(done), total, error);
+            }
+            update.install(bytes)
+        }
+    };
 
     let (downloaded_bytes, content_length) = *progress.lock().expect("progress lock");
 
@@ -167,9 +177,28 @@ pub(crate) async fn download_and_install_app_update<R: Runtime>(
     }
 }
 
+async fn protect_before_restart<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    use tauri::Manager;
+    if let Some(vault) =
+        app.try_state::<crate::session::SessionState>().and_then(|s| s.owner_for_exit())
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            vault.store().preserve_observed_displacements()
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Requests an app restart after a successful update install.
-pub(crate) fn relaunch_after_update<R: Runtime>(app: AppHandle<R>) -> bool {
+pub(crate) async fn relaunch_after_update<R: Runtime>(app: AppHandle<R>) -> bool {
     if !vault_build::CURRENT.is_distribution() {
+        return false;
+    }
+    if let Err(e) = protect_before_restart(&app).await {
+        log::error!("Archive restart refused: {e}");
         return false;
     }
     app.request_restart();
@@ -374,7 +403,7 @@ mod tests {
         let result = download_and_install_app_update(app.handle().clone(), None).await;
         assert_eq!(result.phase, "error");
         assert_eq!(result.version, None);
-        assert!(!relaunch_after_update(app.handle().clone()));
+        assert!(!relaunch_after_update(app.handle().clone()).await);
     }
 
     #[tokio::test]

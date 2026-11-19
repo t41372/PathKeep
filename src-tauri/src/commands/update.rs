@@ -25,6 +25,6 @@ pub(crate) async fn download_and_install_app_update(
 #[cfg(not(test))]
 #[tauri::command]
 /// Relaunches the app after an update has been staged successfully.
-pub(crate) fn relaunch_after_update(app: AppHandle) -> bool {
-    updater::relaunch_after_update(app)
+pub(crate) async fn relaunch_after_update(app: AppHandle) -> bool {
+    updater::relaunch_after_update(app).await
 }

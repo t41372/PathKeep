@@ -90,7 +90,7 @@ pub(crate) fn rekey_archive_impl(
     request: RekeyRequest,
     state: &SessionState,
 ) -> Result<vault_core::RekeyOutcome, CommandError> {
-    worker_result(vault_worker::rekey_archive_database(state, &request))
+    super::worker_result(vault_worker::rekey_archive_database(state, &request))
 }
 
 /// Self-heals a drifted encryption-at-rest state (e.g. an encrypted config left
@@ -364,6 +364,7 @@ pub(crate) fn export_history_impl<R: tauri::Runtime>(
                 code: Some("export-cancelled".to_string()),
                 action_hint: None,
                 retry_hint: None,
+                affected_file: None,
             });
         }
     }

@@ -15,6 +15,17 @@ impl Archive {
     /// resource-budget change, even when the native source no longer exists.
     /// Only evidence already bound during capture can satisfy an attachment.
     pub fn reparse_source(&self, source_id: &str, options: &BackupOptions) -> Result<BackupReport> {
+        self.reinterpret(source_id, options, false)
+    }
+
+    // Rebuild runs on a private copy. It has one search synchronization for the
+    // complete generation and never reports a synthetic backup to the user.
+    pub(super) fn reinterpret(
+        &self,
+        source_id: &str,
+        options: &BackupOptions,
+        rebuild: bool,
+    ) -> Result<BackupReport> {
         check_cancel(options)?;
         if options.max_record_bytes == 0
             || options.max_record_bytes > 64 * 1024 * 1024
@@ -26,7 +37,10 @@ impl Archive {
         }
         let _job = self.jobs.enter(Some(&options.cancel))?;
         let provenance = self.source(source_id)?;
-        if provenance.kind != "transcript" {
+        if provenance.kind != "transcript"
+            || self.retired_fallback(&provenance)?
+            || !adapter(provenance.harness.parse()?).publishes_transcript(&provenance.relative_path)
+        {
             return Err(Error::Unsupported(
                 "only native transcript evidence can be reparsed".into(),
             ));
@@ -39,6 +53,8 @@ impl Archive {
                 "logical database snapshots are not transcript streams".into(),
             ));
         }
+        let offline_options =
+            if rebuild { Some(super::rebuild::budgets(self, raw.id, options)?) } else { None };
         let source = SourceRoot {
             harness: provenance.harness.parse()?,
             root: PathBuf::from(provenance.root),
@@ -49,11 +65,19 @@ impl Archive {
             path: source.root.join(&provenance.relative_path),
             relative_path: provenance.relative_path,
             kind: ArtifactKind::Transcript,
-            project_hint: None,
+            project_hint: if rebuild {
+                use vault_store::{Db, OptionalRow};
+                let revision = raw.id;
+                self.store.read(Db::AgentHistoryEvidence,move |s| {
+                    s.query_one("SELECT json_extract(report_json,'$.session.project_path') FROM ah_parse_reports WHERE revision_id=?1 ORDER BY parser_version DESC LIMIT 1",[revision],|r|Ok(r.get::<Option<String>>(0)?)).optional().map(Option::flatten)
+                })?
+            } else {
+                None
+            },
             generation: None,
             current: true,
         };
-        let run_id = self.start_backup_run()?;
+        let run_id = if rebuild { 0 } else { self.start_backup_run()? };
         let mut report = BackupReport {
             status: "complete".into(),
             captured: 0,
@@ -64,8 +88,19 @@ impl Archive {
             capture_outcome: None,
             warning_sources: Default::default(),
         };
-        let outcome = reparse(self, &source, &artifact, &raw, options, &mut report);
+        let outcome = reparse(
+            self,
+            &source,
+            &artifact,
+            &raw,
+            offline_options.as_ref().unwrap_or(options),
+            &mut report,
+            rebuild,
+        );
         let outcome = self.finish_reader_work(outcome, options);
+        if rebuild {
+            return outcome.map(|()| report);
+        }
         finish(self, source_id, report, outcome)
     }
 }
@@ -77,6 +112,7 @@ fn reparse(
     raw: &RevisionInfo,
     options: &BackupOptions,
     report: &mut BackupReport,
+    rebuild: bool,
 ) -> Result<()> {
     archive.set_coverage(&raw.source_id, false)?;
     let prepared = match projection::prepare(
@@ -93,7 +129,9 @@ fn reparse(
         projection::Preparation::Writing => return Ok(()),
         projection::Preparation::Unreadable => {
             super::unreadable::publish(archive, source, artifact, &raw.source_id, raw.id, options)?;
-            archive.synchronize_search()?;
+            if !rebuild {
+                archive.synchronize_search()?;
+            }
             return Ok(());
         }
     };
@@ -135,6 +173,9 @@ fn reparse(
         progress(options, "projection_published", raw);
     }
     check_cancel(options)?;
+    if rebuild {
+        return Ok(());
+    }
     archive.append_lineage_issues(&mut report.issues)?;
     archive.synchronize_search()?;
     super::maintenance(archive, options)?;

@@ -3,7 +3,11 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{Result, adapters::common, model::*};
+use crate::{
+    Result,
+    adapters::{Adapter, common},
+    model::*,
+};
 
 type ArtifactSink<'a> = &'a mut dyn FnMut(Artifact) -> Result<()>;
 
@@ -66,10 +70,6 @@ fn transcript_name(name: &str) -> bool {
     name.ends_with(".jsonl") || name.contains(".jsonl.superseded-")
 }
 
-fn historical_transcript(name: &str) -> bool {
-    name.contains(".jsonl.superseded-") || (name.contains(".orphaned-") && name.ends_with(".jsonl"))
-}
-
 fn projects(
     cancel: &crate::capture::Discovery,
     root: &Path,
@@ -115,7 +115,7 @@ fn projects(
             if let Some(kind) = kind {
                 if parts.len() == 2
                     && matches!(kind, ArtifactKind::Transcript)
-                    && !historical_transcript(filename)
+                    && super::ClaudeAdapter.publishes_transcript(filename)
                     && !filename.starts_with("agent-")
                 {
                     current_main_transcripts += 1;
@@ -294,8 +294,7 @@ fn artifact(
         return Ok(());
     };
     let relative_path = parts.join("/");
-    let current =
-        !path.file_name().and_then(|name| name.to_str()).is_some_and(historical_transcript);
+    let current = super::ClaudeAdapter.publishes_transcript(&relative_path);
     emit(Artifact { path, relative_path, kind, project_hint: None, generation: None, current })
 }
 

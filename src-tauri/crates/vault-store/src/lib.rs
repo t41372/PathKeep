@@ -11,8 +11,14 @@ mod engine_log;
 mod error;
 mod existing_files;
 mod maintenance;
+#[cfg(windows)]
+mod maintenance_windows;
 mod migration;
 mod opening;
+mod pair;
+#[cfg(any(windows, test))]
+mod windows_disposition;
+pub use pair::SCHEMA as PAIR_SCHEMA;
 mod owner_lock;
 mod query_plans;
 mod queue;
@@ -29,8 +35,8 @@ pub use checkpoint::Metrics;
 pub use config::{Config, Db, IoLayer, Paths};
 pub use copy::{CopyPhase, CopyProgress, TableDigest, hash_value};
 pub use engine_log::route_engine_diagnostics_to_log;
-pub use error::{Error, OpenStage, Result, StoreOpenFailure};
-pub use maintenance::Maintenance;
+pub use error::{ArchiveFileRole, Error, OpenStage, Result, StoreOpenFailure};
+pub use maintenance::{HeldGeneration, Maintenance, copy_archive_file};
 pub use migration::{BackfillProgress, Migration, MigrationRegistry};
 pub use owner_lock::OwnerLock;
 pub use queue::Priority;
@@ -42,20 +48,38 @@ use std::sync::{
 };
 pub use turso::{IntoParams, Row, Value, params, params_from_iter};
 
+type HeldPublisher = dyn Fn(HeldGeneration<'_>) -> Result<()> + Send + Sync;
+
 /// All handles are joined before the ownership file is released. Share Store via
 /// Arc between blocking command threads; a closure cannot recursively call it.
 pub struct Store {
     workers: RwLock<Vec<(Db, worker::Workers)>>,
     /// Serializes attempts to add workers. Ordinary reads never take this lock.
     adding: Mutex<()>,
+    retired_files: Mutex<Vec<(u64, Db, worker::HeldFiles)>>,
+    conversation_generation: std::sync::atomic::AtomicU64,
+    held_publisher: std::sync::OnceLock<Box<HeldPublisher>>,
+    rejected_pair: AtomicBool,
+    initial_access_refusal: Mutex<Option<[Option<turso::core::io::FileId>; 2]>>,
+    pending_anchors: Mutex<Vec<(Db, turso::core::io::FileId)>>,
+    availability_observer: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
     conversation_failure: RwLock<Option<Arc<StoreOpenFailure>>>,
     ownership: Mutex<Option<Arc<owner_lock::OwnerLock>>>,
     closed: AtomicBool,
     paths: Paths,
+    pair_seals: bool,
     /// After `workers`, whose connections it watches: it stops when the store is dropped.
     watch: running::Watch,
 }
 impl Store {
+    /// The file admitted for this role, also for owners opened on a private copy.
+    pub fn database_path(&self, db: Db) -> &std::path::Path {
+        self.paths.get(db)
+    }
+    /// Keep the originating role and archive member when recovery adds its stage.
+    pub fn role_error(&self, error: Error, db: Db, stage: OpenStage) -> Error {
+        error.at_file(db, stage, self.database_path(db))
+    }
     /// Keep the ownership inode reserved across a verified maintenance replacement.
     pub fn owner(&self) -> Result<Arc<OwnerLock>> {
         self.ownership.lock().unwrap().clone().ok_or(Error::Closed)
@@ -130,20 +154,64 @@ impl Store {
         if self.closed.load(Ordering::Acquire) {
             return Err(Error::Closed);
         }
+        if !read && opening::conversation_role(db) && self.held_publisher.get().is_some() {
+            // Preservation may drain the group, so check before taking its workers guard.
+            self.preserve_observed_displacements()?;
+        }
         let workers = self.workers();
         let worker = &workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1;
-        worker.request(read, priority, work)
+        if !self.pair_seals || !opening::conversation_role(db) {
+            return worker.request(read, priority, work);
+        }
+        self.conversation_availability().map_err(Error::Open)?;
+        match worker.request(read, priority, work) {
+            Err(cause)
+                if matches!(cause, Error::Corrupt { .. } | Error::WrongKey { .. })
+                    || (matches!(cause, Error::Engine(_) | Error::Busy { .. })
+                        && cause.access_refused())
+                    || (matches!(cause, Error::JobPanicked { .. })
+                        && worker.integrity_check_failed()) =>
+            {
+                let stage = if read { OpenStage::Read } else { OpenStage::Write };
+                let failure = Arc::new(StoreOpenFailure {
+                    role: db,
+                    stage,
+                    cause,
+                    path: self.paths.get(db).to_owned(),
+                });
+                self.quarantine(&workers, failure.clone());
+                Err(Error::Open(failure))
+            }
+            result => result,
+        }
     }
     /// Revoke retained handles on explicit session clear or shutdown, finish admitted
     /// jobs, then release connections and ownership. App Lock leaves this Store open.
     pub fn close(&self) -> Result<()> {
         worker::check_caller()?;
-        self.closed.store(true, Ordering::Release);
         let mut workers = self.workers_mut();
+        self.protect_held(&workers)?;
+        let sealed = if workers.iter().any(|(_, w)| *w.held_saved.lock().unwrap()) {
+            Ok(())
+        } else {
+            self.seal_if_available(&workers)
+        };
+        self.closed.store(true, Ordering::Release);
         while let Some((_, worker)) = workers.pop() {
             drop(worker);
         }
+        self.retired_files.lock().unwrap().clear();
         self.ownership.lock().unwrap().take();
+        sealed
+    }
+    fn seal_if_available(&self, workers: &[(Db, worker::Workers)]) -> Result<()> {
+        if self.pair_seals && self.conversation_availability().is_ok() {
+            self.protect_held(workers)?;
+            for (db, w) in workers.iter().filter(|(db, _)| opening::conversation_role(*db)) {
+                maintenance::check_identity(*db, w, self.paths.get(*db))?;
+            }
+            pair::seal(workers, &self.paths)?;
+        }
         Ok(())
     }
     /// The workers, also after a panic poisoned their lock. The maintenance pause holds them

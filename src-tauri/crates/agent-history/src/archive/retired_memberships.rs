@@ -9,7 +9,7 @@ impl Archive {
         loop {
             let ids=self.store.read(Db::AgentHistoryEvidence,|tx|tx.query(
                 "SELECT source_id FROM ah_retiring_memberships ORDER BY source_id LIMIT 128",(),|r|Ok(r.get::<String>(0)?)
-            )).map_err(|e|Error::Store(e.at(Db::AgentHistoryEvidence,vault_store::OpenStage::Recover)))?;
+            )).map_err(|e|Error::Store(self.store.role_error(e, Db::AgentHistoryEvidence,vault_store::OpenStage::Recover)))?;
             if ids.is_empty() {
                 return Ok(());
             }
@@ -28,7 +28,11 @@ impl Archive {
                         .collect::<vault_store::Result<Vec<_>>>()
                 })
                 .map_err(|e| {
-                    Error::Store(e.at(Db::AgentHistoryReadModel, vault_store::OpenStage::Recover))
+                    Error::Store(self.store.role_error(
+                        e,
+                        Db::AgentHistoryReadModel,
+                        vault_store::OpenStage::Recover,
+                    ))
                 })?;
             self.store
                 .write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
@@ -44,7 +48,11 @@ impl Archive {
                     Ok(())
                 })
                 .map_err(|e| {
-                    Error::Store(e.at(Db::AgentHistoryEvidence, vault_store::OpenStage::Recover))
+                    Error::Store(self.store.role_error(
+                        e,
+                        Db::AgentHistoryEvidence,
+                        vault_store::OpenStage::Recover,
+                    ))
                 })?;
         }
     }

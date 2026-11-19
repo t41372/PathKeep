@@ -176,16 +176,42 @@ impl Corpus {
     }
 
     pub(super) fn check(&self, vault: &Vault, password: Option<&str>) {
+        self.check_content(vault, password, false)
+    }
+
+    pub(super) fn check_rebuilt(&self, vault: &Vault, password: Option<&str>) {
+        self.check_content(vault, password, true)
+    }
+
+    fn check_content(&self, vault: &Vault, password: Option<&str>, rebuilt: bool) {
+        assert_eq!(captured_units(vault), self.capture_facts);
+        assert_eq!(receipts::fingerprint(vault), self.receipt_fingerprint);
+        self.check_salvaged_content(vault, password, rebuilt);
+    }
+
+    pub(super) fn check_salvaged_content(
+        &self,
+        vault: &Vault,
+        password: Option<&str>,
+        rebuilt: bool,
+    ) {
         let archive = vault.agent_history().unwrap();
-        assert_eq!(sessions(&archive), self.sessions);
+        let mut actual = sessions(&archive);
+        let mut expected = self.sessions.clone();
+        if rebuilt {
+            // A cold reparse issues new interpretation IDs. Every source, revision,
+            // native byte, user choice and visible interpretation must survive.
+            for item in actual.values_mut().chain(expected.values_mut()) {
+                item.as_object_mut().unwrap().remove("projection_id");
+            }
+        }
+        assert_eq!(actual, expected);
         let head = archive.reader_header(self.sessions["codex"]["id"].as_str().unwrap()).unwrap();
         let job =
             agent_history::read_model::JobControl { max_decoded_bytes: 1, ..Default::default() };
         let tail = archive.reader_window(&head, None, head.physical_records - 1, 1, &job).unwrap();
         assert_eq!(tail[0].native_id.as_deref(), Some("lifecycle-tail"));
         assert_eq!(tail[0].parts[0].text, "reader page survived");
-        assert_eq!(captured_units(vault), self.capture_facts);
-        assert_eq!(receipts::fingerprint(vault), self.receipt_fingerprint);
         let sources = archive.list_sources(&Default::default()).unwrap();
         assert!(sources.next_cursor.is_none());
         let mut seen = BTreeSet::new();

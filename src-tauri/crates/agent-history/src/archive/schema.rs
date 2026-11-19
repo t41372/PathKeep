@@ -18,9 +18,14 @@ pub(super) fn migrations() -> MigrationRegistry {
 pub fn schema_steps(db: Db) -> Vec<Migration> {
     match db {
         Db::AgentHistoryEvidence => steps(EVIDENCE),
-        Db::AgentHistoryReadModel => {
-            steps(&[PROJECTION, crate::read_model::publication::schema::TABLES].concat())
-        }
+        Db::AgentHistoryReadModel => steps(
+            &[
+                PROJECTION,
+                crate::read_model::publication::schema::TABLES,
+                &[vault_store::PAIR_SCHEMA],
+            ]
+            .concat(),
+        ),
         other => panic!("agent history does not own the {other:?} store"),
     }
 }
@@ -201,6 +206,7 @@ const EVIDENCE: &[&str] = &[
     "INSERT INTO ah_retiring_memberships SELECT c.source_id
      FROM ah_sources s JOIN ah_source_conversations c ON c.source_id=s.id
      WHERE s.harness='claude-code' AND (s.relative_path='audit.jsonl' OR s.relative_path LIKE '%/audit.jsonl')",
+    vault_store::PAIR_SCHEMA,
 ];
 
 const USER_STATE: &str = "CREATE TABLE ah_user_state (

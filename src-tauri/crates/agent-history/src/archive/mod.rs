@@ -33,6 +33,7 @@ mod retained_input;
 mod retention;
 mod retired_memberships;
 mod revisions;
+pub mod salvage;
 mod schema;
 mod selection;
 mod sources;
@@ -44,7 +45,7 @@ pub use lifetime::ArchivePause;
 pub use observations::FolderObservation;
 pub use projection::ProjectionAttempt;
 pub use reader::RawReader;
-pub(crate) use reader::expired_read;
+pub(crate) use reader::{expired_read, verify_retained};
 pub use reports::BackupRun;
 pub(crate) use retained_input::RetainedInput;
 pub use retention::SLICE_BYTES;
@@ -128,8 +129,8 @@ impl Archive {
             state_gate: Mutex::new(()),
             publication_gate: Mutex::new(()),
         };
-        let evidence = |e| recovery_error(Db::AgentHistoryEvidence, e);
-        let model = |e| recovery_error(Db::AgentHistoryReadModel, e);
+        let evidence = |e| archive.recovery_error(Db::AgentHistoryEvidence, e);
+        let model = |e| archive.recovery_error(Db::AgentHistoryReadModel, e);
         archive.recover_unfinished_revisions().map_err(evidence)?;
         archive.reclaim_slices_with_cancel(cancel).map_err(evidence)?;
         archive.recover_projection_work().map_err(model)?;
@@ -150,7 +151,13 @@ impl Archive {
                 )?;
                 Ok(())
             })
-            .map_err(|e| e.at(Db::AgentHistoryReadModel, vault_store::OpenStage::Recover))?;
+            .map_err(|e| {
+                archive.store.role_error(
+                    e,
+                    Db::AgentHistoryReadModel,
+                    vault_store::OpenStage::Recover,
+                )
+            })?;
         // A parked conversation has its own repair path; the other heads can serve immediately.
         archive.recover_reader_heads(cancel).map_err(model)?;
         if let Err(error) = archive.collect_reader_garbage(cancel) {
@@ -167,13 +174,12 @@ impl Archive {
     pub fn root(&self) -> &Path {
         &self.root
     }
-}
-
-pub(crate) fn recovery_error(role: Db, error: Error) -> Error {
-    let cause = match error {
-        Error::Cancelled => return Error::Cancelled,
-        Error::Store(cause) => cause,
-        other => vault_store::Error::Operation(Box::new(other)),
-    };
-    cause.at(role, vault_store::OpenStage::Recover).into()
+    pub(crate) fn recovery_error(&self, role: Db, error: Error) -> Error {
+        let cause = match error {
+            Error::Cancelled => return Error::Cancelled,
+            Error::Store(cause) => cause,
+            other => vault_store::Error::Operation(Box::new(other)),
+        };
+        self.store.role_error(cause, role, vault_store::OpenStage::Recover).into()
+    }
 }

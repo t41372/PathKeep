@@ -5,7 +5,7 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(std::io::Error),
     #[error("invalid native zstd transport: {0}")]
     NativeTransport(#[source] std::io::Error),
     #[error(transparent)]
@@ -84,5 +84,16 @@ impl From<vault_store::Error> for Error {
             },
             other => Self::Store(other),
         }
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(error: std::io::Error) -> Self {
+        if let Some(vault_store::Error::Open(reason)) =
+            error.get_ref().and_then(|e| e.downcast_ref())
+        {
+            return Self::Store(vault_store::Error::Open(reason.clone()));
+        }
+        Self::Io(error)
     }
 }

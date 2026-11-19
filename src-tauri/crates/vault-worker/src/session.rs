@@ -170,6 +170,7 @@ impl VaultSession {
         {
             eprintln!("PathKeep could not prepare retained conversations: {error:#}");
         }
+        crate::data_kinds::backups::observe_availability(self, &archive.vault);
         let old = {
             let mut state = self.inner.0.lock().expect("session state");
             state.password = password.map(Zeroizing::new);
@@ -209,6 +210,15 @@ impl VaultSession {
 
     /// Status reads inspect an existing handle without opening storage or the keychain.
     pub fn current_vault(&self) -> Option<Vault> {
+        let state = self.inner.0.lock().expect("session state");
+        if state.transition == Transition::Closing {
+            return None;
+        }
+        state.vault.clone().filter(|v| v.store().is_open())
+    }
+
+    /// Include the old owner while close is saving its last readable handle.
+    pub fn owner_for_exit(&self) -> Option<Vault> {
         self.inner.0.lock().expect("session state").vault.clone().filter(|v| v.store().is_open())
     }
 
@@ -422,6 +432,7 @@ impl VaultSession {
         if key.is_some() {
             state.data_key = key;
         }
+        crate::data_kinds::backups::observe_availability(self, &vault);
         state.vault = Some(vault.clone());
         drop(state);
         if let Err(error) = crate::data_kinds::prepare_view(&vault, &vault.config().capture_policy)
@@ -504,7 +515,7 @@ impl VaultSession {
 
     pub fn update_password(&self, password: Option<String>) -> Result<(), String> {
         let Some(password) = password else {
-            return self.close_vault();
+            return self.close_vault().map_err(|e| e.to_string());
         };
         let paths = vault_core::project_paths().map_err(|e| e.to_string())?;
         let config = vault_core::load_config(&paths).map_err(|e| e.to_string())?;
@@ -515,7 +526,7 @@ impl VaultSession {
         }
         Ok(())
     }
-    pub fn close_vault(&self) -> Result<(), String> {
+    pub fn close_vault(&self) -> anyhow::Result<()> {
         let (lock, ready) = &*self.inner;
         let mut state = lock.lock().expect("session state");
         // A close during maintenance would end the lease's hold on opens early: it waits, and
@@ -527,20 +538,27 @@ impl VaultSession {
             state.parked -= usize::from(maintaining);
         }
         if state.transition == Transition::Closing {
-            return Err("archive-busy: archive is closing".into());
+            anyhow::bail!("archive-busy: archive is closing");
         }
         state.transition = Transition::Closing;
-        state.password = None;
-        state.data_key = None;
-        state.last_error = None;
-        state.result = Arc::default();
-        let vault = state.vault.take();
+        let vault = state.vault.clone();
         drop(state);
-        if let Some(vault) = &vault {
-            crate::data_kinds::delivery::revoke(&vault.paths().app_root);
+        let result = vault.as_ref().map_or(Ok(()), |v| v.close().map_err(anyhow::Error::new));
+        let retired = result.is_ok() || vault.as_ref().is_none_or(|v| !v.store().is_open());
+        if retired && let Some(v) = &vault {
+            crate::data_kinds::delivery::revoke(&v.paths().app_root);
         }
-        let result = vault.map_or(Ok(()), |vault| vault.close().map_err(|e| e.to_string()));
-        lock.lock().expect("session state").transition = Transition::Idle;
+        let mut state = lock.lock().expect("session state");
+        if retired {
+            state.vault = None;
+            state.password = None;
+            state.data_key = None;
+            state.last_error = None;
+            state.result = Arc::default();
+        } else {
+            state.vault = vault;
+        }
+        state.transition = Transition::Idle;
         ready.notify_all();
         result
     }

@@ -41,9 +41,7 @@ pub(crate) fn wipe_all_data_impl(
     confirmation: &str,
     state: &SessionState,
 ) -> Result<vault_core::WipeReport, CommandError> {
-    let report = worker_result(vault_worker::wipe_all_data(confirmation, || {
-        state.close_vault().map_err(anyhow::Error::msg)
-    }))?;
+    let report = worker_result(vault_worker::wipe_all_data(confirmation, || state.close_vault()))?;
     update_session_key(state, None)?;
     Ok(report)
 }
@@ -77,7 +75,7 @@ pub(crate) fn set_session_database_key_impl(
 
 /// Clears the session-only database key from the in-process Tauri state.
 pub(crate) fn clear_session_database_key_impl(state: &SessionState) -> Result<(), CommandError> {
-    Ok(update_session_key(state, None)?)
+    worker_result(state.close_vault())
 }
 #[cfg_attr(test, allow(dead_code))]
 /// Loads the current App Lock status from the worker layer.

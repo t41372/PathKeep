@@ -71,10 +71,22 @@ fn take_armed_error(name: &str) -> bool {
 /// test catches with `std::panic::catch_unwind`), and a `test-fixtures` child process armed with
 /// [`exit_process_at_next_checkpoint`] exits here without running destructors.
 pub fn checkpoint(name: &str) -> Result<()> {
+    #[cfg(feature = "test-fixtures")]
+    ACTION.with(|action| {
+        let hook = action.borrow_mut().remove(name);
+        if let Some(hook) = hook {
+            hook();
+        }
+    });
     #[cfg(any(test, feature = "test-fixtures"))]
     EXIT_CHECKPOINT.with(|armed| {
-        if armed.borrow().as_deref() == Some(name) {
-            std::process::exit(86);
+        if let Some((target, left)) = armed.borrow_mut().as_mut()
+            && target == name
+        {
+            if *left == 1 {
+                std::process::exit(86);
+            }
+            *left -= 1;
         }
     });
     if take_armed(name) {
@@ -96,14 +108,21 @@ fn requested_by_the_e2e_run(name: &str) -> bool {
 
 #[cfg(any(test, feature = "test-fixtures"))]
 thread_local! {
-    static EXIT_CHECKPOINT: RefCell<Option<String>> = const { RefCell::new(None) };
+    static EXIT_CHECKPOINT: RefCell<Option<(String,usize)>> = const { RefCell::new(None) };
 }
 
 /// Integration-test children exit without destructors at a real durable boundary.
 /// The arming API is absent from normal application builds.
 #[cfg(any(test, feature = "test-fixtures"))]
 pub fn exit_process_at_next_checkpoint(name: &str) {
-    EXIT_CHECKPOINT.with(|armed| *armed.borrow_mut() = Some(name.into()));
+    exit_process_at_checkpoint_hit(name, 1);
+}
+
+/// Cut each repeated entry rename independently when proving journal recovery.
+#[cfg(any(test, feature = "test-fixtures"))]
+pub fn exit_process_at_checkpoint_hit(name: &str, hit: usize) {
+    assert!(hit > 0);
+    EXIT_CHECKPOINT.with(|armed| *armed.borrow_mut() = Some((name.into(), hit)));
 }
 
 /// RAII guard that arms a fire-once panic at a checkpoint and disarms it on drop.
@@ -152,4 +171,15 @@ impl Drop for FaultGuard {
             PANIC_AT.with(|cell| cell.borrow_mut().remove(&self.name));
         }
     }
+}
+
+#[cfg(feature = "test-fixtures")]
+thread_local! {
+    static ACTION: RefCell<HashMap<String, Box<dyn FnOnce()>>> = RefCell::default();
+}
+
+/// Change an external file at an exact boundary in a lifecycle fixture.
+#[cfg(feature = "test-fixtures")]
+pub fn once_at(name: &str, action: impl FnOnce() + 'static) {
+    ACTION.with(|slot| slot.borrow_mut().insert(name.to_owned(), Box::new(action)));
 }

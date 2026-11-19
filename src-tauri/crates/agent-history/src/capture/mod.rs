@@ -32,6 +32,7 @@ mod projection;
 mod readiness;
 #[cfg(test)]
 mod readiness_tests;
+mod rebuild;
 mod reference_capture;
 pub(crate) mod references;
 mod reparse;
@@ -327,7 +328,7 @@ fn capture_root(
     let discovered = adapter(source.harness).discover_cancellable(
         &discovery,
         source,
-        &mut |artifact| {
+        &mut |mut artifact| {
             notify_phase(options, "file_found", Some(source.harness));
             debug_delay::wait(delay, &options.cancel)?;
             if !discovery.still_selected() {
@@ -336,7 +337,7 @@ fn capture_root(
             // Declared aliases constrain native references. A reference is never a new grant.
             let earlier = std::mem::take(&mut report.issues);
             let processed =
-                process_artifact(archive, source, &artifact, declared_roots, options, report);
+                process_artifact(archive, source, &mut artifact, declared_roots, options, report);
             let issues = std::mem::replace(&mut report.issues, earlier);
             state.include(&issues);
             let recorded = processed.and_then(|()| {
@@ -414,7 +415,7 @@ fn record_diagnostics(
 fn process_artifact(
     archive: &Archive,
     source: &SourceRoot,
-    artifact: &Artifact,
+    artifact: &mut Artifact,
     roots: &[SourceRoot],
     options: &BackupOptions,
     report: &mut BackupReport,
@@ -427,16 +428,30 @@ fn process_artifact(
             return Ok(());
         }
     };
+    let audit_role = archive.cowork_audit_role(source, artifact, report.run_id)?;
+    if let Some(role) = audit_role {
+        artifact.kind = role;
+    }
     let Some(captured) = capture_raw(archive, &source_id, source, artifact, options, report, None)?
     else {
         return Ok(());
     };
+    if audit_role == Some(ArtifactKind::Metadata) {
+        let id = source_id.clone();
+        archive.store.write(
+            vault_store::Db::AgentHistoryEvidence,
+            vault_store::Priority::Batch,
+            move |s| {
+                s.execute("UPDATE ah_sources SET kind='metadata' WHERE id=?1", [id.as_str()])?;
+                s.execute("DELETE FROM ah_source_conversations WHERE source_id=?1", [id])?;
+                Ok(())
+            },
+        )?;
+    }
     if artifact.kind != ArtifactKind::Transcript
+        || !adapter(source.harness).publishes_transcript(&artifact.relative_path)
         || (!artifact.current && !adapter(source.harness).current_source_only())
     {
-        // Discovery may replace a fallback (for example Cowork audit) with a
-        // primary transcript. Its bytes remain evidence, but its old view must
-        // no longer duplicate the primary conversation in search.
         archive.retire_projection(&source_id)?;
         archive.set_coverage(&source_id, captured.complete)?;
         return Ok(());

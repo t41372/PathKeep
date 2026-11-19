@@ -900,15 +900,15 @@ PathKeep 只在確定時自動歸類；只是「可能」的，做成建議讓�
 
 ### 能力與來源邊界
 
-| Adapter          | 本次來源與正規化範圍                                                                                         | 保留但不應誤稱為完成的能力                                                                                                                                        |
-| ---------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claude Code      | 原生 JSONL、subagents、已知工具／附件資料；本機 Desktop cards、Cowork transcript／audit 等 evidence          | Desktop cards 仍是 raw metadata，不完成 card-to-transcript enrichment；Cowork 有 native transcript 時 audit 不重複索引。一般 Claude chat／cloud Cowork 不自動抓取 |
-| Codex            | Active／archived、plain／Zstd rollout，legacy 與 paginated native events；相關 state/history SQLite evidence | 還原後的 rollout 連同它繼承的前段讀成一條；不去重鏡像 UI／model events；metadata DB 不轉成完整 Desktop UI 狀態。Remote media 只報告不可用                         |
-| Pi               | v1–v3 JSONL、原始樹、compaction、context edit、extension records；inline image 與已知 full-output reference  | 不選 active branch／replay model context；v1 衍生 ID 有診斷。Desktop／TUI／RPC 來源無足夠證據就 unknown                                                           |
-| DeepSeek Harness | 目前 v4 JSONL／多 frame Zstd、數字 generations、附件 object；已知 native event 欄位                          | 舊 v0–v3 與未知新版本明確限制解析；舊 authoritative SQLite provider 不支援。Spill 文字 footer 不授權讀檔；desktop／CLI 共用來源不能推斷 origin                    |
-| Continue         | Session JSON 的 `history` entries，保留 envelope metadata 與原始檔；index 獨立保存                           | 不以 index 代替資料發現；不補回來源 CLI 未保存的 system context，不從 filesystem 時間杜撰原生建立時間                                                             |
-| Cline            | 經典 task bundle 的 API conversation array；UI/context/task metadata 保留                                    | API／UI 記錄不視為兩份新聊天；不宣稱覆蓋未知新儲存世代或全部 editor profile                                                                                       |
-| Roo Code         | 經典 task bundle 的 API conversation array 與 legacy fallback evidence                                       | 不呼叫可能刪舊檔的 native loader；compaction／truncation evidence 保留，並非已重建每個原生 branch                                                                 |
+| Adapter          | 本次來源與正規化範圍                                                                                         | 保留但不應誤稱為完成的能力                                                                                                                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code      | 原生 JSONL、subagents、已知工具／附件資料；本機 Desktop cards、Cowork transcript／audit 等 evidence          | Desktop cards 仍是 raw metadata，不完成 card-to-transcript enrichment；Cowork 同一個 session 的主逐字稿已有保存版本時，audit 才會退出索引。一次備份只列到兩個檔案卻都讀不到時，重解析和重建仍沿用上次成功備份的結果。一般 Claude chat／cloud Cowork 不自動抓取 |
+| Codex            | Active／archived、plain／Zstd rollout，legacy 與 paginated native events；相關 state/history SQLite evidence | 還原後的 rollout 連同它繼承的前段讀成一條；不去重鏡像 UI／model events；metadata DB 不轉成完整 Desktop UI 狀態。Remote media 只報告不可用                                                                                                                      |
+| Pi               | v1–v3 JSONL、原始樹、compaction、context edit、extension records；inline image 與已知 full-output reference  | 不選 active branch／replay model context；v1 衍生 ID 有診斷。Desktop／TUI／RPC 來源無足夠證據就 unknown                                                                                                                                                        |
+| DeepSeek Harness | 目前 v4 JSONL／多 frame Zstd、數字 generations、附件 object；已知 native event 欄位                          | 舊 v0–v3 與未知新版本明確限制解析；舊 authoritative SQLite provider 不支援。Spill 文字 footer 不授權讀檔；desktop／CLI 共用來源不能推斷 origin                                                                                                                 |
+| Continue         | Session JSON 的 `history` entries，保留 envelope metadata 與原始檔；index 獨立保存                           | 不以 index 代替資料發現；不補回來源 CLI 未保存的 system context，不從 filesystem 時間杜撰原生建立時間                                                                                                                                                          |
+| Cline            | 經典 task bundle 的 API conversation array；UI/context/task metadata 保留                                    | API／UI 記錄不視為兩份新聊天；不宣稱覆蓋未知新儲存世代或全部 editor profile                                                                                                                                                                                    |
+| Roo Code         | 經典 task bundle 的 API conversation array 與 legacy fallback evidence                                       | 不呼叫可能刪舊檔的 native loader；compaction／truncation evidence 保留，並非已重建每個原生 branch                                                                                                                                                              |
 
 這是格式能力矩陣；測試結果與平台證據見 [交接紀錄](../architecture/research/agent-history/implementation-notes.md)。其他 harness 的調研不代表已有 adapter。完整來源、版本與已知坑見 [研究入口](../architecture/research/agent-history/README.md)。
 
@@ -945,3 +945,19 @@ Session list 可以以 harness、**exact recorded project path** 篩選，按建
 後續產品整合需在背景 worker 使用同步 Rust API，保持主線程可響應；自行提供 PME 選取／預覽／執行、取消與進度，明確顯示來源／解析／附件差異。不得因有一個 complete raw revision 就把整個來源標成完全成功。User-visible copy、error／empty／loading／disabled 與 accessibility 都仍須交付三語。
 
 Resume、項目移動與跨 harness 轉移需先按 [Claude](../architecture/research/agent-history/claude-code.md#resume-and-migration-research-no-execution)、[Codex](../architecture/research/agent-history/codex.md#resume-and-project-migration-research-only)、[Pi／DeepSeek](../architecture/research/agent-history/pi-deepseek.md) 的證據重新定義 per-version 能力；目前 `native_resume_ready` 一律 false。平台、效能、未知格式與限制必須從交接紀錄延續，不因換了一層 UI 就消失。
+
+### 從安全副本修復對話
+
+瀏覽紀錄仍可開啟時，安全副本會備份瀏覽資料，也原樣保留資料夾中可複製的對話資料庫和日誌。清單會標出建立時對話讀不了的副本。還原這些副本只退回瀏覽紀錄。搬家和開關加密必須逐庫轉換，需先把對話修好。
+
+修復另走預覽和確認。原始證據完整時，從保留的位元組重建讀取模型，保留原始修訂、星號、標題、垃圾桶與執行紀錄。證據已損壞時，可從已驗證的副本取回成對的資料庫，並沿用本機現行金鑰。沒有可用副本時，可選擇建立新的對話庫，救回仍可驗證的修訂。只剩存檔持有且無法驗證的對話會留在被換下的副本裡。確認後被換下的資料會成為一份可列出、計量、單獨釋放的安全副本。從副本或救回的修訂建立新證據庫後，必須重新確認來源資料夾才會再次擷取。
+
+修復預覽會先逐段核對原始修訂的分塊和整段摘要。即使執行紀錄的一頁已經損壞，仍會從通過核對的修訂重建可搜尋的對話，並保留能讀取的來源資訊與使用者標記。預覽分別顯示可找回的對話數，以及只能留在副本裡的對話數。如果兩份對話清單都無法讀取，後一個數量顯示為未知。準備預覽時仍可瀏覽和備份瀏覽紀錄。確認有效期為十五分鐘。
+
+**作業系統拒絕讀取檔案時**（例如權限不足的 EACCES，或磁碟讀取錯誤 EIO），需要保留該檔案的安全副本、還原或修復會停止，指出檔名並說明資料未變更。PathKeep 不發佈缺少該檔案的瀏覽副本。若開啟的對話檔案已被移走，仍可從已開啟的檔案讀到的位元組也會保存在被換下的副本中。
+
+副本包含已解除連結的檔案時，PathKeep 先完整寫入並列出副本，再關閉最後的檔案控制代碼。即使之後因為來源又變更而停止安裝，這份副本仍留在清單中。
+
+PathKeep 發現對話庫只剩開啟中的檔案可讀時，會先把該世代的資料獨立封存為可列出、計量及釋放的副本。若儲存失敗，正常關閉會停止並保留控制代碼。重試成功後，之後的備份屬於新的開啟世代；舊世代的檔案只作為額外保留資料。標記為建立時讀不了的副本仍可提供通過驗證的證據，用來重建對話。
+
+救援預覽分別計算完整找回、缺少最新訊息、以及只留在副本中的對話。即使其中一份逐字稿損壞，只要另一個來源保留了全部最新內容，該對話仍算完整找回。清單資訊不足時，數量為未知。原始證據的可讀標記優先，只有已找回的對話才會從可信的讀取模型補回讀不了的標記。無法使用的個別解析提示會計數並跳過。暫時缺少讀取權限時，可在恢復權限後重試。

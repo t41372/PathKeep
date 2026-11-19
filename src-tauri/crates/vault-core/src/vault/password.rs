@@ -39,14 +39,18 @@ pub(super) fn unlock(paths: &ProjectPaths, password: &str) -> anyhow::Result<Dat
 }
 /// Browsing preflight verifies the data key. Partial admission also requires a matching
 /// control and a well-formed envelope in encrypted mode. Password unlock authenticates its tag.
-pub(super) fn check_partial_root(paths: &ProjectPaths, encrypted: bool) -> vault_store::Result<()> {
+pub(super) fn check_partial_root(
+    paths: &ProjectPaths,
+    encrypted: bool,
+    envelope: vault_layout::ArtifactId,
+) -> vault_store::Result<()> {
     let check = || -> anyhow::Result<()> {
         let config = crate::load_config(paths)?;
         anyhow::ensure!(
             (config.archive_mode == crate::ArchiveMode::Encrypted) == encrypted,
             "archive control and database encryption disagree"
         );
-        let path = paths.artifact_path(vault_layout::ArtifactId::Envelope);
+        let path = paths.artifact_path(envelope);
         if encrypted {
             let metadata = std::fs::metadata(&path).map_err(|error| {
                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -81,9 +85,9 @@ pub(super) fn open(
     };
     let recovered = crate::maintenance::recover_native_maintenance(&paths)?;
     let config = if recovered { crate::load_config(&paths)? } else { config };
-    open_using(paths, config, password, Some(owner), |paths, config, key, owner| {
+    open_using(paths, config, password, Some(owner), |paths, config, key, owner, envelope| {
         // Admission preceded the owner lock and any first-open pending envelope.
-        Ok(Vault::open_database(paths, config, Some(key), owner, true)?)
+        Ok(Vault::open_database(paths, config, Some(key), owner, Some(envelope))?)
     })
 }
 pub(super) fn open_using(
@@ -96,6 +100,7 @@ pub(super) fn open_using(
         AppConfig,
         &DataKey,
         Option<Arc<vault_store::OwnerLock>>,
+        vault_layout::ArtifactId,
     ) -> anyhow::Result<Vault>,
 ) -> anyhow::Result<(Vault, DataKey)> {
     let _guard = ENVELOPE_ACCESS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -139,7 +144,12 @@ pub(super) fn open_using(
         }
         Err(error) => return Err(error.into()),
     };
-    let vault = open(paths, config, &key, owner)?;
+    let envelope = if promote {
+        vault_layout::ArtifactId::PendingEnvelope
+    } else {
+        vault_layout::ArtifactId::Envelope
+    };
+    let vault = open(paths, config, &key, owner, envelope)?;
     if promote {
         vault_fs::rename(&pending, &final_path)?;
         sync_parent(&final_path)?;

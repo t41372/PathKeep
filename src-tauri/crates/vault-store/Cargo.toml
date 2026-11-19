@@ -19,5 +19,8 @@ sha2.workspace = true
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 log = "0.4.28"
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
+
 [dev-dependencies]
 tempfile.workspace = true

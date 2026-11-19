@@ -122,7 +122,7 @@ pub(super) fn spoil(fixture: &Fixture, db: Db, damage: Damage) {
     }
 }
 
-fn overwrite_page(path: &Path, page: u64, flip_one_bit: bool) {
+pub(super) fn overwrite_page(path: &Path, page: u64, flip_one_bit: bool) {
     // Both native formats keep the SQLite page size at offset 16. The first
     // 100 bytes are the database header. Byte 100 belongs to the b-tree.
     let mut file = fs::OpenOptions::new().read(true).write(true).open(path).unwrap();

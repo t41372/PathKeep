@@ -104,7 +104,7 @@ pub fn run_full_archive_restore(
     }
     let current = session.current_vault();
     if let Some(vault) = &current {
-        vault.require_complete()?;
+        vault.check_browsing_files()?;
     }
     let source = std::path::Path::new(&request.snapshot_path);
     // A restore replaces the archive with whatever it is given, so it takes only a snapshot

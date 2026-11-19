@@ -240,6 +240,10 @@ fn run_app() -> Result<()> {
             list_agent_sources,
             get_agent_overview,
             retry_agent_store,
+            preview_archive_safety_copy,
+            create_archive_safety_copy,
+            preview_agent_history_repair,
+            repair_agent_history,
             dismiss_agent_hint,
             list_data_kinds,
             set_data_kind_state,
@@ -452,6 +456,10 @@ fn run_app() -> Result<()> {
             {
                 api.prevent_exit();
             }
+            tauri::RunEvent::ExitRequested {code,api,..}
+                if code!=Some(tauri::RESTART_EXIT_CODE) && desktop_integration::preserve_before_exit(app,code) => {
+                    api.prevent_exit();
+                }
             // Clicking the Dock icon brings back a window hidden to the menu bar.
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => desktop_integration::show_main_window(app),

@@ -429,7 +429,7 @@ pub fn initialize_archive_database(
     let session = crate::VaultSession::default();
     let snapshot =
         initialize_archive_database_with_progress(&session, config, database_key, |_| {});
-    session.close_vault().map_err(anyhow::Error::msg)?;
+    session.close_vault()?;
     snapshot
 }
 

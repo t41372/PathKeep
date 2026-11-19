@@ -54,13 +54,18 @@ impl From<&vault_store::StoreOpenFailure> for RoleFailure {
                 OpenStage::KeyCheck => "key-check",
                 OpenStage::Migrate => "migrate",
                 OpenStage::Recover => "recover",
+                OpenStage::Read => "read",
+                OpenStage::Write => "write",
             },
             reason: match &failure.cause {
+                Error::Busy { .. } => "archive-busy",
+                e if e.access_refused() => "access-denied",
                 Error::MissingStore(_) => "archive-store-missing",
                 Error::WrongKey { .. } => "wrong-key",
-                Error::Corrupt { .. } => "integrity-failed",
+                Error::Corrupt { .. }
+                | Error::RetainedBytes { .. }
+                | Error::IntegrityCheck { .. } => "integrity-failed",
                 Error::SchemaTooNew { .. } => "schema-too-new",
-                Error::Busy { .. } => "archive-busy",
                 _ => "kind-unavailable",
             },
         }
@@ -97,6 +102,14 @@ pub fn list_with(session: &VaultSession, request: ListKinds) -> Result<KindList>
     let config = admitted_config(&paths)?;
     let vault =
         if config.initialized { Some(session.vault().map_err(anyhow::Error::msg)?) } else { None };
+    // Listing is where an unlocked window first asks, so a conversation file
+    // deleted while the archive was open is kept here. A failure to keep it
+    // must not hide the list: close and the next write check again and refuse.
+    if let Some(vault) = &vault
+        && let Err(error) = vault.store().preserve_observed_displacements()
+    {
+        log::warn!("Could not protect a held conversation file while listing: {error}");
+    }
     let mut kinds = Vec::new();
     for (order, kind) in [DataKind::Browsing, DataKind::AgentHistory].into_iter().enumerate() {
         let agent = kind == DataKind::AgentHistory;
@@ -225,13 +238,6 @@ pub fn retry_agent_store(
     let vault = session.vault().map_err(anyhow::Error::msg)?;
     let before = vault.conversation_availability().is_ok();
     match vault.retry_conversations() {
-        Ok(()) if !before => {
-            if let Err(error) = vault.agent_history()
-                && vault.conversation_availability().is_ok()
-            {
-                return Err(error.into());
-            }
-        }
         Ok(()) => {}
         Err(vault_store::Error::Cancelled { .. } | vault_store::Error::Busy { .. }) => {
             return Err(Refusal::Busy.into());
@@ -248,7 +254,9 @@ pub fn retry_agent_store(
     if session.current_vault().is_none_or(|v| !std::sync::Arc::ptr_eq(v.store(), vault.store())) {
         return Err(Refusal::Replaced.into());
     }
-    if before != vault.conversation_availability().is_ok() {
+    if !super::backups::has_event_sink(session)
+        && before != vault.conversation_availability().is_ok()
+    {
         emit(PolicyChange {
             policy_token: snapshot.policy_token.clone(),
             changed_kinds: vec![DataKind::AgentHistory],

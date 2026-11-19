@@ -19,8 +19,11 @@ pub(crate) fn maintenance_progress_impl()
 -> Result<Option<vault_core::maintenance::Progress>, CommandError> {
     worker_result(vault_worker::maintenance_progress())
 }
-pub(crate) fn cancel_maintenance_impl() -> Result<bool, CommandError> {
-    worker_result(vault_worker::cancel_maintenance())
+pub(crate) fn cancel_maintenance_impl(
+    session: &crate::session::SessionState,
+) -> Result<bool, CommandError> {
+    let active = worker_result(vault_worker::cancel_maintenance())?;
+    Ok(session.current_vault().is_some_and(|v| v.cancel_conversation_repair_preview()) || active)
 }
 
 pub(crate) fn export_app_data_impl(
@@ -28,7 +31,11 @@ pub(crate) fn export_app_data_impl(
     target_path: PathBuf,
     export_password: String,
 ) -> Result<vault_core::ExportedBundle, CommandError> {
-    worker_result(vault_worker::export_app_data(&state.vault()?, target_path, &export_password))
+    super::worker_result(vault_worker::export_app_data(
+        &state.vault()?,
+        target_path,
+        &export_password,
+    ))
 }
 
 pub(crate) fn preview_app_data_import_impl(
@@ -50,8 +57,8 @@ pub(crate) fn apply_app_data_import_impl(
     // that waits for it doesn't leave the keychain behind.
     let _running = vault_worker::begin_foreground_work(vault_worker::ForegroundWork::MoveImport);
     // Nothing opens the archive while it is replaced, until the imported one is published.
-    let lease = worker_result(state.begin_maintenance())?;
-    let (report, archive) = worker_result(vault_worker::apply_import(
+    let lease = state.begin_maintenance()?;
+    let (report, archive) = super::worker_result(vault_worker::apply_import(
         &paths,
         current.as_ref(),
         state.owner(),

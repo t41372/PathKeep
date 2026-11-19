@@ -12,7 +12,7 @@ use std::{
     thread,
 };
 
-fn conversation_role(db: Db) -> bool {
+pub(crate) fn conversation_role(db: Db) -> bool {
     vault_layout::spec(vault_layout::db_artifact(db)).scope == vault_layout::DataScope::AgentHistory
 }
 
@@ -84,6 +84,12 @@ impl Store {
                         Error::InvalidConfig(_) | Error::Closed | Error::JobPanicked { .. }
                     ) =>
             {
+                *self.initial_access_refusal.lock().unwrap() =
+                    failure.cause.access_refused().then(|| self.conversation_file_ids());
+                self.rejected_pair.store(
+                    matches!(failure.cause, Error::PairUnverified),
+                    std::sync::atomic::Ordering::Release,
+                );
                 *self.conversation_failure.write().unwrap() = Some(failure);
                 Ok(())
             }
@@ -103,23 +109,67 @@ impl Store {
             workers: RwLock::default(),
             ownership: Mutex::new(Some(lock)),
             adding: Mutex::default(),
+            retired_files: Default::default(),
+            conversation_generation: Default::default(),
+            held_publisher: Default::default(),
+            rejected_pair: Default::default(),
+            initial_access_refusal: Default::default(),
+            pending_anchors: Default::default(),
+            availability_observer: Default::default(),
             conversation_failure: RwLock::default(),
             closed: false.into(),
             paths: config.paths.clone(),
+            pair_seals: config.pair_seals,
             watch: crate::running::Watch::start(config.long_statement_after)?,
         })
     }
 
     fn start_with_scratch(&self, config: &Config, roles: &[Db]) -> Result<()> {
-        engine::reset_scratch(config).map_err(|e| e.at(Db::Scratch, OpenStage::Open))?;
+        engine::reset_scratch(config)
+            .map_err(|e| e.at_file(Db::Scratch, OpenStage::Open, config.paths.get(Db::Scratch)))?;
         let ready = self.start_workers(config, roles, &[])?;
         self.workers_mut().extend(ready);
         Ok(())
     }
 
+    /// Read-only verification for a candidate pair before either worker can migrate it.
+    pub fn verify_conversation_pair(config: &Config) -> Result<()> {
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| crate::engine::verify_pair(config, true, false).map(drop))
+                .join()
+                .map_err(|_| Error::JobPanicked { message: "verifying conversation pair".into() })?
+        })
+    }
+
+    /// Legacy snapshots have file digests but no pairing ticket. Only their evidence
+    /// may seed an offline rebuild. A modern mismatched pair is always refused.
+    pub fn verify_copy_pair(config: &Config) -> Result<bool> {
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| crate::engine::verify_pair(config, true, true))
+                .join()
+                .map_err(|_| Error::JobPanicked { message: "verifying safety copy".into() })?
+        })
+    }
+    fn conversation_file_ids(&self) -> [Option<turso::core::io::FileId>; 2] {
+        [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel].map(|role| {
+            turso::core::io::get_file_id(
+                self.paths.get(role).to_str().expect("validated role path"),
+            )
+            .ok()
+        })
+    }
     /// Rechecks both conversation databases against the live paths, then migrates on
     /// private workers. Browsing reads continue until the short publication write lock.
-    pub fn retry_conversations(&self, mut config: Config) -> Result<()> {
+    pub fn retry_conversations(&self, config: Config) -> Result<()> {
+        self.retry_conversations_checked(config, |_| Ok(()))
+    }
+    pub fn retry_conversations_checked(
+        &self,
+        mut config: Config,
+        verify: impl FnOnce(&Config) -> Result<()>,
+    ) -> Result<()> {
         worker::check_caller()?;
         let _adding = self.adding.lock().unwrap();
         let owner = self.owner()?;
@@ -136,10 +186,48 @@ impl Store {
         config.validate_grouped()?;
         config.protect_existing_files()?;
         let config = &config;
-        let result =
-            preflight_conversations(config).and_then(|()| self.publish_conversations(config));
+        // A failed read or attachment may have left workers on displaced files.
+        // The service has drained producers. Remove both before inspecting either pathname.
+        {
+            let mut old = self.workers_mut();
+            self.protect_held(&old)?;
+            for (db, w) in old.iter_mut().filter(|(db, _)| conversation_role(*db)) {
+                w.quarantine.store(true, std::sync::atomic::Ordering::Release);
+                // A failed retry must leave the unlinked generation available to a
+                // subsequent safety copy even though its SQL workers must be closed.
+                if crate::maintenance::displaced(*db, w, self.paths.get(*db))? {
+                    self.retired_files.lock().unwrap().push((
+                        self.generation(),
+                        *db,
+                        std::mem::take(&mut w.held_files),
+                    ));
+                }
+            }
+            old.retain(|(db, _)| !conversation_role(*db));
+        }
+        let result = preflight_conversations(config)
+            .and_then(|()| {
+                let ordinary = self.initial_access_refusal.lock().unwrap().is_some_and(|prior| {
+                    prior
+                        .into_iter()
+                        .zip(self.conversation_file_ids())
+                        .all(|(old, now)| old.is_none() || old == now)
+                });
+                if ordinary { Ok(()) } else { Self::verify_conversation_pair(config) }
+            })
+            .and_then(|()| verify(config))
+            .and_then(|()| self.publish_conversations(config));
         if let Err(Error::Open(reason)) = &result {
-            *self.conversation_failure.write().unwrap() = Some(reason.clone());
+            if !reason.cause.access_refused() {
+                self.initial_access_refusal.lock().unwrap().take();
+            }
+            if matches!(reason.cause, Error::PairUnverified) {
+                self.rejected_pair.store(true, std::sync::atomic::Ordering::Release);
+            }
+            let mut recorded = self.conversation_failure.write().unwrap();
+            if !recorded.as_ref().is_some_and(|f| matches!(f.cause, Error::RetainedBytes { .. })) {
+                *recorded = Some(reason.clone());
+            }
         }
         result
     }
@@ -155,11 +243,51 @@ impl Store {
         if !self.is_open() {
             return Err(Error::Closed);
         }
+        self.conversation_generation.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        self.rejected_pair.store(false, std::sync::atomic::Ordering::Release);
+        self.initial_access_refusal.lock().unwrap().take();
         published.extend(ready);
-        *self.conversation_failure.write().unwrap() = None;
+        self.record_attachment_ids(&published);
+        if self.conversation_failure.write().unwrap().take().is_some() {
+            self.announce_availability();
+        }
         Ok(())
     }
 
+    /// Preserve the first failure across concurrent reads, including library attachment recovery.
+    pub fn remember_conversation_failure(&self, reason: Arc<StoreOpenFailure>) {
+        if !self.pair_seals {
+            return;
+        }
+        debug_assert!(conversation_role(reason.role));
+        self.quarantine(&self.workers(), reason);
+    }
+
+    pub(crate) fn quarantine(&self, workers: &[(Db, Workers)], reason: Arc<StoreOpenFailure>) {
+        for (_, w) in workers.iter().filter(|(db, _)| conversation_role(*db)) {
+            w.quarantine.store(true, std::sync::atomic::Ordering::Release);
+        }
+        let mut stored = self.conversation_failure.write().unwrap();
+        if stored.is_none() {
+            *stored = Some(reason);
+            drop(stored);
+            self.announce_availability();
+        }
+    }
+
+    /// The owner uses this invalidation to tell its window to refetch kind status.
+    pub fn on_availability_change(&self, observer: impl Fn() + Send + Sync + 'static) {
+        if self.availability_observer.set(Box::new(observer)).is_ok()
+            && self.conversation_availability().is_err()
+        {
+            self.announce_availability()
+        }
+    }
+    pub(crate) fn announce_availability(&self) {
+        if let Some(observer) = self.availability_observer.get() {
+            observer()
+        }
+    }
     /// The role failure that keeps this owner from supplying its complete layout.
     pub fn conversation_availability(&self) -> std::result::Result<(), Arc<StoreOpenFailure>> {
         self.conversation_failure.read().unwrap().clone().map_or(Ok(()), Err)
@@ -193,7 +321,7 @@ impl Store {
                 scratch,
                 archive,
             )
-            .map_err(|e| e.at(db, OpenStage::Open))?;
+            .map_err(|e| e.at_file(db, OpenStage::Open, config.paths.get(db)))?;
             ready.push((db, worker));
         }
         Ok(ready)

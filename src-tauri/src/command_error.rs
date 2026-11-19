@@ -76,6 +76,28 @@ pub const ACTION_HINT_USE_PASSCODE: &str = "use-app-lock-passcode";
 /// completed the hinted action.
 pub const RETRY_HINT_AFTER_ACTION: &str = "retry-after-action";
 
+/// The affected archive member, for a separate path line and Reveal in Folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AffectedFile {
+    path: String,
+    role: &'static str,
+}
+
+impl AffectedFile {
+    fn new(path: &std::path::Path, role: vault_store::ArchiveFileRole) -> Self {
+        use vault_store::ArchiveFileRole::*;
+        Self {
+            path: path.display().to_string(),
+            role: match role {
+                Browsing => "browsing",
+                Evidence => "evidence",
+                ReadModel => "readModel",
+                HeldGeneration => "heldGeneration",
+            },
+        }
+    }
+}
+
 /// The user-facing error envelope every desktop command returns on failure.
 ///
 /// `message` is the full cause chain (`"top: cause: root"`); it is diagnostic
@@ -91,18 +113,77 @@ pub struct CommandError {
     pub action_hint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub affected_file: Option<Box<AffectedFile>>,
 }
 
 impl CommandError {
     /// Wraps an infrastructure failure (thread-pool join, payload parse) that
     /// carries no user remediation — no code, hints, or classification.
     pub fn internal(message: impl Into<String>) -> Self {
-        Self { message: message.into(), code: None, action_hint: None, retry_hint: None }
+        Self {
+            message: message.into(),
+            code: None,
+            action_hint: None,
+            retry_hint: None,
+            affected_file: None,
+        }
     }
 
     #[cfg(any(not(test), feature = "devtools-bridge"))]
     pub(crate) fn invalid_request(error: impl std::fmt::Display) -> Self {
         Self { code: Some("invalid-request".into()), ..Self::internal(error.to_string()) }
+    }
+
+    /// Recover structured file identity before formatting the diagnostic chain for display.
+    pub(crate) fn from_backend(error: &anyhow::Error) -> Self {
+        use vault_store::Error;
+        let mut envelope = Self::classified(format!("{error:#}"));
+        if let Some(member) = error.downcast_ref::<vault_core::maintenance::SnapshotMemberFailure>()
+        {
+            envelope.affected_file = Some(Box::new(AffectedFile::new(&member.path, member.role)));
+            envelope.code = Some(member.code.into());
+            envelope.retry_hint = Some(RETRY_HINT_AFTER_ACTION.into());
+            return envelope;
+        }
+        for cause in error.chain().filter_map(|e| e.downcast_ref::<Error>()) {
+            let (path, role, remediation) = match cause {
+                Error::PreserveFile { path, role, .. } => {
+                    (path, *role, Some(("conversation-preservation-failed", None)))
+                }
+                Error::WriteFile { path, role, .. } => {
+                    (path, *role, Some(("archive-file-write-failed", None)))
+                }
+                Error::Open(f) | Error::RepairRequired(f) | Error::AccessUnavailable(f) => {
+                    let path = match &f.cause {
+                        // A companion or held handle carries its own more precise location.
+                        Error::PreserveFile { .. } | Error::WriteFile { .. } => continue,
+                        Error::MissingStore(path) | Error::ReplacedFile(path) => path,
+                        _ => &f.path,
+                    };
+                    let remediation = match cause {
+                        Error::RepairRequired(_) => Some((
+                            "conversation-repair-required",
+                            Some("preview_agent_history_repair"),
+                        )),
+                        Error::AccessUnavailable(_) => {
+                            Some(("conversation-access-unavailable", Some("retry_agent_store")))
+                        }
+                        _ => None,
+                    };
+                    (path, f.role.into(), remediation)
+                }
+                _ => continue,
+            };
+            envelope.affected_file = Some(Box::new(AffectedFile::new(path, role)));
+            if let Some((code, action)) = remediation {
+                envelope.code = Some(code.into());
+                envelope.action_hint = action.map(str::to_owned);
+                envelope.retry_hint = Some(RETRY_HINT_AFTER_ACTION.into());
+            }
+            break;
+        }
+        envelope
     }
 
     /// Builds the envelope for a worker/core failure, classifying the message
@@ -115,6 +196,7 @@ impl CommandError {
             code: code.map(str::to_string),
             action_hint: action_hint.map(str::to_string),
             retry_hint,
+            affected_file: None,
         }
     }
 }
@@ -174,6 +256,31 @@ const CODED_FAILURES: [&str; 24] = [
 ///   [`CODED_FAILURES`] or an archive refusal's; when a chain holds several, the
 ///   first one names the failure.
 fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str>) {
+    if message.starts_with("conversation-access-unavailable:") {
+        return (Some("conversation-access-unavailable"), Some("retry_agent_store"));
+    }
+    if message.starts_with("conversation-repair-required:") {
+        return (Some("conversation-repair-required"), Some("preview_agent_history_repair"));
+    }
+    for code in [
+        "conversation-preservation-failed",
+        "archive-file-write-failed",
+        "conversation-copy-no-verified-evidence",
+        "conversation-copy-not-listed",
+        "conversation-copy-incomplete",
+        "conversation-copy-invalid-seal",
+        "conversation-schema-too-new",
+        "conversation-copy-duplicate-role",
+        "conversation-copy-unsafe-path",
+        "conversation-repair-preview-stale",
+        "conversation-repair-healthy",
+        "conversation-evidence-readable",
+        "conversation-pair-unverified",
+    ] {
+        if message == code || message.strip_prefix(code).is_some_and(|rest| rest.starts_with(':')) {
+            return (Some(code), None);
+        }
+    }
     let refusals = vault_core::admission::Reason::ALL.map(vault_core::admission::Reason::code);
     // The first code in the chain wins: the outermost context is what the operation concluded and
     // a code further in only its cause; a code inside a longer one (`keychain-unavailable` in

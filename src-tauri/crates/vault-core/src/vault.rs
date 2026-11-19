@@ -26,6 +26,7 @@ pub(crate) static ENVELOPE_ACCESS: std::sync::Mutex<()> = std::sync::Mutex::new(
 pub struct Vault {
     // Shared owner lifetime closes retained service handles before artifact roots drop.
     lifetime: Arc<Lifetime>,
+    pub(crate) repair_preview: Arc<crate::maintenance::conversation_repair::cache::Cache>,
     search_sessions: Arc<crate::search::SearchSessions>,
     search: Arc<crate::search::Indexer>,
     store: Arc<Store>,
@@ -80,7 +81,7 @@ impl Vault {
     ) -> Result<Self> {
         crate::admission::require_control(&paths.app_root)
             .map_err(|refusal| vault_store::Error::Operation(Box::new(refusal)))?;
-        Self::open_database(paths, config, key, owner, true)
+        Self::open_database(paths, config, key, owner, Some(vault_layout::ArtifactId::Envelope))
     }
 
     /// A staged maintenance copy preserves its run ledger until publication.
@@ -91,7 +92,7 @@ impl Vault {
     ) -> Result<Self> {
         crate::admission::guard(&paths.app_root)
             .map_err(|refusal| vault_store::Error::Operation(Box::new(refusal)))?;
-        Self::open_database(paths, config, key, None, false)
+        Self::open_database(paths, config, key, None, None)
     }
 
     fn open_database(
@@ -99,8 +100,9 @@ impl Vault {
         config: AppConfig,
         key: Option<&vault_crypto::DataKey>,
         owner: Option<Arc<vault_store::OwnerLock>>,
-        live_archive: bool,
+        live_envelope: Option<vault_layout::ArtifactId>,
     ) -> Result<Self> {
+        let live_archive = live_envelope.is_some();
         let owner = match owner {
             Some(owner) => owner,
             None => Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)?),
@@ -156,12 +158,19 @@ impl Vault {
                 return Err(error);
             }
         };
-        if store.conversation_availability().is_err() {
+        if let Some(envelope) = live_envelope
+            && store.conversation_availability().is_err()
+        {
             // The browsing workers have verified their keys. Check the shared control
             // and envelope before attributing the remaining failure to conversations.
-            password::check_partial_root(&paths, key.is_some())?;
+            password::check_partial_root(&paths, key.is_some(), envelope)?;
         }
         if live_archive {
+            if let Err(error) =
+                crate::maintenance::conversation_repair::cache::clean_abandoned(&paths)
+            {
+                eprintln!("PathKeep could not clean abandoned conversation previews: {error}");
+            }
             store
                 .write(Db::Archive, Priority::Interactive, |s| {
                     // Assign the installed ledger an origin before a reader can publish a link.
@@ -182,10 +191,12 @@ impl Vault {
                     )?;
                     Ok(())
                 })
-                .map_err(|e| e.at(Db::Archive, vault_store::OpenStage::Recover))?;
+                .map_err(|e| store.role_error(e, Db::Archive, vault_store::OpenStage::Recover))?;
             crate::ai_queue::recover_owner_claims(&store, config.ai.job_queue_paused)
                 .and_then(|()| crate::intelligence_runtime::recover_owner_claims(&store))
-                .map_err(|e| e.at(Db::Intelligence, vault_store::OpenStage::Recover))?;
+                .map_err(|e| {
+                    store.role_error(e, Db::Intelligence, vault_store::OpenStage::Recover)
+                })?;
         }
         let search = Arc::new(
             crate::search::Indexer::open(
@@ -207,6 +218,7 @@ impl Vault {
         });
         let vault = Self {
             lifetime,
+            repair_preview: Default::default(),
             search_sessions,
             search,
             store,
@@ -226,6 +238,21 @@ impl Vault {
             _temporary_root: None,
         };
         if live_archive {
+            let paths = vault.paths().clone();
+            vault.store.on_displacement(move |held| {
+                let original = paths.app_root.join(vault_layout::database_path(held.role));
+                crate::maintenance::snapshot::publish_held(&paths, held).map_err(|error| {
+                    // Keep a companion's more specific error. If publication itself failed,
+                    // the open generation at this original name is the file still at risk.
+                    error.downcast::<vault_store::Error>().unwrap_or_else(|cause| {
+                        vault_store::Error::preserve(
+                            vault_store::ArchiveFileRole::HeldGeneration,
+                            &original,
+                            std::io::Error::other(cause),
+                        )
+                    })
+                })
+            });
             if let Err(error) = crate::ai::model_generations::recover_builtin(vault.paths()) {
                 eprintln!("pathkeep: recovering built-in model at open: {error:#}");
             }
@@ -320,6 +347,7 @@ impl Vault {
     }
 
     pub fn close(&self) -> Result<()> {
+        self.repair_preview.clear();
         self.vector_generations.stop_reaper();
         self.lifetime.close()
     }
@@ -422,6 +450,7 @@ pub(crate) fn storage_config(
     // Only the stores this archive's layout holds. Opening one it does not would create it.
     storage.databases = vault_layout::databases_in(layout);
     storage.owner = owner;
+    storage.pair_seals = layout == vault_layout::ArchiveLayout::AgentHistoryV2;
     if let Some(readers) = crate::test_support::store_readers() {
         storage.readers_per_database = readers;
     }
@@ -456,6 +485,9 @@ struct Lifetime {
 }
 impl Lifetime {
     fn close(&self) -> Result<()> {
+        if let Some(store) = self.store.upgrade() {
+            store.preserve_displaced_conversations()?;
+        }
         self.conversations.close();
         if let Some(sessions) = self.sessions.upgrade() {
             sessions.close();

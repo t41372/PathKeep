@@ -115,7 +115,7 @@ fn pending_envelope_recovers_after_a_failure_with_database_files() {
         config.clone(),
         "right",
         None,
-        |paths, _, key, owner| {
+        |paths, _, key, owner, _| {
             let mut storage =
                 storage_config(&paths, vault_layout::ArchiveLayout::BrowsingV1, Some(key), owner)?;
             storage.migrations.register(
@@ -147,17 +147,16 @@ fn pending_envelope_recovers_after_a_failure_with_database_files() {
 fn pending_envelope_crash_child() {
     let Some(root) = std::env::var_os("PATHKEEP_PENDING_ENVELOPE_ROOT") else { return };
     let paths = crate::project_paths_with_root(std::path::Path::new(&root));
-    write_control(&paths, &AppConfig::default());
-    super::password::open_using(
-        paths,
-        AppConfig::default(),
-        "right",
-        None,
-        |paths, config, key, owner| {
-            let _vault = Vault::open_owned(paths, config, Some(key), owner)?;
-            std::process::exit(81)
-        },
-    )
+    let config = AppConfig {
+        initialized: true,
+        archive_mode: crate::ArchiveMode::Encrypted,
+        ..Default::default()
+    };
+    write_control(&paths, &config);
+    super::password::open_using(paths, config, "right", None, |paths, config, key, owner, _| {
+        let _vault = Vault::open_owned(paths, config, Some(key), owner)?;
+        std::process::exit(81)
+    })
     .unwrap();
 }
 #[test]
@@ -173,4 +172,32 @@ fn crash_before_envelope_promotion_is_recovered_on_unlock() {
     assert!(paths.app_root.join("archive/keys.envelope.pending").exists());
     drop(Vault::open_password(paths.clone(), AppConfig::default(), "right", None).unwrap());
     assert!(paths.app_root.join("archive/keys.envelope").exists());
+}
+
+#[test]
+fn pending_password_envelope_opens_browsing_after_first_setup_loses_conversations() {
+    let root = tempfile::tempdir().unwrap();
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "vault::tests::pending_envelope_crash_child"])
+        .env("PATHKEEP_PENDING_ENVELOPE_ROOT", root.path())
+        .status()
+        .unwrap();
+    assert_eq!(status.code(), Some(81));
+    let paths = crate::project_paths_with_root(root.path());
+    let role = Db::AgentHistoryEvidence;
+    std::fs::remove_file(root.path().join(vault_layout::database_path(role))).unwrap();
+    let config = crate::load_config(&paths).unwrap();
+    let pending = paths.artifact_path(vault_layout::ArtifactId::PendingEnvelope);
+    let final_path = paths.artifact_path(vault_layout::ArtifactId::Envelope);
+    let bytes = std::fs::read(&pending).unwrap();
+    assert!(!final_path.exists());
+    let data = vault_crypto::Envelope::parse(&bytes).unwrap().unwrap(b"right").unwrap();
+    assert!(Vault::open_owned(paths.clone(), config.clone(), Some(&data), None).is_err());
+    assert_eq!(std::fs::read(&pending).unwrap(), bytes);
+    assert!(Vault::open_password(paths.clone(), config.clone(), "wrong", None).is_err());
+    let (vault, key) = Vault::open_password(paths.clone(), config, "right", None).unwrap();
+    assert_eq!(vault.conversation_availability().unwrap_err().role, role);
+    assert_eq!(std::fs::read(final_path).unwrap(), bytes);
+    assert!(!pending.exists());
+    assert_eq!(key.expose_bytes(), Vault::unlock_data_key(&paths, "right").unwrap().expose_bytes());
 }

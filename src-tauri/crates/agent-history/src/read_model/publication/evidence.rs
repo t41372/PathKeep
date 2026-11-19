@@ -79,6 +79,6 @@ impl Archive {
                 |r| Ok(r.get::<i64>(0)?),
             )
         })?;
-        self.facts(ids).map_err(|e| crate::archive::recovery_error(Db::AgentHistoryEvidence, e))
+        self.facts(ids).map_err(|e| self.recovery_error(Db::AgentHistoryEvidence, e))
     }
 }

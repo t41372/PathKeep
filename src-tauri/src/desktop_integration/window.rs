@@ -109,13 +109,23 @@ fn frame<R: Runtime>(window: &tauri::WebviewWindow<R>) {
     let _ = window;
 }
 
-/// The close button: while the menu bar icon exists it hides the main window instead of closing
-/// it; without the icon closing quits, so running work first gets its question (`quit.rs`),
-/// asked in this window, which therefore stays open.
+/// Check the open owner on foreground entry. Closing hides a tray window or starts normal quit.
 pub(crate) fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
-    if let WindowEvent::CloseRequested { api, .. } = event
-        && window.label() == MAIN_WINDOW
-    {
+    if window.label() != MAIN_WINDOW {
+        return;
+    }
+    if matches!(event, WindowEvent::Focused(true)) {
+        let app = window.app_handle().clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Some(vault) =
+                app.try_state::<crate::session::SessionState>().and_then(|s| s.current_vault())
+                && let Err(error) = vault.store().preserve_observed_displacements()
+            {
+                log::warn!("Could not protect a held conversation file on window focus: {error}");
+            }
+        });
+    }
+    if let WindowEvent::CloseRequested { api, .. } = event {
         if window.app_handle().tray_by_id(TRAY_ID).is_some() {
             api.prevent_close();
             let _ = window.hide();

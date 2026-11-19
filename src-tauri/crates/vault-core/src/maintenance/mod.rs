@@ -9,9 +9,16 @@ pub use retention::{preview_retention, prune};
 pub(crate) mod creation;
 pub mod install;
 pub use audit::{record_mode_change, record_restore};
+pub(crate) mod conversation_repair;
 pub(crate) mod snapshot;
+pub use conversation_repair::{
+    ConversationRepairPreview, VerifiedConversationRepair, install_conversation_repair,
+    preview_conversation_repair, preview_conversation_repair_with_cancel, repair_conversations,
+    verify_conversation_repair,
+};
 pub use snapshot::{
-    list_snapshots, recover_native_maintenance, restore_snapshot, restore_snapshot_to, snapshot,
+    SnapshotMemberFailure, list_snapshots, manual_snapshot, recover_native_maintenance,
+    restore_snapshot, restore_snapshot_to, snapshot,
 };
 #[cfg(test)]
 mod install_tests;
@@ -81,7 +88,8 @@ pub fn reconcile(vault: &Vault) -> Result<crate::ReconcileReport> {
     // A mode change replaces the files whose header this reads.
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     vault.recheck_root()?;
-    vault.require_complete()?;
+    vault.check_available_files()?;
+    let conversations_unreadable = vault.conversation_availability().is_err();
     let mode =
         if vault.data_key().is_some() { ArchiveMode::Encrypted } else { ArchiveMode::Plaintext };
     // The control as it is now, not the vault's copy from when it was opened: a setting saved
@@ -94,7 +102,12 @@ pub fn reconcile(vault: &Vault) -> Result<crate::ReconcileReport> {
         config.archive_mode = mode.clone();
         crate::save_config(&gate, &config)?;
     }
-    Ok(crate::ReconcileReport { repaired, from_mode: repaired.then_some(previous), to_mode: mode })
+    Ok(crate::ReconcileReport {
+        conversations_unreadable,
+        repaired,
+        from_mode: repaired.then_some(previous),
+        to_mode: mode,
+    })
 }
 
 /// Every database is copied and verified before the live owner is closed. A
@@ -127,8 +140,13 @@ pub fn switch_mode(
     config.archive_mode = mode;
     let key = create_envelope(stage.path(), &config, new_password)?;
     let owner = vault.store().owner()?;
+    let _producers = vault.pause_conversations();
+    vault.verify_conversion_source(&cancel)?;
     let pause = vault.pause_store()?;
     let progress = Arc::new(Mutex::new(progress));
+    pause.seal_and_checkpoint()?;
+    let mut files = database_files(vault.layout(), true);
+    let mut expected = install::originals(&vault.paths().app_root, &files)?;
     let copy_progress = progress.clone();
     copy_databases(
         &pause,
@@ -174,12 +192,18 @@ pub fn switch_mode(
     // The replacement's control is the live one as it is now, with the new mode: a setting saved
     // while the copy ran is kept. Built and installed under one hold of the control's gate.
     let control = crate::ControlGate::acquire(vault.paths());
+    let control_file = PathBuf::from("config.json");
+    expected.insert(
+        control_file.clone(),
+        crate::content_identity::of(&vault.paths().app_root.join(control_file))?,
+    );
     let mut config = crate::load_config(vault.paths())?;
     config.archive_mode = mode_after;
     crate::config::save_copy_config(vault.paths(), stage.path(), &config)?;
-    let mut files = database_files(vault.layout(), true);
+    // The live control is read above under its control gate, including intervening settings edits.
+    expected.insert(snapshot_relative.clone(), None);
     files.push(snapshot_relative.clone());
-    install::install(&control, stage.path(), files, install::Keep::Nothing)?;
+    install::install_bound(&control, stage.path(), files, install::Keep::Nothing, Some(&expected))?;
     drop(control);
     let previous = vault.paths().app_root.join(snapshot_relative);
     let opened = Vault::open_owned(vault.paths().clone(), config, key.as_ref(), Some(owner))?;
