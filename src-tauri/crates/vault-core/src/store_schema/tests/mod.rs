@@ -85,17 +85,20 @@ fn newer_versions_are_refused() {
         for db in Db::ALL {
             let root = tempfile::tempdir().unwrap();
             drop(Store::open(config(root.path(), key)).unwrap());
+            // One past this build's newest migration, whatever that is: a fixed number goes
+            // stale once a database's history passes it.
+            let supported_version = crate::store_schema::schema_version(db);
+            let newer = supported_version + 1;
             let mut future = config(root.path(), key);
             future.migrations.register(
                 db,
-                vec![Migration::sql(99, "CREATE TABLE future_marker(id INTEGER PRIMARY KEY)")],
+                vec![Migration::sql(newer, "CREATE TABLE future_marker(id INTEGER PRIMARY KEY)")],
             );
             drop(Store::open(future).unwrap());
-            let supported_version = crate::store_schema::schema_version(db);
             assert!(matches!(
                 Store::open(config(root.path(), key)),
-                Err(Error::SchemaTooNew { db: found_db, found: 99, supported })
-                    if found_db == db && supported == supported_version
+                Err(Error::SchemaTooNew { db: found_db, found, supported })
+                    if found_db == db && found == newer && supported == supported_version
             ));
         }
     }
