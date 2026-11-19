@@ -259,3 +259,83 @@ fn incomplete_initial_index_recovers_but_established_damage_needs_repair() {
         }
     }
 }
+
+#[test]
+fn intact_live_folder_opened_by_a_second_installation_has_no_capture_consent() {
+    for hidden in [true, false] {
+        let f = Fixture::new(false);
+        f.create_browser();
+        if hidden {
+            seed(&f.vault(), &f.sandbox.path().join("pi"));
+            choose(&f.session, "off").unwrap();
+        } else {
+            let path = f.sandbox.path().join("installation-a-pi");
+            fixtures::pi(&path, "/synthetic", "saved", "visibilityneedle");
+            let path = path.canonicalize().unwrap();
+            let request =
+                from_value(json!({"purpose":"enable","pickedFolder":{"tool":"pi","path":path}}))
+                    .unwrap();
+            let mut frames = kinds::preview::start(&f.session, request).unwrap();
+            let report = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    while let Some(frame) = frames.next_frame().await {
+                        if frame["type"] == "finished" {
+                            return frame["payload"].clone();
+                        }
+                    }
+                    panic!("preview ended without its inventory")
+                });
+            let (notify, finished) = std::sync::mpsc::channel();
+            let enable = json!({
+                "requestId":uuid::Uuid::new_v4().to_string(),"expectedPolicyToken":kinds::settings().unwrap().policy_token,
+                "previewId":report["previewId"],"selectedRootIds":[report["rows"][0]["rootId"]],"readGit":false
+            });
+            backups::enable(
+                &f.session,
+                from_value(enable).unwrap(),
+                Arc::new(move |name, _| {
+                    if name == "pathkeep://kind-backup-finished" {
+                        let _ = notify.send(());
+                    }
+                }),
+            )
+            .unwrap();
+            finished.recv_timeout(std::time::Duration::from_secs(20)).unwrap();
+            let list = to_value(kinds::list(&f.session).unwrap()).unwrap();
+            assert_eq!(list["kinds"][1]["state"], "on");
+            assert_eq!(list["kinds"][1]["hasBackupSource"], true);
+        }
+        f.session.close_vault().unwrap();
+        unsafe {
+            std::env::set_var(
+                "PATHKEEP_PLATFORM_TEST_SANDBOX_DIR",
+                f.sandbox.path().join("installation-b"),
+            );
+        }
+        f.reopen(false);
+        assert_view(&f.session, false);
+    }
+}
+
+#[test]
+fn paused_browsing_runs_only_when_requested_for_that_kind() {
+    let f = Fixture::new(false);
+    f.create_browser();
+    let vault = f.vault();
+    let paths = vault.paths();
+    let mut config = vault_core::load_config(paths).unwrap();
+    config.capture_policy.agent_history = vault_core::KindState::On;
+    config.capture_policy.browsing = vault_core::KindState::Paused;
+    vault_core::save_config(&vault_core::ControlGate::acquire(paths), &config).unwrap();
+    let run = |kind_specific| {
+        vault_worker::run_browsing_backup(&vault, None, false, kind_specific, |_| {}).unwrap()
+    };
+    assert_eq!(run(false).reason_code.as_deref(), Some("kind-paused"));
+    assert_eq!(run(true).run.unwrap().new_visits, 1);
+    config.capture_policy.browsing = vault_core::KindState::Off;
+    vault_core::save_config(&vault_core::ControlGate::acquire(paths), &config).unwrap();
+    assert_eq!(run(true).reason_code.as_deref(), Some("kind-off"));
+}

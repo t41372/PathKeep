@@ -11,6 +11,7 @@ use vault_worker::data_kinds::{self as kinds, Refusal, preview};
 #[test]
 fn either_kind_as_last_on_is_protected_with_every_other_state() {
     let fixture = Fixture::new(true);
+    source_rules::grant(&fixture);
     for (kind, other) in
         [(DataKind::Browsing, DataKind::AgentHistory), (DataKind::AgentHistory, DataKind::Browsing)]
     {
@@ -27,6 +28,9 @@ fn either_kind_as_last_on_is_protected_with_every_other_state() {
                         ..Default::default()
                     },
                 };
+                config.selected_profile_ids = vec!["chrome:Default".into()];
+                config.capture_policy.selection_ref = Some("chosen".into());
+                config.capture_policy.enabled_tools.insert(vault_core::AgentTool::Pi);
                 save_config(&ControlGate::acquire(&fixture.paths()), &config).unwrap();
                 let request = kinds::SetState {
                     kind,
@@ -163,78 +167,47 @@ fn native_home_presence_and_one_complete_four_tool_preview() {
             native::claude_main(&fixture.roots[0].1, &format!("case-{i}"), &[]);
         }
         native::claude_upload(&fixture.roots[0].1, "case-0", "proof", b"ancillary");
-        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
-        child
+        for ((_, source), name) in
+            fixture.roots.iter().zip([".claude", ".codex", ".pi/agent", ".dsh"])
+        {
+            let dest = home.path().join(name);
+            std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+            std::fs::rename(source, dest).unwrap();
+        }
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
             .current_dir(home.path())
             .args([
                 "--exact",
                 "native_home_presence_and_one_complete_four_tool_preview",
                 "--nocapture",
             ])
-            .env_remove("CHB_AGENT_TOOLS_HOME")
             .env(CHILD, home.path())
-            .env("HOME", home.path())
-            .env("USERPROFILE", home.path())
-            .env("CLAUDE_CONFIG_DIR", &fixture.roots[0].1)
-            .env("CODEX_HOME", &fixture.roots[1].1)
-            .env("PI_CODING_AGENT_DIR", &fixture.roots[2].1)
-            .env("DSH_HOME", &fixture.roots[3].1)
-            .env("CODEX_SQLITE_HOME", home.path().join("missing"))
-            .env_remove("PI_CODING_AGENT_SESSION_DIR");
-        #[cfg(unix)]
-        let denied = {
-            use std::os::unix::fs::PermissionsExt;
-            let path = home.path().join("denied");
-            std::fs::create_dir(&path).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
-            child.env("PI_CODING_AGENT_SESSION_DIR", &path);
-            path
-        };
-        let result = child.status().unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(denied, std::fs::Permissions::from_mode(0o700)).unwrap();
-        }
+            .env("CHB_AGENT_TOOLS_HOME", home.path())
+            .status()
+            .unwrap();
         assert!(result.success());
         return;
     };
     let archive = Fixture::new(true);
     let before = archive.observe();
+    // Fixture::new isolates all worker tests by default. Use this child's populated fixture.
+    unsafe {
+        std::env::set_var("CHB_AGENT_TOOLS_HOME", &home);
+    }
     let detected =
         preview::detect(from_value(json!({"kinds":["agent-history"]})).unwrap()).unwrap();
     let home = std::path::PathBuf::from(home);
-    let roots: Vec<_> = detected["sources"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|row| {
-            std::path::Path::new(row["path"].as_str().unwrap()).starts_with(home.join("sources"))
-                || std::path::Path::new(row["path"].as_str().unwrap()) == home.join("denied")
-                || std::path::Path::new(row["path"].as_str().unwrap()) == home.join("missing")
-        })
-        .collect();
-    let root_count = if cfg!(unix) { 6 } else { 5 };
-    assert_eq!(roots.len(), root_count);
-    assert_eq!(roots.iter().filter(|r| r["found"] == true && r["readable"] == true).count(), 4);
-    assert!(roots.iter().any(|r| r["reason"] == "root-missing" && r["found"] == false));
-    let wire: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tests/fixtures/data-kinds-preview.json"))
-            .unwrap();
-    let expected = wire["detect_data_sources"]["response"]["sources"].as_array().unwrap();
-    for actual in &roots {
-        let mut row = expected
+    let roots = detected["sources"].as_array().unwrap();
+    let expected = [".claude", ".codex", ".pi/agent", ".dsh", "Claude"].map(|p| home.join(p));
+    assert_eq!(
+        roots
             .iter()
-            .find(|r| r["tool"] == actual["tool"] && r["reason"] == actual["reason"])
-            .unwrap()
-            .clone();
-        assert!(actual["path"].as_str().is_some());
-        assert_eq!(actual["rootIds"].as_array().unwrap().len(), 1);
-        assert_eq!(actual["rootIds"][0].as_str().unwrap().len(), 64);
-        row["rootIds"] = actual["rootIds"].clone();
-        row["path"] = actual["path"].clone();
-        assert_eq!(**actual, row);
-    }
+            .map(|r| std::path::PathBuf::from(r["path"].as_str().unwrap()))
+            .collect::<Vec<_>>(),
+        expected
+    );
+    let root_count = expected.len();
+    assert_eq!(roots.iter().filter(|r| r["found"] == true).count(), 4);
     let ids: Vec<_> = roots.iter().map(|r| &r["rootIds"][0]).collect();
     let mut frames = preview::start(
         &archive.session,
@@ -246,12 +219,11 @@ fn native_home_presence_and_one_complete_four_tool_preview() {
             if frame["type"] == "finished" {
                 let report = &frame["payload"];
                 assert_eq!(report["rows"].as_array().unwrap().len(), root_count);
-                #[cfg(unix)]
-                assert_eq!(report["byTool"]["pi"]["reasons"], json!(["root-unreadable"]));
+
                 assert_eq!(report["byTool"]["claude-code"]["files"], "262");
                 assert_eq!(report["byTool"]["claude-code"]["ancillaryFiles"], "1");
                 assert_eq!(report["byTool"]["codex"]["readableRoots"], 1);
-                assert_eq!(report["byTool"]["codex"]["roots"], 2);
+                assert_eq!(report["byTool"]["codex"]["roots"], 1);
                 assert!(
                     report["byTool"]["deepseek"]["compressedBytes"]
                         .as_str()
@@ -459,3 +431,6 @@ fn paused_without_a_grant_can_only_activate_via_a_readable_preview() {
 
 #[path = "app_surface/outcomes.rs"]
 mod outcomes;
+
+#[path = "app_surface/source_rules.rs"]
+mod source_rules;

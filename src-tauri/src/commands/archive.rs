@@ -181,12 +181,14 @@ pub(crate) async fn run_retention_prune(
 pub(crate) async fn run_backup_now(
     app: AppHandle,
     due_only: bool,
+    kind_specific: Option<bool>,
 ) -> Result<vault_core::BackupReport, CommandError> {
     run_blocking_command("run_backup_now", move || {
         crate::desktop_integration::run_backup(
             &app,
             crate::desktop_integration::BackupSource::App,
             due_only,
+            kind_specific.unwrap_or(false),
         )
     })
     .await

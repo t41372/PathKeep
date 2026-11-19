@@ -268,6 +268,19 @@ pub fn save_user_config_with_base(
     save_user_config_with_vault(None, config, base_config, session_database_key)
 }
 
+/// Validate profile edits against the currently authorized kinds, including
+/// whole-settings callers that submit a different policy in the same request.
+fn check_profile_removal(previous_config: &AppConfig, next_config: &AppConfig) -> Result<()> {
+    if !previous_config.selected_profile_ids.is_empty()
+        && next_config.selected_profile_ids.is_empty()
+        && previous_config.capture_policy.browsing == vault_core::KindState::On
+        && previous_config.capture_policy.agent_history != vault_core::KindState::On
+    {
+        return Err(crate::data_kinds::Refusal::EmptySelection.into());
+    }
+    Ok(())
+}
+
 /// Reconciles database-backed controls through the caller's current owner.
 pub fn save_user_config_with_vault(
     vault: Option<&vault_core::Vault>,
@@ -298,6 +311,7 @@ pub fn save_user_config_with_vault(
         Some(base_config) => merge_config_change(&previous_config, base_config, config)?,
         None => config.clone(),
     };
+    check_profile_removal(&previous_config, &next_config)?;
     next_config.capture_policy = previous_config.capture_policy.clone();
     next_config.dismissed_agent_hints.clone_from(&previous_config.dismissed_agent_hints);
     if next_config.initialized && !previous_config.initialized {
@@ -611,6 +625,7 @@ where
     {
         let control = vault_core::ControlGate::acquire(&paths);
         let latest = load_config(&paths)?;
+        check_profile_removal(&latest, &next_config)?;
         next_config.capture_policy = latest.capture_policy;
         next_config.dismissed_agent_hints = latest.dismissed_agent_hints;
         save_config(&control, &next_config)?;

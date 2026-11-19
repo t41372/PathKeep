@@ -10,11 +10,11 @@ use vault_store::{Db, OptionalRow, Priority, params};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Root {
+pub(in crate::data_kinds) struct Root {
     pub id: String,
     pub tool: AgentTool,
     pub path: PathBuf,
-    pub(super) directory: String,
+    pub(in crate::data_kinds) directory: String,
 }
 
 impl Root {
@@ -104,7 +104,10 @@ pub(super) fn load(vault: &Vault, id: &str) -> Result<Vec<Root>> {
 
 /// A move can leave a destination reference without its old descriptor. This
 /// affects capture eligibility only; retained evidence is still readable.
-pub(super) fn device_roots(vault: &Vault, policy: &vault_core::CapturePolicy) -> Result<Vec<Root>> {
+pub(in crate::data_kinds) fn device_roots(
+    vault: &Vault,
+    policy: &vault_core::CapturePolicy,
+) -> Result<Vec<Root>> {
     let Some(id) = &policy.selection_ref else {
         return Ok(Vec::new());
     };

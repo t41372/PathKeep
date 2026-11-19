@@ -15,7 +15,7 @@ pub(crate) use tasks::cancel_active;
 pub use tasks::{Control, ListTasks, control, task_summary, tasks};
 mod progress;
 mod runtime;
-mod selection;
+pub(super) mod selection;
 use super::{Refusal, admitted_config, preview};
 use crate::VaultSession;
 use anyhow::Result;
@@ -45,6 +45,8 @@ pub struct Enable {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Start {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    shared: bool,
     scope: BackupScope,
     request_id: String,
     expected_policy_token: Option<String>,
@@ -183,10 +185,32 @@ pub fn enable(session: &VaultSession, req: Enable, events: Events) -> Result<Val
 
 /// Manual tool and kind requests share the same capture slot.
 pub fn start(session: &VaultSession, req: Start, events: Events) -> Result<Value> {
-    let (vault, _) = admitted(session, false)?;
+    let skip = |policy: &CapturePolicy| {
+        let reason = policy.backup_skip_reason(DataKind::AgentHistory, false)?;
+        Some(json!({
+            "batchId": req.request_id,
+            "kinds": [{"kind": "agent-history", "decision": "skipped", "reason": reason}]
+        }))
+    };
+    if req.shared {
+        let config = admitted_config(&vault_core::project_paths()?)?;
+        check_id(&req.request_id)?;
+        if !matches!(req.scope, BackupScope::Kind { kind: DataKind::AgentHistory }) {
+            return Err(Refusal::ScopeDenied.into());
+        }
+        if let Some(reply) = skip(&config.capture_policy) {
+            return Ok(reply);
+        }
+    }
+    let (vault, _) = admitted(session, req.shared)?;
     let _admission = session.conversations.enter();
-    let policy = check_reply(&vault, session, false)?;
+    let policy = check_reply(&vault, session, req.shared)?;
     check_id(&req.request_id)?;
+    if req.shared
+        && let Some(reply) = skip(&policy)
+    {
+        return Ok(reply);
+    }
     let fingerprint = hash(&req)?;
     if policy.selection_ref.is_none() {
         return Err(Refusal::EnablePreview.into());
@@ -370,6 +394,18 @@ pub(super) fn edit_selection(
     }
     if roots.len() != ids.len() {
         return Err(Refusal::ScopeDenied.into());
+    }
+    if policy.agent_history == KindState::On
+        && policy.browsing != KindState::On
+        && !roots.iter().any(|r| {
+            patch
+                .tool_changes
+                .get(&r.tool)
+                .copied()
+                .unwrap_or_else(|| policy.enabled_tools.contains(&r.tool))
+        })
+    {
+        return Err(Refusal::EmptySelection.into());
     }
     let key = if roots == previous
         && let Some(key) = &policy.selection_ref

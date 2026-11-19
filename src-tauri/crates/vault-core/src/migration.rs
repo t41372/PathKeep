@@ -21,6 +21,7 @@ use std::{
 };
 use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
+mod import_policy;
 pub mod native;
 mod portable_artifacts;
 mod safety_copies;

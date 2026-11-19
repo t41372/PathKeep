@@ -412,8 +412,8 @@ pub fn install_staged(
     cancel.check()?;
     // The replacement's control is written and installed under one hold of the control's gate,
     // with this machine's settings as they are now: one changed while the import ran is kept.
-    let control = crate::ControlGate::acquire(paths);
-    keep_machine_settings(&mut config, &settings_here(paths)?);
+    let control =
+        super::import_policy::for_install(paths, current, stage, &mut config, key.as_ref())?;
     // Whoever built the stage, it replaces this archive: it keeps this archive's stamp unless its
     // own is newer and lowers neither floor.
     let stamp = crate::config::replacement_compatibility(paths, stage)?;

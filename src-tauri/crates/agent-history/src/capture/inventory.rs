@@ -5,8 +5,6 @@ use crate::{Error, Harness, Result, SourceRoot};
 use serde::{Serialize, Serializer};
 use std::{fs, io, path::Path};
 use vault_store::CancelToken;
-mod layout;
-use layout::{Entry, Layout};
 
 fn decimal<S: Serializer>(value: &u64, serializer: S) -> std::result::Result<S::Ok, S::Error> {
     serializer.collect_str(value)
@@ -88,12 +86,24 @@ pub fn root_status(path: &Path) -> Option<&'static str> {
     }
 }
 
+/// Streaming consumers may inspect the exact native filenames included in the
+/// byte estimate. The desktop only needs the progress callback and totals.
+pub trait InventoryObserver {
+    fn progress(&mut self, visited: u64);
+    fn candidate(&mut self, _file: &crate::Artifact) {}
+}
+impl<F: FnMut(u64)> InventoryObserver for F {
+    fn progress(&mut self, visited: u64) {
+        self(visited)
+    }
+}
+
 /// Enumerates only native history trees. Each open directory owns one iterator;
 /// the depth cap bounds memory and descriptors even in a malformed layout.
 pub fn inventory_root(
     source: &SourceRoot,
     cancel: &CancelToken,
-    progress: impl FnMut(u64),
+    progress: impl InventoryObserver,
 ) -> Result<RootInventory> {
     let pinned = super::directory_handle(&source.root).ok().map(std::sync::Arc::new);
     inventory_root_bound(source, pinned, cancel, progress)
@@ -105,7 +115,7 @@ pub fn inventory_root_bound(
     source: &SourceRoot,
     pinned: Option<std::sync::Arc<same_file::Handle>>,
     cancel: &CancelToken,
-    mut progress: impl FnMut(u64),
+    observer: impl InventoryObserver,
 ) -> Result<RootInventory> {
     if cancel.check().is_err() {
         return Err(Error::Cancelled);
@@ -132,85 +142,93 @@ pub fn inventory_root_bound(
     if reason.is_some() {
         return Ok(row);
     }
-    let tree = super::Discovery::new(cancel, pinned.map(|handle| (source.root.clone(), handle)));
-    let layout = Layout::for_source(source, &tree)?;
-    let entries = match tree.read_dir(&source.root) {
-        Ok(entries) => entries,
-        Err(_) => {
-            row.reason = Some("root-unreadable");
-            row.readable = false;
-            row.count_basis = "unavailable";
-            return Ok(row);
-        }
-    };
+    if !matches!(
+        source.harness,
+        Harness::ClaudeCode | Harness::Codex | Harness::Pi | Harness::Deepseek
+    ) {
+        return Err(Error::InvalidInput("unsupported desktop tool".into()));
+    }
     let delay = super::debug_delay::configured("PATHKEEP_TEST_AGENT_PREVIEW_ENTRY_DELAY_US");
-    let mut stack = vec![entries];
+    let observer = std::cell::RefCell::new(observer);
     let mut visited = 0;
-    while let Some(dir) = stack.last_mut() {
-        let Some(entry) = dir.next() else {
-            stack.pop();
-            continue;
-        };
+    let visit = std::cell::RefCell::new(|| {
         visited += 1;
-        progress(visited);
-        super::debug_delay::wait(delay, cancel)?;
-        if cancel.check().is_err() {
-            return Err(Error::Cancelled);
-        }
-        let Ok(entry) = entry else {
-            row.reason = Some("root-unreadable");
-            continue;
-        };
-        let Ok(ty) = entry.file_type() else {
-            row.reason = Some("root-unreadable");
-            continue;
-        };
-        if !(ty.is_dir() || ty.is_file()) {
-            continue;
-        }
-        let path = entry.path();
-        let relative = path.strip_prefix(&source.root).expect("child of selected root");
-        let Some(parts) =
-            relative.components().map(|c| c.as_os_str().to_str()).collect::<Option<Vec<_>>>()
-        else {
-            row.reason = Some("unsupported-format");
-            continue;
-        };
-        let Some(class) = layout.classify(&parts, ty.is_dir()) else { continue };
-        if ty.is_dir() {
-            row.counts.folders += 1;
-            if stack.len() >= 64 {
-                row.reason = Some("source-depth-limit");
-                continue;
-            }
-            match tree.read_dir(&path) {
-                Ok(child) => stack.push(child),
-                Err(_) => row.reason = Some("root-unreadable"),
-            }
-        } else {
-            let Ok(meta) = entry.metadata() else {
+        observer.borrow_mut().progress(visited);
+        super::debug_delay::wait(delay, cancel)
+    });
+    let tick = || visit.borrow_mut()();
+    let mut tree = super::Discovery::new(cancel, pinned.map(|h| (source.root.clone(), h)));
+    tree.progress = Some(&tick);
+    let mut issues = Vec::new();
+    crate::adapters::adapter(source.harness).discover_cancellable(
+        &tree,
+        source,
+        &mut |file| {
+            let Ok(meta) = tree.metadata(&file.path) else {
                 row.reason = Some("root-unreadable");
-                continue;
+                return Ok(());
             };
-            match class {
-                Entry::TopLevel => row.counts.top_level_files += 1,
-                Entry::Child => row.counts.child_files += 1,
-                Entry::Ambiguous => row.counts.ambiguous_files += 1,
-                Entry::Ancillary => row.counts.ancillary_files += 1,
-                Entry::Unknown => row.counts.unknown_files += 1,
+            if !meta.is_file() {
+                row.reason = Some("root-changed");
+                return Ok(());
             }
+            observer.borrow_mut().candidate(&file);
+            classify(&mut row.counts, source, &file);
             row.counts.files += 1;
             row.counts.source_bytes += meta.len();
-            if matches!(path.extension().and_then(|s| s.to_str()), Some("zst" | "zstd")) {
+            if matches!(file.path.extension().and_then(|s| s.to_str()), Some("zst" | "zstd")) {
                 row.counts.compressed_bytes += meta.len()
             }
-            if let Ok(modified) = meta.modified() {
-                let ms =
-                    chrono::DateTime::<chrono::Utc>::from(modified.into_std()).timestamp_millis();
+            if let Ok(time) = meta.modified() {
+                let ms = chrono::DateTime::<chrono::Utc>::from(time.into_std()).timestamp_millis();
                 row.earliest_at = Some(row.earliest_at.map_or(ms, |old| old.min(ms)));
                 row.latest_at = Some(row.latest_at.map_or(ms, |old| old.max(ms)));
             }
+            Ok(())
+        },
+        &mut issues,
+    )?;
+    (row.counts.folders, row.counts.unknown_files) = tree.inventory_counts();
+    for issue in issues {
+        if issue.code.contains("unreadable") || issue.code.contains("unavailable") {
+            row.reason = Some("root-unreadable")
+        } else if issue.code.contains("depth") {
+            row.reason = Some("source-depth-limit")
+        } else if issue.code.contains("utf8") {
+            row.reason = Some("unsupported-format")
         }
     }
     Ok(row)
+}
+
+fn classify(counts: &mut InventoryCounts, source: &SourceRoot, file: &crate::Artifact) {
+    if file.kind != crate::ArtifactKind::Transcript {
+        counts.ancillary_files += 1;
+        return;
+    }
+    if source.harness != Harness::ClaudeCode {
+        counts.ambiguous_files += 1;
+        return;
+    }
+    let path = file.relative_path.as_str();
+    let project_path = if source.root.ends_with("projects") {
+        Some(path)
+    } else {
+        path.strip_prefix("projects/")
+            .or_else(|| path.split_once("/.claude/projects/").map(|(_, tail)| tail))
+    };
+    match project_path {
+        Some(relative) if relative.split('/').nth(2) == Some("subagents") => {
+            counts.child_files += 1
+        }
+        Some(_)
+            if !file
+                .path
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with("agent-")) =>
+        {
+            counts.top_level_files += 1
+        }
+        _ => counts.ambiguous_files += 1,
+    }
 }

@@ -311,6 +311,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 backup_now_off_thread(
                     app,
                     payload.due_only,
+                    payload.kind_specific,
                     state.session.clone(),
                     state.events.clone()
                 )
@@ -1281,16 +1282,22 @@ fn join_failure<T>(command: &str, error: tokio::task::JoinError) -> Result<T, Co
 async fn backup_now_off_thread(
     app: Option<DevIpcAppHandle>,
     due_only: bool,
+    kind_specific: bool,
     session: crate::session::SessionState,
     events: super::events::Hub,
 ) -> Result<vault_core::BackupReport, CommandError> {
     tokio::task::spawn_blocking(move || match app {
-        Some(app) => {
-            desktop_integration::run_backup(&app, desktop_integration::BackupSource::App, due_only)
+        Some(app) => desktop_integration::run_backup(
+            &app,
+            desktop_integration::BackupSource::App,
+            due_only,
+            kind_specific,
+        ),
+        None => {
+            worker_bridge::run_backup_now_impl(due_only, kind_specific, &session, move |event| {
+                events.emit(desktop_integration::BACKUP_PROGRESS_EVENT, &event)
+            })
         }
-        None => worker_bridge::run_backup_now_impl(due_only, &session, move |event| {
-            events.emit(desktop_integration::BACKUP_PROGRESS_EVENT, &event)
-        }),
     })
     .await
     .unwrap_or_else(|error| join_failure("run_backup_now", error))

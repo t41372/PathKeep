@@ -3,7 +3,7 @@
   "schema": {
     "config.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "title": "AppConfig",
+      "title": "StoredSettings",
       "type": "object",
       "properties": {
         "capturePolicy": {
@@ -231,6 +231,12 @@
         "passwordKeptElsewhere": {
           "type": "boolean",
           "default": false
+        },
+        "captureInstallation": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "$defs": {

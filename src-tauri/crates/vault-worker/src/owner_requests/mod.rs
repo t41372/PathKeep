@@ -69,9 +69,10 @@ pub fn dispatch(
             } else {
                 let key = session_key.ok().flatten();
                 encode(
-                    archive_flows::run_backup_now_with_progress(
+                    archive_flows::run_browsing_backup(
                         &vault().map_err(failed)?,
                         key.as_deref(),
+                        false,
                         false,
                         |event| {
                             progress.send(

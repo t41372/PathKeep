@@ -26,7 +26,7 @@ export function useBackUpEverything() {
     void backup.run()
     if (!conversations) return
     void agentBackupClient
-      .start({ type: 'kind', kind: 'agent-history' }, crypto.randomUUID())
+      .start({ type: 'kind', kind: 'agent-history' }, crypto.randomUUID(), true)
       .catch((error) => {
         if (dataKindsErrorCode(error) === 'lock-required') return
         toast.error(t('agentBackup.started.failed'), {

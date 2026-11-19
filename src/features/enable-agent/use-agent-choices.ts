@@ -42,13 +42,18 @@ async function currentToken() {
   return fresh.policyToken
 }
 
-async function store(choice: Choice, tickable: readonly AgentToolId[]) {
+async function store(
+  choice: Choice,
+  tickable: readonly AgentToolId[],
+  previewId?: string,
+) {
   const toolChanges = Object.fromEntries(
     tickable.map((tool) => [tool, choice.ticked.has(tool)]),
   )
   const send = async (expectedToken: string) =>
     dataKindsClient.updateAgentSources({
       expectedToken,
+      previewId,
       readGit: choice.readGit,
       toolChanges,
     })
@@ -68,7 +73,10 @@ async function store(choice: Choice, tickable: readonly AgentToolId[]) {
   queryClient.setQueryData(queryKeys.agentSettings, saved)
 }
 
-export function useAgentChoices(tools: readonly ToolChoice[]) {
+export function useAgentChoices(
+  tools: readonly ToolChoice[],
+  previewId?: string,
+) {
   const settings = useAgentSettings()
   const [edit, setEdit] = useState<Choice | null>(null)
   const [saveError, setSaveError] = useState<unknown>(null)
@@ -102,7 +110,7 @@ export function useAgentChoices(tools: readonly ToolChoice[]) {
         let next: Choice | null = latest.current
         while (next) {
           latest.current = null
-          await store(next, tickable)
+          await store(next, tickable, previewId)
           next = latest.current
         }
         lastError.current = null

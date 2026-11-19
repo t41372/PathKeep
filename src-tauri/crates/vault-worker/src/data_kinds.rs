@@ -157,7 +157,8 @@ impl From<AppConfig> for Settings {
 fn change(
     kind: DataKind,
     expected: &str,
-    mutate: impl FnOnce(&mut CapturePolicy) -> Result<()>,
+    keep_ticket: Option<preview::ChoiceEdit<'_>>,
+    mutate: impl FnOnce(&mut CapturePolicy, &[String]) -> Result<()>,
     emit: impl FnOnce(PolicyChange),
 ) -> Result<Settings> {
     let paths = vault_core::project_paths()?;
@@ -167,7 +168,7 @@ fn change(
     if before != expected {
         return Err(Refusal::PolicyChanged.into());
     }
-    mutate(&mut config.capture_policy)?;
+    mutate(&mut config.capture_policy, &config.selected_profile_ids)?;
     config.capture_policy.validate().map_err(|_| Refusal::LastActive)?;
     let token = config.capture_policy.token();
     if token != before {
@@ -175,8 +176,8 @@ fn change(
             return Err(Refusal::NotInitialized.into());
         }
         vault_core::save_config(&gate, &config)?;
+        preview::policy_changed(&paths.app_root, &before, &token, keep_ticket);
         drop(gate);
-        preview::revoke(&paths.app_root);
         emit(PolicyChange { policy_token: token.clone(), changed_kinds: vec![kind] });
     }
     Ok(Settings::from(config))
@@ -188,7 +189,11 @@ pub fn set_state(
     req: SetState,
     emit: impl FnOnce(PolicyChange),
 ) -> Result<Transition> {
-    let vault = if req.kind == DataKind::AgentHistory {
+    let switching_to_agent_only = req.kind == DataKind::Browsing
+        && req.state != KindState::On
+        && admitted_config(&vault_core::project_paths()?)?.capture_policy.agent_history
+            == KindState::On;
+    let vault = if req.kind == DataKind::AgentHistory || switching_to_agent_only {
         let paths = vault_core::project_paths()?;
         let config = admitted_config(&paths)?;
         if config.initialized {
@@ -205,7 +210,9 @@ pub fn set_state(
         None
     };
     let _admission = session.conversations.enter();
-    let granted = if req.kind == DataKind::AgentHistory && req.state == KindState::On {
+    let granted = if switching_to_agent_only
+        || req.kind == DataKind::AgentHistory && req.state == KindState::On
+    {
         let policy = admitted_config(&vault_core::project_paths()?)?.capture_policy;
         vault.as_ref().map(|v| backups::has_grant(v, &policy)).transpose()?.unwrap_or(false)
     } else {
@@ -215,7 +222,9 @@ pub fn set_state(
     change(
         req.kind,
         &req.expected_policy_token,
-        |policy| {
+        None,
+        |policy, profiles| {
+            let previous = policy.state(req.kind);
             match req.kind {
                 DataKind::Browsing => policy.browsing = req.state,
                 DataKind::AgentHistory => {
@@ -232,6 +241,19 @@ pub fn set_state(
                     }
                     policy.explicitly_off = req.state == KindState::Off;
                     policy.agent_history = req.state;
+                }
+            }
+            if previous == KindState::On && req.state != KindState::On {
+                match req.kind {
+                    DataKind::Browsing if policy.agent_history == KindState::On && !granted => {
+                        return Err(Refusal::EmptySelection.into());
+                    }
+                    DataKind::AgentHistory
+                        if policy.browsing == KindState::On && profiles.is_empty() =>
+                    {
+                        return Err(Refusal::EmptySelection.into());
+                    }
+                    _ => {}
                 }
             }
             Ok(())
@@ -292,16 +314,38 @@ pub fn update_sources(
         return Err(Refusal::EnablePreview.into());
     }
     let selection = backups::edit_selection(vault.as_ref(), &config.capture_policy, &req)?;
+    let approved_tools = if config.capture_policy.agent_history == KindState::On
+        && config.capture_policy.browsing != KindState::On
+    {
+        if let Some((_, tools)) = &selection {
+            Some(tools.clone())
+        } else if let Some(v) = &vault {
+            Some(
+                backups::selection::device_roots(v, &config.capture_policy)?
+                    .into_iter()
+                    .map(|r| r.tool)
+                    .collect(),
+            )
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     let settings = change(
         DataKind::AgentHistory,
         &req.expected_token,
-        |policy| {
+        req.preview_id
+            .as_deref()
+            .filter(|_| req.selected_root_ids.is_none())
+            .map(|ticket| preview::ChoiceEdit { ticket, tools: &req.tool_changes }),
+        |policy, _| {
             if let Some((id, tools)) = &selection {
                 policy.selection_ref = Some(id.clone());
                 policy.enabled_tools.retain(|t| tools.contains(t));
             }
             let tools_edited = !req.tool_changes.is_empty();
-            for (tool, on) in req.tool_changes {
+            for (&tool, &on) in &req.tool_changes {
                 if on {
                     if policy.agent_history != KindState::Off
                         && policy.selection_ref.is_some()
@@ -317,6 +361,13 @@ pub fn update_sources(
             }
             if tools_edited {
                 policy.empty_tools_chosen = policy.enabled_tools.is_empty();
+            }
+            if (tools_edited || req.selected_root_ids.is_some())
+                && approved_tools
+                    .as_ref()
+                    .is_some_and(|tools| policy.enabled_tools.is_disjoint(tools))
+            {
+                return Err(Refusal::EmptySelection.into());
             }
             if let Some(read_git) = req.read_git {
                 policy.read_git = read_git

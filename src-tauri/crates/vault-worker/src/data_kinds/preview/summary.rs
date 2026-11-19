@@ -1,10 +1,7 @@
 //! Aggregate complete per-root metadata, estimate growth, and issue a ticket
 //! for the readable subset. The stream owns delivery and cancellation.
 use super::{Binding, CAPACITY, LIFETIME, Permit, REGISTRY, Refusal, Ticket, directory_handle};
-use agent_history::{
-    SourceRoot,
-    capture::{self, InventoryCounts},
-};
+use agent_history::capture::{self, InventoryCounts};
 use anyhow::Result;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -40,7 +37,7 @@ impl ToolInventory {
 
 pub(super) fn enumerate(
     permit: &Permit,
-    roots: Vec<SourceRoot>,
+    roots: Vec<super::sources::Candidate>,
     mode: ArchiveMode,
     mut emit: impl FnMut(&str, Value) -> Result<()>,
 ) -> Result<()> {
@@ -51,10 +48,16 @@ pub(super) fn enumerate(
     let mut elapsed = Instant::now();
     let mut visited = 0;
     emit("progress", json!({"phase":"discovery","unit":"entries","done":"0"}))?;
-    for root in roots {
+    for candidate in roots {
+        let root = candidate.source;
         permit.check()?;
         let mut stopped = None;
         let directory = directory_handle(&root.root).ok().map(Arc::new);
+        if let (Some(expected), Some(pin)) = (&candidate.directory, &directory)
+            && capture::directory_identity(pin)? != *expected
+        {
+            return Err(Refusal::RootChanged.into());
+        }
         let row = capture::inventory_root_bound(&root, directory.clone(), &permit.cancel, |_| {
             visited += 1u64;
             if elapsed.elapsed() >= Duration::from_millis(100) {
@@ -114,24 +117,7 @@ pub(super) fn enumerate(
     let estimated = totals.source_bytes.saturating_add(derived).saturating_add(overhead);
     let id = Uuid::new_v4().to_string();
     permit.check()?;
-    {
-        let mut registry = REGISTRY.lock().unwrap();
-        registry.prune();
-        if registry.tickets.len() >= CAPACITY
-            && let Some(oldest) = registry
-                .tickets
-                .iter()
-                .min_by_key(|(_, ticket)| *ticket.permit.deadline.lock().unwrap())
-                .map(|(key, _)| key.clone())
-        {
-            registry.tickets.remove(&oldest);
-        }
-        let ticket_permit = Permit {
-            deadline: Arc::new(std::sync::Mutex::new(Instant::now() + LIFETIME)),
-            ..permit.clone()
-        };
-        registry.tickets.insert(id.clone(), Ticket { permit: ticket_permit, roots: approved });
-    }
+    retain_ticket(id.clone(), permit, approved, LIFETIME);
     let ms = LIFETIME.as_millis() as i64;
     emit(
         "finished",
@@ -153,6 +139,26 @@ pub(super) fn enumerate(
             "expiresAt": chrono::Utc::now().timestamp_millis()+ms
         }),
     )
+}
+
+pub(super) fn retain_ticket(id: String, permit: &Permit, roots: Vec<Binding>, lifetime: Duration) {
+    let mut registry = REGISTRY.lock().unwrap();
+    registry.prune();
+    if registry.tickets.len() >= CAPACITY
+        && let Some(oldest) = registry
+            .tickets
+            .iter()
+            .min_by_key(|(_, ticket)| *ticket.permit.deadline.lock().unwrap())
+            .map(|(key, _)| key.clone())
+    {
+        registry.tickets.remove(&oldest);
+    }
+    let ticket_permit = Permit {
+        deadline: Arc::new(std::sync::Mutex::new(Instant::now() + lifetime)),
+        ..permit.clone()
+    };
+    registry.tickets.insert(id, Ticket { permit: ticket_permit, roots });
+    super::schedule_expiry(&mut registry);
 }
 
 /// Probe the directory that will contain the archive, including before its creation.
