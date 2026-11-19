@@ -192,6 +192,8 @@ pub fn verify_file_sha256(path: &std::path::Path, expected_sha256: &str) -> Resu
 pub trait ModelDownloadProgress: Send {
     /// Signal gate contention while the transfer still owns its progress stream.
     fn waiting(&self, _reason: crate::ModelDownloadWait) {}
+    /// Clear the snapshot's waiting reason as soon as work can proceed.
+    fn resumed(&self) {}
     /// Arbitrate cancellation against a final decision before touching the pointer.
     fn decide(&self) -> bool {
         !self.cancelled()
@@ -314,9 +316,7 @@ fn install_model(
     drop(source);
     let mut checked = previous.clone();
     loop {
-        let archive = crate::archive::ArchiveOpGate::acquire_reporting(paths, || {
-            progress.waiting(crate::ModelDownloadWait::ArchiveBusy)
-        });
+        let archive = acquire_download_gate(paths, progress);
         // Order publication against a concurrent control save. Only local metadata and
         // publication belong in this hold; a competing winner is hashed after releasing it.
         let control = crate::ControlGate::acquire(paths);
@@ -371,6 +371,17 @@ fn install_model(
         super::embedding_static::forget_replaced_model(&root, &candidate.path);
         return Ok(candidate.path.clone());
     }
+}
+
+pub(super) fn acquire_download_gate(
+    paths: &ProjectPaths,
+    progress: &dyn ModelDownloadProgress,
+) -> crate::archive::ArchiveOpGate {
+    let gate = crate::archive::ArchiveOpGate::acquire_reporting(paths, || {
+        progress.waiting(crate::ModelDownloadWait::ArchiveBusy)
+    });
+    progress.resumed();
+    gate
 }
 
 fn prepare_generation(

@@ -292,9 +292,9 @@ impl Request<'_> {
     fn gate(self, paths: &ProjectPaths) -> Option<ArchiveOpGate> {
         match self {
             Self::OnOpen => ArchiveOpGate::try_acquire(paths),
-            Self::Setup { progress, .. } => Some(ArchiveOpGate::acquire_reporting(paths, || {
-                progress.waiting(crate::ModelDownloadWait::ArchiveBusy)
-            })),
+            Self::Setup { progress, .. } => {
+                Some(super::model_files::acquire_download_gate(paths, progress))
+            }
         }
     }
 }

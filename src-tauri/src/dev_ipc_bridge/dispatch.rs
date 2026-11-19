@@ -677,6 +677,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session)?.as_deref()
             )?)
         }
+        "get_model_download_state" => json_value!(worker_bridge::get_model_download_state_impl()?),
         "download_static_embedding_model" => {
             json_value!(download_static_embedding_model_off_thread(state).await?)
         }

@@ -10,13 +10,16 @@
  *   that arrives after its attempt ended changes nothing.
  * - What the screens show (`useModelDownloadProgress`): one transfer, the one
  *   this window follows. A transfer another window started is followed from
- *   its events. Once a newer transfer is followed, the older one's late
- *   events, its `cancelled` included, no longer move the bar.
- * - Cancel, by the followed transfer's ID.
+ *   what the backend says runs when a screen opens (`get_model_download_state`)
+ *   and from its events. Once a newer transfer is followed, the older one's
+ *   late events, its `cancelled` included, no longer move the bar.
+ * - Cancel, by the followed transfer's ID, and "stopping" from an accepted
+ *   Cancel or an accepted save that no longer wants the model
+ *   (`settingsSaved`) until the transfer's end.
  *
  * Not responsible for:
- * - Whether the saved settings still want the model (the caller's
- *   `stillWanted`), or the index build after it (`semantic-setup.ts`).
+ * - Saving the settings (`saveConfig` reports each save here), or the index
+ *   build after the download (`semantic-setup.ts`).
  * - Copy or rendering.
  *
  * Module state on purpose: it is the only state that outlives a remount, and
@@ -26,7 +29,13 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { describeError } from '../errors'
 import { intelligenceClient } from '../backend-client/intelligence'
-import type { ModelDownloadProgressEvent, ModelDownloadWait } from '../types'
+import type {
+  AiSettings,
+  ModelDownloadProgressEvent,
+  ModelDownloadState,
+  ModelDownloadWait,
+} from '../types'
+import { BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID } from '../types'
 import { listenDesktopEvent } from './events'
 
 /** Tauri event channel for in-app model download progress. Must match the Rust literal. */
@@ -66,6 +75,9 @@ export type ModelDownloadFailure =
  * - `waiting`: started but held up (`waitingFor`); the bytes stay as they were.
  * - `ready`: the model is here, from the last `done` or from the snapshot.
  * - `failed`: it did not finish (`failure`); never a cancellation.
+ *
+ * `stopping`: while downloading or waiting, the user's stop was accepted and
+ * the transfer has not ended yet; there is nothing left to cancel.
  */
 export interface ModelDownloadProgress {
   phase: 'idle' | 'downloading' | 'waiting' | 'ready' | 'failed'
@@ -74,6 +86,7 @@ export interface ModelDownloadProgress {
   totalBytes: number
   currentFile: string | null
   failure: ModelDownloadFailure | null
+  stopping: boolean
 }
 
 interface Attempt {
@@ -98,6 +111,7 @@ const IDLE: ModelDownloadProgress = {
   totalBytes: 0,
   currentFile: null,
   failure: null,
+  stopping: false,
 }
 
 /** Attempts that have not ended, shown or not: a setup waits on its own transfer either way. */
@@ -149,7 +163,7 @@ function showEvent(event: ModelDownloadProgressEvent) {
       publish({
         phase: 'downloading',
         waitingFor: null,
-        currentFile: event.file.split('/').pop() ?? event.file,
+        currentFile: basename(event.file),
         failure: null,
         ...byteTotals(),
       })
@@ -175,8 +189,10 @@ function showEvent(event: ModelDownloadProgressEvent) {
   }
 }
 
+const basename = (file: string) => file.split('/').pop() ?? file
+
 function showOutcome(outcome: ModelDownloadOutcome) {
-  const settled = { waitingFor: null, currentFile: null }
+  const settled = { waitingFor: null, currentFile: null, stopping: false }
   switch (outcome.kind) {
     case 'done':
       publish({ ...settled, phase: 'ready', failure: null })
@@ -234,12 +250,17 @@ function armWatchdog(attempt: Attempt) {
   }, MODEL_DOWNLOAD_IDLE_TIMEOUT_MS)
 }
 
-function close(attempt: Attempt) {
+/**
+ * `remember`: the transfer's late events, and the backend's word that it still runs, change
+ * nothing from now on. Not remembered: one let go only because no screen listens any more.
+ */
+function close(attempt: Attempt, remember = true) {
   attempt.ended = true
   if (attempt.watchdog !== null) clearTimeout(attempt.watchdog)
   attempt.watchdog = null
   live.delete(attempt)
-  if (attempt.transferId !== null) leftBehind.add(attempt.transferId)
+  if (remember && attempt.transferId !== null)
+    leftBehind.add(attempt.transferId)
   attempt.release?.()
   attempt.release = null
 }
@@ -255,10 +276,14 @@ function end(attempt: Attempt, outcome: ModelDownloadOutcome) {
 /**
  * Stops following a transfer this window only saw in events, saying nothing about how it went.
  * `replaced`: a newer transfer is shown right after, so the bar is not emptied first.
+ * `unheard`: no screen listens any more; one that opens again asks what runs and shows it.
  */
-function stopFollowing(attempt: Attempt, replaced = false) {
+function stopFollowing(
+  attempt: Attempt,
+  { replaced = false, unheard = false } = {},
+) {
   if (attempt.ended) return
-  close(attempt)
+  close(attempt, !unheard)
   if (attempt === shown && !replaced) resetView('idle', null)
 }
 
@@ -268,7 +293,7 @@ function stopFollowing(attempt: Attempt, replaced = false) {
  */
 function leave(attempt: Attempt) {
   if (attempt.transferId !== null) leftBehind.add(attempt.transferId)
-  if (!attempt.settle) stopFollowing(attempt, true)
+  if (!attempt.settle) stopFollowing(attempt, { replaced: true })
 }
 
 /** An event of `attempt`'s own transfer. */
@@ -299,6 +324,8 @@ const isBeginning = (event: ModelDownloadProgressEvent) =>
   event.kind === 'waiting' || event.kind === 'fileStarted'
 
 function receive(event: ModelDownloadProgressEvent) {
+  if (endedDuringLookup && isTerminal(event))
+    endedDuringLookup.add(event.transferId)
   let owned = false
   for (const attempt of [...live]) {
     if (attempt.transferId === null) {
@@ -378,8 +405,10 @@ async function openChannel(): Promise<() => void> {
     if (current.users > 0) return
     if (channel === current) channel = null
     void current.ready.then((stop) => stop())
-    // Nobody hears how the transfers seen in events end any more: stop showing them.
-    for (const attempt of [...live]) if (!attempt.settle) stopFollowing(attempt)
+    // Nobody hears how the transfers seen in events end any more: stop showing them. A screen
+    // that opens again asks the backend what runs.
+    for (const attempt of [...live])
+      if (!attempt.settle) stopFollowing(attempt, { unheard: true })
   }
 }
 
@@ -405,7 +434,8 @@ export function downloadModel(
   const attempt = newAttempt(null, settle, answered)
   shown = attempt
   // A start while a download runs joins it: keep its bar until the answer says which it is.
-  if (!previous) resetView('downloading', null)
+  // One that is stopping cannot be joined: the start gets a transfer of its own.
+  if (!previous || view.stopping) resetView('downloading', null)
   void begin(attempt, answer, stillWanted)
   return outcome
 }
@@ -451,7 +481,100 @@ export async function cancelModelDownload(): Promise<boolean> {
   if (!attempt || attempt.ended) return false
   const transferId = attempt.transferId ?? (await attempt.answered)
   if (transferId === null) return false
-  return intelligenceClient.cancelStaticEmbeddingModelDownload(transferId)
+  const accepted =
+    await intelligenceClient.cancelStaticEmbeddingModelDownload(transferId)
+  if (accepted) showStopping(attempt)
+  return accepted
+}
+
+/** Whether these settings want the built-in model: AI and semantic search on, and it chosen. */
+export function wantsBuiltInModel(
+  ai: Pick<
+    AiSettings,
+    'enabled' | 'semanticIndexEnabled' | 'embeddingProviderId'
+  >,
+) {
+  return (
+    ai.enabled &&
+    ai.semanticIndexEnabled &&
+    (ai.embeddingProviderId ?? BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID) ===
+      BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID
+  )
+}
+
+/**
+ * A settings save went through. One that no longer wants the built-in model makes the backend
+ * stop its download, so the screens say it is stopping until the transfer ends.
+ */
+export function settingsSaved(
+  ai: Pick<
+    AiSettings,
+    'enabled' | 'semanticIndexEnabled' | 'embeddingProviderId'
+  >,
+) {
+  if (!wantsBuiltInModel(ai) && shown) showStopping(shown)
+}
+
+function showStopping(attempt: Attempt) {
+  if (attempt === shown && !attempt.ended) publish({ stopping: true })
+}
+
+// ─── What runs when a screen opens ────────────────────────────────────────────
+
+/** Transfers that ended while the backend was asked what runs; a late answer cannot revive them. */
+let endedDuringLookup: Set<string> | null = null
+let lookup: Promise<void> | null = null
+
+/**
+ * Asks the backend which transfer runs, so a screen opened mid-download shows it at once instead
+ * of waiting for its next event (none comes while it waits on a slow response). Called with the
+ * channel open: events heard meanwhile are newer or equal, and a terminal one wins.
+ */
+function lookUpRunningTransfer() {
+  if (lookup) return
+  const ended = new Set<string>()
+  endedDuringLookup = ended
+  lookup = intelligenceClient
+    .getModelDownloadState()
+    .then((state) => {
+      if (state) seed(state, ended)
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      endedDuringLookup = null
+      lookup = null
+    })
+}
+
+function seed(state: ModelDownloadState, ended: Set<string>) {
+  const id = state.transferId
+  if (ended.has(id) || leftBehind.has(id)) return
+  const following = shown && !shown.ended ? shown : null
+  // A start this window sent, or another transfer heard meanwhile, decides what it shows.
+  if (following && following.transferId !== id) return
+  if (!following) {
+    shown = newAttempt(id, null, Promise.resolve(id))
+    resetView('downloading', id)
+  }
+  // Within a transfer bytes only grow: keep whichever count is further along.
+  for (const [file, bytes] of Object.entries(state.files)) {
+    const known = files.get(file)
+    files.set(file, {
+      done: Math.max(known?.done ?? 0, bytes.downloadedBytes),
+      total: Math.max(known?.total ?? 0, bytes.totalBytes),
+    })
+  }
+  publish({
+    ...byteTotals(),
+    // Events heard meanwhile are as new as the answer, or newer.
+    ...(following
+      ? {}
+      : {
+          phase: state.phase,
+          waitingFor: state.phase === 'waiting' ? state.reason : null,
+          currentFile: state.currentFile && basename(state.currentFile),
+        }),
+  })
 }
 
 // ─── useModelDownloadProgress ─────────────────────────────────────────────────
@@ -466,9 +589,10 @@ function watch(viewer: () => void) {
 const read = () => view
 
 /**
- * The download as the screens show it. Listens while mounted, so a transfer another window
- * started shows here from its next event. `modelDownloaded` is the snapshot's word that the
- * model is here: the phase is then `ready` whatever the events said.
+ * The download as the screens show it. Listens while mounted; a transfer another window started
+ * shows at once (the backend is asked when nothing is followed) and then follows its events.
+ * `modelDownloaded` is the snapshot's word that the model is here: the phase is then `ready`
+ * whatever the events said.
  */
 export function useModelDownloadProgress(
   modelDownloaded: boolean,
@@ -477,8 +601,9 @@ export function useModelDownloadProgress(
     let mounted = true
     let release: (() => void) | null = null
     void openChannel().then((close) => {
-      if (mounted) release = close
-      else close()
+      if (!mounted) return close()
+      release = close
+      if (!shown || shown.ended) lookUpRunningTransfer()
     })
     return () => {
       mounted = false

@@ -128,6 +128,24 @@ Each event below is a separate payload on the same channel.
 
 `waiting` is emitted immediately on contention and every 20 seconds while that wait continues. `archive-busy` means another archive operation holds the gate. `previous-transfer` means an earlier transfer still owns its response or files. Both are signs of life for the matching ID. Before start admission there is no transfer ID to report. `totalBytes` is zero for unknown content length. Only `error` carries a diagnostic to display.
 
+`get_model_download_state` takes `{}` and reads the owner process's registry for the current archive's built-in model. It returns `null` when no transfer is registered. For a running transfer, the native command and dev bridge return the same snapshot:
+
+```json
+{
+  "transferId": "0123456789abcdef0123456789abcdef",
+  "phase": "downloading",
+  "currentFile": "model.safetensors",
+  "downloadedBytes": 1048618,
+  "totalBytes": 1049730,
+  "files": {
+    "config.json": { "downloadedBytes": 42, "totalBytes": 42 },
+    "model.safetensors": { "downloadedBytes": 1048576, "totalBytes": 1049688 }
+  }
+}
+```
+
+The `downloading` phase includes file verification. During a wait, `phase` is `"waiting"` and `reason` is `"archive-busy"` or `"previous-transfer"`. Counts retain the last reported values. `currentFile` is `null` between files. Totals sum the files announced so far, and an unknown file length contributes zero to `totalBytes`. A replacement has its own ID and starts at zero. Terminal outcomes arrive on the event channel. On mount, subscribe before reading state. Seed the file map from the snapshot and keep events received during the lookup so a late reply cannot revive a transfer that already ended.
+
 After a matching `done`, built-in setup submits this `build_ai_index` command payload:
 
 ```json
@@ -146,7 +164,7 @@ The response is the usual `AiIndexReport` with `jobId`. Both transports share th
 
 ### Settings save durability
 
-`save_config` returns the applied snapshot. On Unix, if the rename installed the settings but the parent directory flush failed, the response also contains `configDurabilityWarning` (a diagnostic string). Use the returned settings, including the effect on download consent, and show the durability warning separately. A normal save omits the field. A failure before the rename rejects the command.
+`save_config` returns the applied snapshot. On Unix, if the rename installed the settings but the parent directory flush failed, the response also contains `configDurabilityWarning` (a diagnostic string). Use the returned settings, including the effect on download consent, and show the durability warning separately. A normal save omits the field. A failure before the rename rejects the command. In a debug desktop, `const clear = injectFault('config-save-parent-sync')` exercises the warning after the live config rename, at the parent-directory sync. Call `clear()` after the save; the marker applies to every live config save while present. Release builds compile out this checkpoint.
 
 ## Browser Preview Showcase Dataset（2026-05-10）
 

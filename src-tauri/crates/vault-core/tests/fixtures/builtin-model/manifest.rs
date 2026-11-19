@@ -2,12 +2,12 @@
 pub(super) const V1: &[ModelFile] = &[
     ModelFile {
         name: "config.json",
-        sha256: "6fd9706819056f2b6126589399f3c5940a5706824f4bd125f73de55340778600",
+        sha256: "9e3a4e619140e6943303f5fccdd93943de4efba7092807bcb7741f96f7ea1c7b",
         repo: DEFAULT_STATIC_MODEL_REPO,
     },
     ModelFile {
         name: "tokenizer.json",
-        sha256: "cf9c5e1afe0640d92851765a1739e79fc544f14aacd8d4d34299206802d85c1f",
+        sha256: "e87722c865f4dd17519c09470edda629aec4032b50af34287ab087863c5d011d",
         repo: DEFAULT_STATIC_MODEL_REPO,
     },
     ModelFile {
@@ -19,12 +19,12 @@ pub(super) const V1: &[ModelFile] = &[
 pub(super) const V2: &[ModelFile] = &[
     ModelFile {
         name: "config.json",
-        sha256: "6fd9706819056f2b6126589399f3c5940a5706824f4bd125f73de55340778600",
+        sha256: "9e3a4e619140e6943303f5fccdd93943de4efba7092807bcb7741f96f7ea1c7b",
         repo: DEFAULT_STATIC_MODEL_REPO,
     },
     ModelFile {
         name: "tokenizer.json",
-        sha256: "cf9c5e1afe0640d92851765a1739e79fc544f14aacd8d4d34299206802d85c1f",
+        sha256: "e87722c865f4dd17519c09470edda629aec4032b50af34287ab087863c5d011d",
         repo: DEFAULT_STATIC_MODEL_REPO,
     },
     ModelFile {

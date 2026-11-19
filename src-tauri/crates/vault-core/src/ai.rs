@@ -29,6 +29,7 @@ mod llm;
 pub(crate) mod model_download;
 pub use model_download::{
     cancel_archive_model_downloads, cancel_model_download, download_static_embedding_model,
+    get_model_download_state,
 };
 mod model_files;
 mod model_source;

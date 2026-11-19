@@ -15,10 +15,13 @@ export function useConfigDurabilityNotice() {
   useEffect(
     () =>
       onConfigNotDurable((detail) => {
-        // One toast however many saves in a row: each replaces the last.
+        // One toast however many saves in a row: each replaces the last. It
+        // stays until closed, like the other warnings a person must not miss.
         toast.warning(t('settings.notDurable.title'), {
           id: 'config-not-durable',
           description: t('settings.notDurable.body', { detail }),
+          duration: Infinity,
+          closeButton: true,
         })
       }),
     [t],

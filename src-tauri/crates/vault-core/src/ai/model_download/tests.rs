@@ -245,6 +245,12 @@ fn during_candidate<T>(paths: &ProjectPaths, operation: impl FnOnce() -> T, canc
         }
         assert!(matches!(event.update, ModelDownloadUpdate::FileStarted { .. }));
     }
+    let snapshot = state_for(paths, DEFAULT_STATIC_MODEL_REPO).unwrap();
+    assert_eq!(snapshot.transfer_id, transfer.transfer_id);
+    assert_eq!(snapshot.phase, crate::ModelDownloadPhase::Downloading);
+    assert_eq!(snapshot.current_file.as_deref(), Some(DOWNLOAD_FILES[0].name));
+    assert!(snapshot.downloaded_bytes > 0);
+    assert_eq!(snapshot.files[DOWNLOAD_FILES[0].name].downloaded_bytes, snapshot.downloaded_bytes);
     let repo = model_dir_for_repo(paths, DEFAULT_STATIC_MODEL_REPO);
     let candidate = std::fs::read_dir(&repo).unwrap().next().unwrap().unwrap().path();
     assert!(candidate.join(DOWNLOAD_FILES[0].name).metadata().unwrap().len() > 0);
@@ -424,6 +430,13 @@ fn replacement_waits_for_cancelled_candidate_and_response() {
     .unwrap();
     let first_event =
         serde_json::to_value(rx.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+    let queued = state_for(&paths, "serial").unwrap();
+    assert_eq!(queued.transfer_id, second.transfer_id);
+    assert_eq!(
+        queued.phase,
+        crate::ModelDownloadPhase::Waiting { reason: crate::ModelDownloadWait::PreviousTransfer }
+    );
+    assert!(queued.files.is_empty(), "replacement inherited its predecessor's counts");
     release.send(()).unwrap();
     assert_eq!(old.into_iter().last().unwrap().update, ModelDownloadUpdate::Cancelled);
     assert_eq!(rx.into_iter().last().unwrap().update, ModelDownloadUpdate::Done);
@@ -468,4 +481,27 @@ fn a_failed_directory_sync_applies_the_visible_config_and_cancels() {
         },
         true,
     );
+}
+
+#[test]
+fn model_download_state_preserves_per_file_counts_across_waits() {
+    let transfer = Arc::new(Transfer::new(ModelDownloadTransfer { transfer_id: "fixture".into() }));
+    let mut progress = EmitProgress { emit: |_| {}, transfer: transfer.clone() };
+    progress.file_started("config", 3);
+    progress.file_progress("config", 3, 3);
+    progress.file_finished("config");
+    progress.file_started("weights", 0);
+    progress.file_progress("weights", 11, 0);
+    progress.waiting(crate::ModelDownloadWait::ArchiveBusy);
+    let read = || serde_json::to_value(transfer.progress().snapshot("fixture")).unwrap();
+    let mut expected = json!({
+        "transferId":"fixture", "phase":"waiting","reason":"archive-busy", "currentFile":"weights",
+        "downloadedBytes":14, "totalBytes":3,
+        "files":{"config":{"downloadedBytes":3,"totalBytes":3},"weights":{"downloadedBytes":11,"totalBytes":0}}
+    });
+    assert_eq!(read(), expected);
+    progress.resumed();
+    expected["phase"] = json!("downloading");
+    expected.as_object_mut().unwrap().remove("reason");
+    assert_eq!(read(), expected);
 }

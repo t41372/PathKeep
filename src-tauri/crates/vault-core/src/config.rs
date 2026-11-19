@@ -447,19 +447,18 @@ pub fn save_config_with_durability_warning(
     };
     create_layout(paths)?;
     let content = encode_config(config, compatibility.as_ref())?;
-    let warning =
-        match crate::durable_io::atomic_durable_write(&paths.config_path, content.as_bytes()) {
-            Ok(()) => None,
-            Err(error) if error.is::<crate::durable_io::PublishedButUnsynced>() => {
-                let warning = format!("{}: {error:#}", paths.config_path.display());
-                eprintln!("pathkeep: {warning}");
-                Some(warning)
-            }
-            Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("writing {}", paths.config_path.display()));
-            }
-        };
+    let warning = match crate::durable_io::write_live_config(&paths.config_path, content.as_bytes())
+    {
+        Ok(()) => None,
+        Err(error) if error.is::<crate::durable_io::PublishedButUnsynced>() => {
+            let warning = format!("{}: {error:#}", paths.config_path.display());
+            eprintln!("pathkeep: {warning}");
+            Some(warning)
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("writing {}", paths.config_path.display()));
+        }
+    };
     if !config.ai.wants_builtin_model() {
         crate::ai::cancel_archive_model_downloads(paths);
     }
@@ -512,6 +511,22 @@ pub(crate) fn save_copy_config(live: &ProjectPaths, copy: &Path, config: &AppCon
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn config_parent_sync_checkpoint_only_warns_for_the_installed_live_control() {
+        let dir = tempdir().unwrap();
+        let paths = project_paths_with_root(dir.path());
+        let config = AppConfig { menu_bar_icon: true, ..Default::default() };
+        let _fault = crate::fault_inject::FaultGuard::error_at("config-save-parent-sync");
+        let stage = project_paths_with_root(&dir.path().join("copy"));
+        write_staged_control(&stage, &config, None).expect("stage sync succeeds");
+        let gate = ControlGate::acquire(&paths);
+        let warning = save_config_with_durability_warning(&gate, &config).unwrap().unwrap();
+        assert!(warning.contains("config-save-parent-sync"));
+        assert!(load_config(&paths).unwrap().menu_bar_icon);
+        assert!(save_config_with_durability_warning(&gate, &config).unwrap().is_none());
+    }
 
     #[test]
     fn load_config_returns_defaults_when_missing_and_errors_on_invalid_json() {

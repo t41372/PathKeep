@@ -308,6 +308,62 @@ fn model_download_attach_routes_one_terminal_to_the_window_and_bridge() {
 }
 
 #[test]
+fn get_model_download_state_finds_another_windows_transfer_while_the_archive_is_busy() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path()) };
+    let paths = vault_core::project_paths_with_root(root.path());
+    let make_window =
+        || DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    let first = make_window();
+    ready_block_on(async {
+        let get = "get_model_download_state";
+        assert_eq!(dispatch_command(&first, get, json!({})).await.unwrap(), Value::Null);
+        assert!(!paths.models_dir.exists(), "a state read must not create a model directory");
+        let mut config = test_config();
+        config.ai.enabled = true;
+        config.ai.semantic_index_enabled = true;
+        vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
+        // Avoid network access even if a regression allows the download to proceed.
+        let repo = vault_core::model_dir_for_repo(&paths, vault_core::DEFAULT_STATIC_MODEL_REPO);
+        std::fs::create_dir_all(repo.join("current")).unwrap();
+
+        let mut events = model_download_events(&first).await;
+        let gate = vault_core::archive::ArchiveOpGate::acquire(&paths);
+        let start =
+            dispatch_command(&first, "download_static_embedding_model", json!({})).await.unwrap();
+        let id = start["transferId"].as_str().unwrap();
+        assert_eq!(
+            next_model_download_event(&mut events).await,
+            json!({"kind":"waiting","reason":"archive-busy","transferId":id})
+        );
+        let late = make_window();
+        let snapshot = dispatch_command(&late, get, json!({})).await.unwrap();
+        assert_eq!(
+            snapshot,
+            serde_json::to_value(crate::worker_bridge::get_model_download_state_impl().unwrap())
+                .unwrap()
+        );
+        assert_eq!(
+            snapshot,
+            json!({
+                "transferId":id, "phase":"waiting","reason":"archive-busy", "currentFile":null,
+                "downloadedBytes":0, "totalBytes":0, "files":{}
+            })
+        );
+        assert_eq!(
+            dispatch_command(&late, "cancel_ai_embedding_model_download", start.clone())
+                .await
+                .unwrap(),
+            true
+        );
+        drop(gate);
+        assert_eq!(next_model_download_terminal(&mut events, id).await["kind"], "cancelled");
+        assert_eq!(dispatch_command(&late, get, json!({})).await.unwrap(), Value::Null);
+    });
+}
+
+#[test]
 fn model_download_failure_reaches_the_window_and_bridge_with_its_diagnostic() {
     check_model_download_terminal(false);
 }
@@ -391,16 +447,40 @@ fn check_model_download_terminal(request_cancel: bool) {
 
 #[test]
 fn saving_semantic_off_through_the_bridge_cancels_the_model_download_without_a_cancel_command() {
-    check_off_save(false);
+    check_off_save(SaveFault::None);
 }
 
 #[cfg(unix)]
 #[test]
 fn model_download_save_returns_the_applied_snapshot_and_directory_warning() {
-    check_off_save(true);
+    check_off_save(SaveFault::ParentSync);
 }
 
-fn check_off_save(fail_parent_sync: bool) {
+#[cfg(debug_assertions)]
+#[test]
+fn model_download_off_save_warns_through_the_debug_fault_file() {
+    // injectFault affects a whole process. Isolate the marker from other test threads.
+    const CHILD: &str = "PATHKEEP_CONFIG_SYNC_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let faults = tempdir().unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact","dev_ipc_bridge::dispatch::tests::model_download_off_save_warns_through_the_debug_fault_file"])
+            .env("PATHKEEP_TEST_FAULTS_DIR",faults.path()).env(CHILD,"1").status().unwrap();
+        assert!(status.success());
+        return;
+    }
+    check_off_save(SaveFault::FaultFile);
+}
+
+enum SaveFault {
+    None,
+    #[cfg(unix)]
+    ParentSync,
+    #[cfg(debug_assertions)]
+    FaultFile,
+}
+
+fn check_off_save(fault: SaveFault) {
     let _guard = lock_env();
     let root = tempdir().unwrap();
     unsafe {
@@ -435,10 +515,21 @@ fn check_off_save(fail_parent_sync: bool) {
         let id = start["transferId"].as_str().unwrap();
         let base = config.clone();
         config.ai.semantic_index_enabled = false;
-        #[cfg(unix)]
-        if fail_parent_sync {
-            vault_core::durable_io::fail_next_atomic_parent_sync();
-        }
+        let marker: Option<std::path::PathBuf> = match fault {
+            SaveFault::None => None,
+            #[cfg(unix)]
+            SaveFault::ParentSync => {
+                vault_core::durable_io::fail_next_atomic_parent_sync();
+                None
+            }
+            #[cfg(debug_assertions)]
+            SaveFault::FaultFile => {
+                let dir = std::env::var_os("PATHKEEP_TEST_FAULTS_DIR").unwrap();
+                let path = std::path::PathBuf::from(dir).join("config-save-parent-sync");
+                std::fs::write(&path, []).unwrap();
+                Some(path)
+            }
+        };
         let saved =
             dispatch_command(&state, "save_config", json!({"config":config,"baseConfig":base}))
                 .await
@@ -449,8 +540,14 @@ fn check_off_save(fail_parent_sync: bool) {
                 .get("configDurabilityWarning")
                 .and_then(Value::as_str)
                 .is_some_and(|warning| warning.contains("syncing")),
-            fail_parent_sync
+            !matches!(fault, SaveFault::None)
         );
+        if let Some(marker) = marker {
+            std::fs::remove_file(marker).unwrap();
+            let again =
+                dispatch_command(&state, "save_config", json!({"config":config})).await.unwrap();
+            assert!(again.get("configDurabilityWarning").is_none());
+        }
         assert!(
             dispatch_command(&state, "download_static_embedding_model", json!({})).await.is_err()
         );

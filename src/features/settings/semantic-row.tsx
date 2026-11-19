@@ -193,15 +193,18 @@ function SemanticStatus({ index }: { index: SemanticIndex }) {
 
   if (download.phase === 'downloading' || download.phase === 'waiting') {
     // Waiting keeps the bar where it was. Before any size is known it is indeterminate.
+    // Stopping: the stop was accepted, so there is nothing left to cancel until it ends.
     const known = download.totalBytes > 0
     return (
       <ProgressLine
         label={
-          download.phase === 'downloading'
-            ? t('settingsAi.semantic.downloading')
-            : download.waitingFor === 'previous-transfer'
-              ? t('settingsAi.semantic.waitingPrevious')
-              : t('settingsAi.semantic.waitingArchive')
+          download.stopping
+            ? t('settingsAi.semantic.stopping')
+            : download.phase === 'downloading'
+              ? t('settingsAi.semantic.downloading')
+              : download.waitingFor === 'previous-transfer'
+                ? t('settingsAi.semantic.waitingPrevious')
+                : t('settingsAi.semantic.waitingArchive')
         }
         detail={
           known
@@ -218,6 +221,7 @@ function SemanticStatus({ index }: { index: SemanticIndex }) {
           <Button
             size="xs"
             variant="ghost"
+            disabled={download.stopping}
             onClick={() => void index.cancelDownload()}
           >
             {t('settingsAi.semantic.cancel')}

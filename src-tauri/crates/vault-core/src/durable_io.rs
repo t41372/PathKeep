@@ -201,6 +201,20 @@ pub fn atomic_durable_write(path: &Path, contents: &[u8]) -> Result<()> {
     })
 }
 
+/// The live config save distinguishes a failed write from an installed config whose
+/// directory flush failed. Inject its E2E fault at that exact boundary.
+pub(crate) fn write_live_config(path: &Path, contents: &[u8]) -> Result<()> {
+    atomic_write_with_sync(
+        path,
+        |writer| writer.write_all(contents).context("write temp contents"),
+        |path| {
+            #[cfg(debug_assertions)]
+            crate::fault_inject::checkpoint("config-save-parent-sync")?;
+            fsync_parent_dir(path)
+        },
+    )
+}
+
 /// Atomically + durably writes a file whose contents `write` produces piece by piece.
 ///
 /// For files too large to build in memory first (a 14.4M-visit history export is gigabytes).
@@ -209,6 +223,14 @@ pub fn atomic_durable_write(path: &Path, contents: &[u8]) -> Result<()> {
 pub fn atomic_durable_write_with(
     path: &Path,
     write: impl FnOnce(&mut dyn Write) -> Result<()>,
+) -> Result<()> {
+    atomic_write_with_sync(path, write, fsync_parent_dir)
+}
+
+fn atomic_write_with_sync(
+    path: &Path,
+    write: impl FnOnce(&mut dyn Write) -> Result<()>,
+    sync_parent: impl FnOnce(&Path) -> Result<()>,
 ) -> Result<()> {
     let parent =
         path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
@@ -224,7 +246,7 @@ pub fn atomic_durable_write_with(
     full_fsync(tmp.as_file())?;
     // persist() = rename onto the destination (atomic on the same filesystem).
     vault_fs::persist(tmp, path).with_context(|| format!("rename temp onto {}", path.display()))?;
-    fsync_parent_dir(path).map_err(|error| PublishedButUnsynced(error).into())
+    sync_parent(path).map_err(|error| PublishedButUnsynced(error).into())
 }
 
 /// Durably installs an already-built file (`built`) as `dest`.

@@ -232,6 +232,13 @@ where
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Both transports read the same transfer registry without opening a vault.
+pub(crate) fn get_model_download_state_impl()
+-> Result<Option<vault_core::ModelDownloadState>, CommandError> {
+    worker_result(vault_worker::get_model_download_state())
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Returns whether the named transfer accepted its first cancellation request.
 pub(crate) fn cancel_model_download_impl(transfer_id: &str) -> bool {
     vault_worker::cancel_model_download(transfer_id)

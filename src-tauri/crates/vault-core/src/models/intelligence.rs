@@ -1382,6 +1382,38 @@ impl ModelDownloadTransfer {
     }
 }
 
+/// Latest counts for a file whose download started; a zero total means unknown.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelDownloadFileBytes {
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "phase", rename_all = "camelCase")]
+/// Distinguishes active setup work (including verification) from a wait on another task.
+pub enum ModelDownloadPhase {
+    #[default]
+    Downloading,
+    Waiting {
+        reason: ModelDownloadWait,
+    },
+}
+
+/// A window can seed its progress bar and per-file accounting before following new events.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelDownloadState {
+    pub transfer_id: String,
+    #[serde(flatten)]
+    pub phase: ModelDownloadPhase,
+    pub current_file: Option<String>,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    pub files: std::collections::BTreeMap<String, ModelDownloadFileBytes>,
+}
+
 /// One broadcast for a particular model transfer. Every phase, including completion, carries the ID.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

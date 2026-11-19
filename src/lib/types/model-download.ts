@@ -1,8 +1,9 @@
 /**
  * The built-in embedding model's download as the backend reports it, and the
  * index build its setup asks for afterwards. Mirrors the Rust
- * `ModelDownloadProgressEvent`, `ModelDownloadWait`, `ModelDownloadTransfer`
- * and `BuildAiIndexRequest`; `docs/architecture/desktop-command-surface.md`
+ * `ModelDownloadProgressEvent`, `ModelDownloadWait`, `ModelDownloadTransfer`,
+ * `ModelDownloadState` and `BuildAiIndexRequest`;
+ * `docs/architecture/desktop-command-surface.md`
  * describes the protocol.
  */
 import type { AiIndexRequest } from './intelligence'
@@ -53,6 +54,25 @@ export type ModelDownloadWait = 'archive-busy' | 'previous-transfer'
 export interface ModelDownloadTransfer {
   transferId: string
 }
+
+/** One file's latest counts in a running transfer; a zero total means not known. */
+export interface ModelDownloadFileBytes {
+  downloadedBytes: number
+  totalBytes: number
+}
+
+/**
+ * The running transfer as the backend last heard of it (`get_model_download_state`), so a window
+ * opened mid-download shows it at once. Counts sum the files announced so far; `currentFile` is
+ * null between files; `downloading` includes verifying. Its end arrives on the event channel.
+ */
+export type ModelDownloadState = {
+  transferId: string
+  currentFile: string | null
+  downloadedBytes: number
+  totalBytes: number
+  files: Record<string, ModelDownloadFileBytes>
+} & ({ phase: 'downloading' } | { phase: 'waiting'; reason: ModelDownloadWait })
 
 /** What `build_ai_index` takes: an index request, and after the built-in model's download its transfer. */
 export interface BuildAiIndexRequest extends AiIndexRequest {

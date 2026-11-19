@@ -85,6 +85,13 @@ pub(crate) async fn download_static_embedding_model(
 
 #[cfg(not(test))]
 #[tauri::command]
+pub(crate) async fn get_model_download_state()
+-> Result<Option<vault_core::ModelDownloadState>, CommandError> {
+    worker_bridge::get_model_download_state_impl()
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Requests cancellation of one transfer. A stale or already-cancelled ID returns false.
 pub(crate) async fn cancel_ai_embedding_model_download(
     transfer_id: String,

@@ -10,6 +10,7 @@ import {
 } from '@tanstack/react-query'
 import { appClient } from '@/lib/backend-client/app'
 import { dashboardClient } from '@/lib/backend-client/dashboard'
+import { settingsSaved } from '@/lib/ipc/model-download'
 import { queryKeys } from '@/lib/query'
 import type { AppConfig, AppSnapshot } from '@/lib/types'
 
@@ -34,12 +35,14 @@ export function useDashboard() {
 }
 
 /**
- * Saves the settings: every save goes through here, so a warning the backend
- * gives with the answer is shown once, wherever the save came from. The
- * backend can answer that the new settings are in effect but the disk did not
- * confirm they will survive a power loss (`configDurabilityWarning`); the
- * save still succeeded, so it resolves, and `onConfigNotDurable` listeners
- * hear the diagnostic. The snapshot it resolves with leaves the warning out.
+ * Saves the settings: every save goes through here, so what the backend does
+ * on any save is shown once, wherever the save came from.
+ * - It can answer that the new settings are in effect but the disk did not
+ *   confirm they will survive a power loss (`configDurabilityWarning`); the
+ *   save still succeeded, so it resolves, and `onConfigNotDurable` listeners
+ *   hear the diagnostic. The snapshot it resolves with leaves the warning out.
+ * - Settings that no longer want the built-in model stop its download; the
+ *   screens say it is stopping (`settingsSaved`).
  */
 export async function saveConfig(
   config: AppConfig,
@@ -49,6 +52,7 @@ export async function saveConfig(
     config,
     baseConfig,
   )
+  settingsSaved(applied.config.ai)
   if (configDurabilityWarning)
     for (const listener of notDurable) listener(configDurabilityWarning)
   return applied

@@ -3,6 +3,7 @@
 //! Not responsible for model verification, archive admission or IPC transport.
 
 pub(crate) mod builds;
+mod state;
 
 use crate::{
     DEFAULT_STATIC_MODEL_REPO, ModelDownloadProgress, ModelDownloadProgressEvent,
@@ -28,11 +29,20 @@ struct Transfer {
     identity: ModelDownloadTransfer,
     phase: Mutex<Phase>,
     released: Condvar,
+    progress: Mutex<state::Progress>,
 }
 
 impl Transfer {
     fn new(identity: ModelDownloadTransfer) -> Self {
-        Self { identity, phase: Mutex::new(Phase::Running), released: Condvar::new() }
+        Self {
+            identity,
+            phase: Mutex::new(Phase::Running),
+            released: Condvar::new(),
+            progress: Mutex::default(),
+        }
+    }
+    fn progress(&self) -> MutexGuard<'_, state::Progress> {
+        self.progress.lock().unwrap_or_else(|e| e.into_inner())
     }
     fn phase(&self) -> MutexGuard<'_, Phase> {
         self.phase.lock().unwrap_or_else(|e| e.into_inner())
@@ -80,6 +90,17 @@ fn running() -> MutexGuard<'static, BTreeMap<PathBuf, Arc<Transfer>>> {
     RUNNING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Look up the latest transfer for the active archive without joining or starting one.
+pub fn get_model_download_state() -> Result<Option<crate::ModelDownloadState>> {
+    Ok(state_for(&crate::project_paths()?, DEFAULT_STATIC_MODEL_REPO))
+}
+
+fn state_for(paths: &ProjectPaths, repo: &str) -> Option<crate::ModelDownloadState> {
+    running()
+        .get(&model_dir_for_repo(paths, repo))
+        .map(|transfer| transfer.progress().snapshot(&transfer.identity.transfer_id))
+}
+
 /// Returns true only for the first stop request for this live transfer.
 pub fn cancel_model_download(id: &str) -> bool {
     running()
@@ -117,6 +138,7 @@ struct EmitProgress<E> {
 
 impl<E: Fn(ModelDownloadProgressEvent)> EmitProgress<E> {
     fn send(&self, update: ModelDownloadUpdate) {
+        self.transfer.progress().record(&update);
         (self.emit)(ModelDownloadProgressEvent {
             transfer_id: self.transfer.identity.transfer_id.clone(),
             update,
@@ -143,6 +165,9 @@ impl<E: Fn(ModelDownloadProgressEvent) + Send> ModelDownloadProgress for EmitPro
 
     fn waiting(&self, reason: crate::ModelDownloadWait) {
         self.send(ModelDownloadUpdate::Waiting { reason });
+    }
+    fn resumed(&self) {
+        self.transfer.progress().phase = crate::ModelDownloadPhase::Downloading;
     }
     fn decide(&self) -> bool {
         self.transfer.decide()
@@ -194,6 +219,11 @@ where
     let identity = ModelDownloadTransfer::fresh()?;
     let predecessor = active.get(&key).cloned();
     let transfer = Arc::new(Transfer::new(identity.clone()));
+    if predecessor.as_ref().is_some_and(|previous| *previous.phase() != Phase::Released) {
+        transfer.progress().phase = crate::ModelDownloadPhase::Waiting {
+            reason: crate::ModelDownloadWait::PreviousTransfer,
+        };
+    }
     let mut progress = EmitProgress { emit, transfer: transfer.clone() };
     let worker_key = key.clone();
     std::thread::Builder::new()
@@ -203,6 +233,7 @@ where
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 if let Some(previous) = &predecessor {
                     previous.wait_until_released(&progress);
+                    progress.resumed();
                 }
                 anyhow::ensure!(!progress.cancelled(), "model download was cancelled");
                 ensure_model_downloaded(&paths, repo, files, true, &mut progress)

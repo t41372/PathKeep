@@ -21,11 +21,8 @@
 
 import { appClient } from '../backend-client/app'
 import { intelligenceClient } from '../backend-client/intelligence'
-import {
-  BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
-  type AiSettings,
-} from '../types'
-import { downloadModel } from './model-download'
+import { BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID } from '../types'
+import { downloadModel, wantsBuiltInModel } from './model-download'
 
 /**
  * The setup stopped because the user asked for it: Cancel, or a saved setting
@@ -47,16 +44,6 @@ export class ModelDownloadStalled extends Error {
     super('the model download sent nothing within the idle window')
     this.name = 'ModelDownloadStalled'
   }
-}
-
-/** Whether these settings want the built-in model: AI and semantic search on, and it chosen. */
-export function wantsBuiltInModel(ai: AiSettings) {
-  return (
-    ai.enabled &&
-    ai.semanticIndexEnabled &&
-    (ai.embeddingProviderId ?? BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID) ===
-      BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID
-  )
 }
 
 /**

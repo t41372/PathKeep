@@ -195,6 +195,7 @@ export default defineConfig({
         'lock.spec.ts',
         'mcp-log.spec.ts',
         'security.spec.ts',
+        'settings-durability.spec.ts',
         'site-category.spec.ts',
         'window-frame.spec.ts',
         // Runs a backup; its name sorts it last here, so the specs before it

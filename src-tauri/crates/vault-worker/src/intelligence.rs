@@ -97,7 +97,9 @@ pub use self::section_queries::{
     preview_intelligence_local_host,
 };
 pub(crate) use vault_core::ai::cancel_archive_model_downloads as cancel_model_download_for_wipe;
-pub use vault_core::ai::{cancel_model_download, download_static_embedding_model};
+pub use vault_core::ai::{
+    cancel_model_download, download_static_embedding_model, get_model_download_state,
+};
 
 static AI_QUEUE_ACTIVE_WORKERS: WorkerPool = WorkerPool::new();
 static INTELLIGENCE_PRIORITY_WORKERS: WorkerPool = WorkerPool::new();

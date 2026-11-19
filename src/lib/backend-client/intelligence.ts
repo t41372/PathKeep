@@ -45,6 +45,7 @@ import type {
   ListAgentConversationsRequest,
   ListJobsRequest,
   McpQueryRecord,
+  ModelDownloadState,
   ModelDownloadTransfer,
   ReembedEstimate,
   ReembedScope,
@@ -194,6 +195,12 @@ export const intelligenceClient = {
    */
   cancelStaticEmbeddingModelDownload: (transferId: string) =>
     call<boolean>('cancel_ai_embedding_model_download', { transferId }),
+  /**
+   * The built-in model's running transfer and its counts so far, or null when none runs. Listen to
+   * the progress channel first: its end arrives there, possibly before this answer.
+   */
+  getModelDownloadState: () =>
+    call<ModelDownloadState | null>('get_model_download_state'),
   /**
    * Clears the stuck/failed index build job and re-runs the build as a FULL REBUILD: every page is
    * re-embedded from scratch and the vector store + derived planes are wiped first. This is the only
