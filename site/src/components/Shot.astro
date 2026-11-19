@@ -1,0 +1,103 @@
+---
+/**
+ * The app's window: how the page shows the product. Given a painting, the
+ * window floats over it in a panel of its own; without one it stands bare,
+ * tabs below it, on whatever painting it sits in (the opening card). With
+ * tabs, the window switches between screens (one shot on a page has them;
+ * the script in `Page.astro` drives them). A live window runs the app
+ * itself once the page's script loads it; its pictures stay for screens too
+ * small for the app, and for no script.
+ */
+import type { Copy, Lang } from '../content/copy'
+import { panelSizes, type Painting as PaintingData } from '../content/paintings'
+import { screenSrc, type Screen } from '../content/screens'
+import Painting from './Painting.astro'
+
+interface Props {
+  copy: Copy
+  lang: Lang
+  painting?: PaintingData
+  screens: Screen[]
+  openOn: Screen['id']
+  tabs?: boolean
+  /** Said under the panel; a bare window's caption sits outside its card. */
+  caption?: string
+  /** The opening card's window loads with the page; later ones wait. */
+  eager?: boolean
+  /** Rises into place the first time it scrolls into view (see Page.astro). */
+  reveal?: boolean
+  /**
+   * The app to run in the window, its name for screen readers, and what to
+   * say over it until it is clicked.
+   */
+  live?: { src: string; title: string; start: string }
+  class?: string
+}
+
+const { copy, lang, painting, screens, openOn, tabs = false, caption, eager = false, reveal = false, live, class: className } = Astro.props
+const tabLabel = (id: Screen['id']) => (id === 'home' ? screens.find((s) => s.id === id)!.alt[lang] : copy.shot.tabs[id])
+---
+
+<figure class:list={['shot', { 'shot--bare': !painting }, className]} data-reveal={reveal ? '' : undefined}>
+  <div class="shot__stage">
+    {painting && <Painting painting={painting} sizes={panelSizes} eager={eager} />}
+    <div
+      class="shot__window"
+      id={tabs ? 'shot-window' : undefined}
+      role={tabs ? 'tabpanel' : undefined}
+      aria-labelledby={tabs ? `tab-${openOn}` : undefined}
+      data-live={live?.src}
+      data-live-title={live?.title}
+    >
+      {
+        live && (
+          <button type="button" class="shot__start" hidden>
+            <span>{live.start}</span>
+          </button>
+        )
+      }
+      {
+        screens.map((s) => (
+          <img
+            class:list={['shot__screen', { 'is-active': s.id === openOn }]}
+            data-screen={s.id}
+            src={screenSrc(s, lang)}
+            alt={s.alt[lang]}
+            width="2720"
+            height="1720"
+            loading={eager && s.id === openOn ? 'eager' : 'lazy'}
+            decoding="async"
+          />
+        ))
+      }
+    </div>
+    {
+      tabs && (
+        <div class="shot__tabs" role="tablist" aria-label={copy.shot.tablist}>
+          {screens.map((s) => (
+            <button
+              type="button"
+              role="tab"
+              id={`tab-${s.id}`}
+              aria-controls="shot-window"
+              aria-selected={s.id === openOn ? 'true' : 'false'}
+              tabindex={s.id === openOn ? 0 : -1}
+              data-tab={s.id}
+            >
+              <span class:list={['shot__dot', `shot__dot--${s.id}`]} aria-hidden="true" />
+              {tabLabel(s.id)}
+            </button>
+          ))}
+        </div>
+      )
+    }
+  </div>
+  {
+    (caption || Astro.slots.has('caption')) && (
+      <figcaption class="caption">
+        {caption}
+        <slot name="caption" />
+      </figcaption>
+    )
+  }
+</figure>

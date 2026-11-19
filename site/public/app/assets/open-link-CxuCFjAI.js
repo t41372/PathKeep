@@ -1,0 +1,1 @@
+import{J as e,P as t,Q as n,Y as r,l as i}from"./index-CteWxeiL.js";import{c as a}from"./app-CVcZz016.js";var o=n(r(),1);function s(){let{t:n}=e();return(0,o.useCallback)(async(e,r)=>{try{await t.openVisitedPage(e)}catch(e){a.error(r,{description:i(e)===`not-in-history`?n(`common.notInHistory`):e instanceof Error?e.message:void 0})}},[n])}export{s as t};

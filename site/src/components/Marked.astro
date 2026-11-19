@@ -1,0 +1,33 @@
+---
+/**
+ * Copy that names products: each `{key:Name}` becomes the product's mark
+ * and its name, kept together on one line; the rest passes through as
+ * text. A key with no mark fails the build rather than printing the token.
+ */
+import { marks } from '../content/brands'
+import { markToken } from '../content/copy'
+
+interface Props {
+  text: string
+}
+
+const { text } = Astro.props
+const parts: ({ text: string } | { key: string; name: string })[] = []
+let at = 0
+for (const m of text.matchAll(markToken)) {
+  if (!marks[m[1]]) throw new Error(`No mark for "${m[1]}" in: ${text}`)
+  parts.push({ text: text.slice(at, m.index) }, { key: m[1], name: m[2] })
+  at = m.index + m[0].length
+}
+parts.push({ text: text.slice(at) })
+---
+
+{
+  parts.map((p) =>
+    'key' in p ? (
+      <span class="brand"><svg class="brand__mark" viewBox={marks[p.key].viewBox} aria-hidden="true" focusable="false"><path d={marks[p.key].path} /></svg>{p.name}</span>
+    ) : (
+      p.text
+    ),
+  )
+}

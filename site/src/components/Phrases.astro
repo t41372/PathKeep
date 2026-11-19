@@ -1,0 +1,28 @@
+---
+/**
+ * Text that may only wrap between phrases. Copy marks the allowed breaks
+ * with `|`; each phrase stays whole unless it is wider than the line.
+ * Chinese has no spaces to break at, so without this a heading can end on
+ * a single character.
+ *
+ * A space before a break is written between the phrases, not inside one:
+ * an inline-block drops its own trailing space, which would join two
+ * phrases that land on the same line.
+ */
+import Marked from './Marked.astro'
+
+interface Props {
+  text: string
+}
+
+const parts = Astro.props.text.split('|').map((p) => ({ text: p.trimEnd(), space: /\s$/.test(p) }))
+---
+
+{
+  parts.map((p) => (
+    <>
+      <span class="phrase"><Marked text={p.text} /></span>
+      {p.space ? ' ' : ''}
+    </>
+  ))
+}

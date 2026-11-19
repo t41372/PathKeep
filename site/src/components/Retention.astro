@@ -1,0 +1,65 @@
+---
+/**
+ * Why PathKeep exists: how long each source keeps your history, as bars
+ * from the left. The axis is to scale up to a year, which sits halfway;
+ * then it breaks, and the far end is "forever", where PathKeep's row, a
+ * strip of paint, runs on to. The strip is not lazy: it starts clipped,
+ * and Chrome never lazy-loads an image it counts as invisible.
+ */
+import type { Copy } from '../content/copy'
+import { pathStrip } from '../content/paintings'
+import Phrases from './Phrases.astro'
+
+interface Props {
+  copy: Copy
+}
+
+const w = Astro.props.copy.why
+/** Where a year falls on the axis, and where the axis breaks after it. */
+const year = 50
+const gap = 75
+const ticks = [
+  { label: w.axis[0], at: (90 / 365) * year, align: 'center' },
+  { label: w.axis[1], at: year, align: 'center' },
+  { label: '//', at: gap, align: 'center' },
+  { label: w.axis[2], at: 100, align: 'end' },
+]
+---
+
+<section class="why wrap" id="why">
+  <div class="split" data-reveal="group">
+    <h2 class="title"><Phrases text={w.title} /></h2>
+    <p class="body">{w.body}</p>
+  </div>
+  <figure class="retention" style={`--year: ${year}%; --gap: ${gap}%`}>
+    <div class="retention__axis" aria-hidden="true">
+      <span></span>
+      <div class="retention__ticks">
+        {ticks.map((t) => <span class={`retention__tick retention__tick--${t.align}`} style={`left: ${t.at}%`}>{t.label}</span>)}
+      </div>
+      <span></span>
+    </div>
+    <ol class="retention__rows">
+      {
+        w.rows.map((r, i) => (
+          <li class:list={['retention__row', { 'retention__row--forever': r.days === null }]} style={`--i: ${i}`}>
+            <span class="retention__source">{r.source}</span>
+            <span class="retention__track">
+              {r.days === null ? (
+                <>
+                  <img class="retention__paint" src={pathStrip.src} alt="" width={pathStrip.width} height={pathStrip.height} fetchpriority="low" decoding="async" />
+                  <span class="retention__gap" />
+                </>
+              ) : (
+                <span class="retention__kept" style={`--days: ${Math.min(r.days, 365)}`} />
+              )}
+            </span>
+            <span class="retention__keeps">{r.keeps}</span>
+          </li>
+        ))
+      }
+    </ol>
+    <figcaption class="caption">{w.source}</figcaption>
+  </figure>
+  <p class="why__closing" data-reveal><Phrases text={w.closing} /></p>
+</section>

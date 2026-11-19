@@ -1,0 +1,1 @@
+import{R as e,k as t}from"./index-CteWxeiL.js";var n=t();function r(){return e()?(0,n.jsx)(`div`,{"data-tauri-drag-region":!0,"aria-hidden":!0,className:`sticky top-0 z-10 -mb-7 h-7 shrink-0`}):null}export{r as t};

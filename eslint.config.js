@@ -27,6 +27,9 @@ export default defineConfig([
     'tests/fixtures',
     // Design prototype on invented data; type-checked by its own tsconfig.
     'docs/design/prototype-2026-11-agent-history',
+    // The landing site is its own package: `astro check` types its pages, and
+    // the painting lab's Bun scripts are checked by running them (site/README.md).
+    'site',
   ]),
   {
     files: ['**/*.{ts,tsx}'],

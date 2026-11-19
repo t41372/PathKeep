@@ -1,0 +1,1 @@
+import{F as e}from"./index-CteWxeiL.js";var t={getRunDetail:t=>e(`load_audit_run_detail`,{runId:t}),getHealthReport:()=>e(`doctor_report`),repairHealth:()=>e(`repair_health`)};export{t};

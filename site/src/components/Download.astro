@@ -1,0 +1,54 @@
+---
+/**
+ * The downloads, set in ink on the paper painting: the promise once more,
+ * one column per platform, the note about unsigned builds, the source.
+ */
+import type { Copy } from '../content/copy'
+import { paintings, panelSizes } from '../content/paintings'
+import Painting from './Painting.astro'
+import Phrases from './Phrases.astro'
+
+interface Props {
+  copy: Copy
+}
+
+const d = Astro.props.copy.download
+const releases = 'https://github.com/t41372/PathKeep/releases'
+const repo = 'https://github.com/t41372/PathKeep'
+/** On a phone the painting stands 180% of the panel's height (site.css), which sets it about eight screens wide. */
+const sizes = `(max-width: 760px) 800vw, ${panelSizes}`
+---
+
+<section class="download wrap" id="download">
+  <div class="download__panel" data-reveal>
+    <Painting painting={paintings.download} sizes={sizes} />
+    <div class="download__text">
+      <h2 class="panel-title"><Phrases text={d.title} /></h2>
+      <p>{d.body}</p>
+    </div>
+    <div class="download__foot">
+      <ul class="platforms">
+        {
+          d.platforms.map((p, i) => (
+            <li class:list={['platform', { 'platform--soon': p.soon }]}>
+              <span class="platform__name">{p.name}</span>
+              <span class="platform__detail">{p.detail}</span>
+              {p.soon ? (
+                <a class="text-link platform__action" href={repo}>
+                  {p.action}
+                </a>
+              ) : (
+                <a class:list={['button', 'platform__action', i === 0 ? 'button--ink' : 'button--line']} href={releases}>
+                  {p.action}
+                </a>
+              )}
+            </li>
+          ))
+        }
+      </ul>
+      <p class="download__note">
+        {d.note} <a href={repo}>{d.source}</a>
+      </p>
+    </div>
+  </div>
+</section>

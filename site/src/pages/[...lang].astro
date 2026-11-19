@@ -1,0 +1,46 @@
+---
+/**
+ * The landing page, once per language: English at /, Traditional Chinese
+ * at /zh-tw/, Simplified Chinese at /zh-cn/.
+ */
+import Demo from '../components/Demo.astro'
+import Download from '../components/Download.astro'
+import Faq from '../components/Faq.astro'
+import Features from '../components/Features.astro'
+import Footer from '../components/Footer.astro'
+import Hero from '../components/Hero.astro'
+import Privacy from '../components/Privacy.astro'
+import Retention from '../components/Retention.astro'
+import Spaces from '../components/Spaces.astro'
+import { copy, type Lang } from '../content/copy'
+import Page from '../layouts/Page.astro'
+
+export function getStaticPaths() {
+  return [
+    { params: { lang: undefined }, props: { lang: 'en' as Lang } },
+    { params: { lang: 'zh-tw' }, props: { lang: 'zh-TW' as Lang } },
+    { params: { lang: 'zh-cn' }, props: { lang: 'zh-CN' as Lang } },
+  ]
+}
+
+interface Props {
+  lang: Lang
+}
+
+const { lang } = Astro.props
+const c = copy[lang]
+---
+
+<Page copy={c} lang={lang}>
+  <Hero copy={c} lang={lang} />
+  <main id="content">
+    <Retention copy={c} />
+    <Spaces copy={c} />
+    <Features copy={c} lang={lang} />
+    <Privacy copy={c} />
+    <Demo copy={c} lang={lang} />
+    <Faq copy={c} />
+    <Download copy={c} />
+  </main>
+  <Footer copy={c} lang={lang} />
+</Page>

@@ -1,0 +1,207 @@
+---
+/**
+ * The document around the landing page: head, the language alternates,
+ * and the page's behaviours: the opening card framing itself as its first
+ * screen scrolls away, the window's tabs, section heads and panels rising
+ * into view, the retention chart drawing itself, and the demo loading into
+ * its window. The motion runs on Motion (motion.dev); site.css holds every
+ * resting state.
+ */
+import { copy as all, langs, plain, type Copy, type Lang } from '../content/copy'
+import '../styles/fonts.css'
+import '../styles/site.css'
+
+interface Props {
+  copy: Copy
+  lang: Lang
+}
+
+const { copy, lang } = Astro.props
+const title = `PathKeep — ${plain(copy.hero.title)}`
+const here = langs.find((l) => l.lang === lang)!
+const site = Astro.site
+---
+
+<!doctype html>
+<html lang={copy.htmlLang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={plain(copy.description)} />
+    <meta name="theme-color" content="#131211" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={plain(copy.description)} />
+    <link rel="icon" href="/brand/mark.svg" type="image/svg+xml" />
+    {
+      site && (
+        <>
+          <link rel="canonical" href={new URL(here.path, site).href} />
+          {langs.map((l) => (
+            <link rel="alternate" hreflang={all[l.lang].htmlLang} href={new URL(l.path, site).href} />
+          ))}
+          <link rel="alternate" hreflang="x-default" href={new URL('/', site).href} />
+          {/* Share cards need absolute addresses, so they wait for the domain too. */}
+          <meta property="og:url" content={new URL(here.path, site).href} />
+          <meta property="og:image" content={new URL(`/social/${here.slug}.jpg`, site).href} />
+          <meta property="og:image:width" content="1200" />
+          <meta property="og:image:height" content="630" />
+          <meta property="og:image:alt" content={title} />
+          <meta name="twitter:card" content="summary_large_image" />
+        </>
+      )
+    }
+    <script is:inline>document.documentElement.classList.add('js')</script>
+  </head>
+  <body>
+    <a class="skip" href="#content">{copy.skip}</a>
+    <slot />
+    <script>
+      import { easeInOut, inView, scroll, stagger } from 'motion'
+      import { animate } from 'motion/mini'
+
+      const tablist = document.querySelector<HTMLElement>('[role="tablist"]')
+      if (tablist) {
+        const tabs = Array.from(tablist.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+        const panel = document.getElementById('shot-window')
+        const screens = panel ? Array.from(panel.querySelectorAll<HTMLElement>('[data-screen]')) : []
+        const select = (tab: HTMLButtonElement) => {
+          for (const t of tabs) {
+            const on = t === tab
+            t.setAttribute('aria-selected', String(on))
+            t.tabIndex = on ? 0 : -1
+          }
+          for (const s of screens) s.classList.toggle('is-active', s.dataset.screen === tab.dataset.tab)
+          panel?.setAttribute('aria-labelledby', tab.id)
+        }
+        tablist.addEventListener('click', (event) => {
+          const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('[role="tab"]')
+          if (tab) select(tab)
+        })
+        // Arrow keys move between tabs, as a tab list should.
+        tablist.addEventListener('keydown', (event) => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+          const at = tabs.indexOf(document.activeElement as HTMLButtonElement)
+          const next = tabs[(at + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]
+          next.focus()
+          select(next)
+          event.preventDefault()
+        })
+      }
+
+      // The opening card, scrubbed by the scroll and timed by its window.
+      // While the window rises to the middle of the screen it grows to its
+      // full size and the painting stays full-screen; once the window has
+      // passed the middle, the wall closes in to the page's column, done
+      // when the window's foot is 30% of the way down the screen. All the
+      // while the painting drifts a little slower than the page, so the
+      // window seems to rise over it. site.css draws the frame from --p,
+      // sets the starting state, and keeps the card framed and still when
+      // motion is reduced. (Motion measures layout positions, so the
+      // window's own scaling does not move these marks.)
+      const moves = matchMedia('(prefers-reduced-motion: no-preference)').matches
+      const card = document.querySelector<HTMLElement>('[data-intro]')
+      const shot = card?.querySelector<HTMLElement>('.intro__shot')
+      const view = shot?.querySelector<HTMLElement>('.shot__window')
+      if (card && shot && view && moves) {
+        scroll(animate(shot, { transform: ['scale(0.94)', 'scale(1)'] }, { ease: 'easeOut' }), {
+          target: view,
+          offset: ['start end', 'center center'],
+        })
+        // Written to the style each frame rather than animated natively:
+        // WebKit did not reliably redraw a clip-path whose registered
+        // variable was being animated, so the frame could stay open there.
+        scroll((p) => card.style.setProperty('--p', easeInOut(p).toFixed(4)), {
+          target: view,
+          offset: ['center center', 'end 30%'],
+        })
+        // A phone's painting is only as tall as the card, with nothing spare to drift into.
+        const painting = card.querySelector('.painting img')
+        if (painting && matchMedia('(min-width: 701px)').matches)
+          scroll(animate(painting, { transform: ['translateY(0%)', 'translateY(8%)'] }, { ease: 'linear' }), {
+            target: card,
+            offset: ['start start', 'end start'],
+          })
+      }
+
+      // Section heads and panels rise into place the first time they scroll
+      // into view; a group's children follow one another. The script hides
+      // them itself, and only those still below the fold, so nothing is
+      // left invisible if it never runs.
+      if (moves) {
+        const parts = (el: HTMLElement) => (el.dataset.reveal === 'group' ? Array.from(el.children) : [el]) as HTMLElement[]
+        const below = Array.from(document.querySelectorAll<HTMLElement>('[data-reveal]')).filter(
+          (el) => el.getBoundingClientRect().top > innerHeight,
+        )
+        for (const part of below.flatMap(parts)) {
+          part.style.opacity = '0'
+          part.style.transform = 'translateY(24px)'
+        }
+        inView(
+          below,
+          (el) => {
+            animate(parts(el as HTMLElement), { opacity: 1, transform: 'none' }, { duration: 0.8, ease: [0.2, 0.7, 0.2, 1], delay: stagger(0.08) })
+          },
+          { margin: '0px 0px -12% 0px' },
+        )
+      }
+
+      // The retention chart draws itself once it is well into view (site.css).
+      inView('.retention', (el) => void el.classList.add('is-in'), { amount: 0.35 })
+
+      // The demo: the app loads into its window a screen before the visitor
+      // gets there, on screens wide enough for it. It is drawn at a size the
+      // app fits (1290 wide at least, the window's shape) and scaled down to
+      // the window; the app says when it is on screen, and the window's glass
+      // shows until then. If it never does, the picture comes back. Loaded,
+      // it stays inert, so the page scrolls past it, until the window is
+      // clicked; once the section has scrolled away it is inert again.
+      const live = document.querySelector<HTMLElement>('[data-live]')
+      if (live && matchMedia('(min-width: 760px)').matches) {
+        const stopWatching = inView(
+          live,
+          () => {
+            stopWatching()
+            const frame = document.createElement('iframe')
+            frame.className = 'shot__app'
+            frame.title = live.dataset.liveTitle ?? ''
+            frame.inert = true
+            frame.src = live.dataset.live ?? ''
+            const start = live.querySelector<HTMLButtonElement>('.shot__start')!
+            start.addEventListener('click', () => {
+              frame.inert = false
+              start.hidden = true
+              frame.focus()
+            })
+            inView(live, () => () => {
+              frame.inert = true
+              start.hidden = !live.classList.contains('is-live')
+            })
+            const fit = () => {
+              const width = live.clientWidth
+              const drawn = Math.max(1290, width)
+              frame.style.width = `${drawn}px`
+              frame.style.height = `${(drawn * live.clientHeight) / width}px`
+              frame.style.transform = `scale(${width / drawn})`
+            }
+            fit()
+            new ResizeObserver(fit).observe(live)
+            const giveUp = setTimeout(() => live.classList.remove('is-loading'), 20_000)
+            // By origin, not `event.source`: WebKit names the page itself as
+            // the source of a message posted from the app's animation frame.
+            addEventListener('message', (event) => {
+              if (event.origin !== location.origin || event.data !== 'pathkeep-demo-ready') return
+              clearTimeout(giveUp)
+              live.classList.add('is-live')
+              start.hidden = !frame.inert
+            })
+            live.classList.add('is-loading')
+            live.append(frame)
+          },
+          { margin: '100% 0px' },
+        )
+      }
+    </script>
+  </body>
+</html>

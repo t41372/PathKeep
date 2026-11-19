@@ -414,6 +414,14 @@
   - 契約：憑證/私鑰只進加密 secrets，永不入 repo；reproducible build 原則不破；release rehearsal（`bun run verify`）通過。
   - 驗收：CI 產出 signed + notarized + stapled 的 `.app`/`.dmg`；裝在乾淨機器上 Gatekeeper 不擋；授一次 FDA 後，安裝下一個版本仍保有 FDA（備份不再靜默失效）。
 
+- [ ] **WORK-SITE-DEMO-V060** — 官網的 demo 從 v0.6.0 正式版重錄一次，加上 Agent 空間（發布 v0.6.0 時做；接在 `WORK-AH-SCREENS` 之後）
+  - 讀先：`site/README.md`「The demo」。
+  - 用戶 2026-11-15 選了「demo 固定在一個版本」：建好的 app 和錄音一起放在 git 的 `site/public/app/`，平常發版不碰它；只在畫面明顯改了、或有值得展示的新功能時才重錄。現在那份是 `feat/agent-history-product` 的 6a67d6f8 錄的，About 顯示 `0.5.0-dev · 6a67d6f8 (modified)`，只有瀏覽紀錄。
+  - 要做：合成的 Agent 對話（Claude Code、Codex、Pi、DeepSeek Harness 各自的原生格式；`WORK-AH-SCREENS` 給 `dev:demo` 和 E2E 做的那一套直接拿來用）在 `demo/record.ts` 裡走真的備份；`demo/walk.ts` 和 `demo/check.ts` 的導覽加上 Agent 空間每個畫面；從 v0.6.0 tag 的乾淨 checkout 編帶 dev bridge 的 debug 後端，重錄，`check:demo` 三語都過，再 commit `site/public/app/`。
+  - 官網上設計原型拍的截圖：hero 的兩張「紀錄」頁、demo 窗載入前的首頁、功能牆的「Agent 洞察」。Agent 畫面進了 `src/` 之後全部改從 demo 拍（`hero-lab/capture-screens.ts`、`hero-lab/capture-features.ts`；功能牆瀏覽紀錄那三張已經是從 demo 拍的），`hero-lab/screens-text.ts` 那張翻譯表大半可以拿掉。
+  - 一起處理：設定 › AI 打開「語意搜尋」後，demo 一直停在「正在下載語言模型…」，沒有錯誤。demo 對 `download_static_embedding_model` 回的是「demo 做不到」，畫面沒顯示出來；先查真的 app 下載失敗時是不是也這樣停住，再決定改 demo 的回答還是修 app。
+  - 驗收：demo 的 About 顯示 v0.6.0 與它的 commit；兩個空間都能逛；`check:demo` 三語、`page-check.ts`（Chrome 與 `--webkit`）全過。
+
 ---
 
 - [ ] **WORK-E2E-WINDOW-OFF-THE-DESKTOP** — E2E 的測試 app 在開發者的螢幕上開真的視窗、搶走焦點，視窗被關掉整輪 gate 就結束（2026-11-18 查明；2026-11-16 那次「app 自己結束」沒查明的也是這個現象）
@@ -435,6 +443,7 @@
   - 毛玻璃視窗下，視窗那一層沒有變淡：`src/index.css` 裡毛玻璃的 `--window`／`--panel` 寫在 `@layer base` 裡，而 `:root` 的值不在任何 layer，沒有 layer 的規則贏過有 layer 的。做外框時在瀏覽器裡量到毛玻璃下 `--window` 仍是不透明時的值（`rgb(250 250 252 / 0.62)`）；用戶 2026-11-14 說 macOS 上選了毛玻璃確實有變透明，但「非常，非常不明顯」，跟量到的一致：桌布那一層有拿掉，視窗那一層沒有照設計降到 14%。修的時候把那兩條規則移出 layer，並在桌面視窗上看過深淺兩種主題。
   - 新手引導的排程預覽只在每個間隔第一次被選時寫入設定；選過別的再選回來、然後關掉，下次可能從錯的間隔開始。
   - `vault-crypto/tests/search_index.rs` 的 `the_block_cache_bounds_memory` 在機器記憶體吃緊時會假失敗：它比較兩個子行程的常駐記憶體成長量，而系統在壓力下會把記憶體壓縮或換出，量到的成長變成負數（2026-11-14 同時有別的編譯在跑時看到「2 MiB 的快取 -0.5 MiB、不設上限的 -3.9 MiB」，單獨重跑通過）。快取大小本身的斷言（`max_cache_mib`）是可靠的；常駐記憶體那一條要換成不受系統壓力影響的量法。
+  - 首頁「近 30 天瀏覽」在繁中、簡中時，第一個 x 軸標籤的頭被圖表左緣切掉：「10月17日」只剩「0月17日」（2026-11-15 做官網 demo 時看到，量過：中文標籤超出圖表左緣 5 px，英文的「Oct 17」放得下）。`features/home/home-cards.tsx` 的 `XAxis` 左右各只留 14 px，標籤以第一個點為中心，標籤寬度的一半超過 14 px 就出界。月份是兩位數時才會發生。
 
 - [ ] **WORK-VAULT-FOLLOWUPS-2026-11** — 規劃 `WORK-VAULT-STORE-ROLES` 時讀程式找到、跟 Agent 對話無關的現有行為（2026-11-14；兩份獨立的盤點都指出，但都只讀了程式，動手前先重現）
   - 搬到另一台電腦會丟掉使用者改過的網站分類與搜尋引擎規則：它們存在 `derived/intelligence.db`（`site_dictionary_overrides`、`search_engine_rules`），而搬移檔把這個資料庫當成可以重算、不帶走，匯入預覽還寫「洞察會重建」。同一個原因，已存的網頁文字檔會被帶過去，但記錄「哪個網址對應哪個檔」的那幾列（`page_content_enrichments`）不會，所以在新電腦上這些文字找不到（`vault_lifecycle` 的搬家測試重現了這兩件事）。修法要改 `data-model.md` 已接受的那一句，需要用戶同意。

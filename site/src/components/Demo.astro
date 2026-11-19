@@ -1,0 +1,37 @@
+---
+/**
+ * The demo: the real app running in the window over the painting, on the
+ * recording `site/demo/` makes from the real backend. The page's script
+ * loads it as the section comes near, on screens wide enough for the app;
+ * smaller screens keep the picture and say why. The caption names the
+ * version the demo was recorded from, since it stays at that version.
+ */
+import type { Copy, Lang } from '../content/copy'
+import { demoVersion } from '../content/demo'
+import { paintings } from '../content/paintings'
+import { screens } from '../content/screens'
+import Phrases from './Phrases.astro'
+import Shot from './Shot.astro'
+
+interface Props {
+  copy: Copy
+  lang: Lang
+}
+
+const { copy, lang } = Astro.props
+const d = copy.demo
+const app = `/app/?lang=${lang}`
+---
+
+<section class="demo wrap" id="demo">
+  <div class="split" data-reveal="group">
+    <h2 class="title"><Phrases text={d.title} /></h2>
+    <p class="body">{d.body}</p>
+  </div>
+  <Shot class="demo__shot" reveal copy={copy} lang={lang} painting={paintings.demo} screens={[screens.home]} openOn="home" live={{ src: app, title: d.frame, start: d.start }}>
+    <Fragment slot="caption">
+      <span class="demo__open">PathKeep {demoVersion} · <a class="text-link" href={app} target="_blank" rel="noopener">{d.newTab} ↗</a></span>
+      <span class="demo__narrow">{d.narrow}</span>
+    </Fragment>
+  </Shot>
+</section>

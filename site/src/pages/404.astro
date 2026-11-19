@@ -1,0 +1,41 @@
+---
+/**
+ * The page for an address that leads nowhere; the host serves it with
+ * status 404. It cannot tell which language the visitor reads, so it says
+ * so in all three, each pointing home to its own page. PathKeep's strip of
+ * paint from the retention chart runs out beside the words.
+ */
+import { copy, langs } from '../content/copy'
+import { pathStrip } from '../content/paintings'
+import '../styles/fonts.css'
+import '../styles/site.css'
+---
+
+<!doctype html>
+<html lang={copy.en.htmlLang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>PathKeep — {copy.en.notFound.title}</title>
+    <meta name="theme-color" content="#131211" />
+    <link rel="icon" href="/brand/mark.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <main class="lost wrap">
+      <a class="lost__brand" href="/"><img src="/brand/mark.svg" alt="" width="28" height="28" />PathKeep</a>
+      <img class="lost__path" src={pathStrip.src} alt="" width={pathStrip.width} height={pathStrip.height} />
+      <p class="lost__code">404</p>
+      {
+        langs.map((l, i) => (
+          <section class="lost__lang" lang={copy[l.lang].htmlLang}>
+            {i === 0 ? <h1 class="lost__title">{copy[l.lang].notFound.title}</h1> : <h2 class="lost__title">{copy[l.lang].notFound.title}</h2>}
+            <p class="lost__body">
+              {copy[l.lang].notFound.body} <a href={l.path}>{copy[l.lang].notFound.home}</a>
+            </p>
+          </section>
+        ))
+      }
+    </main>
+  </body>
+</html>
