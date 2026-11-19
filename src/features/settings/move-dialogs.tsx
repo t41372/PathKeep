@@ -40,6 +40,7 @@ import {
   needsConversationRepair,
 } from '@/features/agent-repair/repair-errors'
 import { AccessOffer, RepairOffer } from '@/features/agent-repair/repair-offer'
+import { Refusal } from './affected-file'
 import { Notice } from './notice'
 import { BUNDLE_EXTENSION, PathField } from './path-field'
 import { announceReplaced } from './replaced-notice'
@@ -211,18 +212,19 @@ function ExportForm({ onClose }: { onClose: () => void }) {
               {t('maintenance.stopped')}
             </p>
           ) : needsConversationRepair(run.error) ? (
-            <RepairOffer operation="export" onLeave={onClose} />
+            <RepairOffer
+              operation="export"
+              error={run.error}
+              onLeave={onClose}
+            />
           ) : needsConversationAccess(run.error) ? (
-            <AccessOffer operation="export" />
+            <AccessOffer operation="export" error={run.error} />
           ) : (
-            <p
-              role="alert"
-              className="text-[13px] [overflow-wrap:anywhere] text-destructive"
-            >
+            <Refusal error={run.error}>
               {t('settingsStorage.move.exportFailed', {
                 message: describeError(run.error, 'export_app_data'),
               })}
-            </p>
+            </Refusal>
           ))}
         <DialogFooter>
           <Button
@@ -361,13 +363,12 @@ function ImportForm({ onClose }: { onClose: () => void }) {
             {t('maintenance.stopped')}
           </p>
         )}
-        {repairFirst && <RepairOffer operation="import" onLeave={onClose} />}
-        {accessFirst && <AccessOffer operation="import" />}
+        {repairFirst && (
+          <RepairOffer operation="import" error={failure} onLeave={onClose} />
+        )}
+        {accessFirst && <AccessOffer operation="import" error={failure} />}
         {failure && !repairFirst && !accessFirst && (
-          <p
-            role="alert"
-            className="text-[13px] [overflow-wrap:anywhere] text-destructive"
-          >
+          <Refusal error={failure}>
             {wrongPassword
               ? t('settingsStorage.move.wrongPassword')
               : newerFile
@@ -380,7 +381,7 @@ function ImportForm({ onClose }: { onClose: () => void }) {
                       message: describeError(failure),
                     },
                   )}
-          </p>
+          </Refusal>
         )}
 
         <DialogFooter>

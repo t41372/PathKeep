@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Spinner } from '@/components/ui/spinner'
+import { AffectedFile } from '@/features/settings/affected-file'
 import { damageWords } from '@/features/settings/kinds/kind-damage'
 import { maintenanceClient } from '@/lib/backend-client/maintenance'
 import { useI18n } from '@/lib/i18n'
@@ -179,13 +180,16 @@ function RepairFlow({
               </p>
             )}
             {failure && phase !== 'checking' && (
-              <p
-                role="alert"
-                data-repair-error
-                className="text-[13px] [overflow-wrap:anywhere] text-destructive"
-              >
-                {repairErrorText(t, failure.error, failure.during)}
-              </p>
+              <div className="flex flex-col gap-2">
+                <p
+                  role="alert"
+                  data-repair-error
+                  className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+                >
+                  {repairErrorText(t, failure.error, failure.during)}
+                </p>
+                <AffectedFile error={failure.error} />
+              </div>
             )}
           </>
         )}

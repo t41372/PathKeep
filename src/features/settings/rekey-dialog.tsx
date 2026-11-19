@@ -40,6 +40,7 @@ import {
   needsConversationRepair,
 } from '@/features/agent-repair/repair-errors'
 import { AccessOffer, RepairOffer } from '@/features/agent-repair/repair-offer'
+import { Refusal } from './affected-file'
 import { emptySecret, secretProblem, type NewSecret } from './new-secret'
 import { NewSecretFields } from './new-secret-fields'
 import { Notice } from './notice'
@@ -225,15 +226,11 @@ function RekeyFlow({
         )}
 
         {repairFirst && (
-          <RepairOffer operation="encryption" onLeave={onClose} />
+          <RepairOffer operation="encryption" error={error} onLeave={onClose} />
         )}
-        {accessFirst && <AccessOffer operation="encryption" />}
+        {accessFirst && <AccessOffer operation="encryption" error={error} />}
         {error && !repairFirst && !accessFirst && (
-          <p
-            id="rekey-error"
-            role="alert"
-            className="text-[13px] [overflow-wrap:anywhere] text-destructive"
-          >
+          <Refusal id="rekey-error" error={error}>
             {wrongCurrent
               ? t('settings.security.rekey.wrongCurrent')
               : t(
@@ -242,7 +239,7 @@ function RekeyFlow({
                     : 'settings.security.rekey.previewFailed',
                   { message: describeError(error) },
                 )}
-          </p>
+          </Refusal>
         )}
 
         <DialogFooter>

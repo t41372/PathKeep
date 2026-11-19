@@ -34,7 +34,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import { killAndRestartApp, unlockIfLocked } from './app'
 import { backend, fixture, injectFault } from './fixture'
 
@@ -160,10 +160,46 @@ export interface Copy {
   verifiedOpenable: boolean
   unchecked: boolean
   conversationsUnreadable: boolean
+  /** `checkRequired`, or why the copy can't repair conversations. */
+  conversationRepairSource: string
   sizeBytes: number
 }
 
 export const recoveryCopies = () => backend<Copy[]>('list_recovery_snapshots')
+
+/** What the file line under a refusal says each kind of file is. */
+export const fileWords = {
+  evidence: 'The file that holds the saved conversations',
+  readModel:
+    'The file that holds the conversations’ lists, search and insights',
+} as const
+
+/** Matches a path inside `dir`. */
+export function inside(dir: string) {
+  const literal = dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`^${literal}[\\\\/]`)
+}
+
+/** Matches the path of the file that holds the saved conversations, wherever the backend roots it. */
+export const evidencePath = /[\\/]archive[\\/]agent-history\.db$/
+
+/**
+ * The file a refusal names, on its own line under it: what the file is, its
+ * path, and the button that shows it in the file manager (not clicked: it
+ * opens a window outside the app).
+ */
+export async function expectAffectedFile(
+  scope: Locator,
+  role: keyof typeof fileWords,
+  path: RegExp,
+) {
+  const line = scope.locator(`[data-affected-file="${role}"]`)
+  await expect(line).toContainText(fileWords[role])
+  await expect(line.locator('[data-affected-path]')).toHaveText(path)
+  await expect(
+    line.getByRole('button', { name: /^Show in (Finder|folder)$/ }),
+  ).toBeVisible()
+}
 
 /** Opens the Agent backup page after a restart: App Lock, then the archive from the keychain. */
 export async function openAgentBackup(page: Page) {

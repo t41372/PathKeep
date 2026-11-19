@@ -19,14 +19,15 @@
  *
  * Proves:
  * - a move is refused with nothing written, saying it is not damage and
- *   nothing changed, with Try again and no repair; the backend reports
- *   `access-denied`; Try again while still refused says so;
+ *   nothing changed, with Try again and no repair, and names the file it
+ *   can't read on a line of its own, with a way to show it; the backend
+ *   reports `access-denied`; Try again while still refused says so;
  * - the Agent backup page then says PathKeep isn't allowed to read the
  *   files right now and that nothing is damaged, with Try again but no
  *   repair; browsing history is all there;
  * - once the permissions are back, Try again in the move dialog says the
- *   conversations can be read again, and the backup page shows every
- *   conversation it showed before, with no notice.
+ *   conversations can be read again (and no longer names a file), and the
+ *   backup page shows every conversation it showed before, with no notice.
  */
 import {
   chmodSync,
@@ -44,6 +45,8 @@ import {
   agentKind,
   conversationFile,
   damageNotice,
+  evidencePath,
+  expectAffectedFile,
   openAgentBackup,
   openStorage,
   startExport,
@@ -101,6 +104,7 @@ test('conversations that can’t be read for now come back with Try again, not a
       'When their files can be read again, for example once their permissions are fixed, choose Try again.',
     )
     await expect(exporting.locator('[data-repair-offer]')).toHaveCount(0)
+    await expectAffectedFile(offer, 'evidence', evidencePath)
     expect(existsSync(file)).toBe(false)
     await expect
       .poll(async () => (await agentKind()).failure?.reason)
@@ -150,6 +154,7 @@ test('conversations that can’t be read for now come back with Try again, not a
       'The saved conversations can be read again. You can start this again now.',
       { timeout: 60_000 },
     )
+    await expect(offerAgain.locator('[data-affected-file]')).toHaveCount(0)
     expect((await agentKind()).availability).toBe('available')
     await again.getByRole('button', { name: 'Cancel' }).click()
     await expect(again).toHaveCount(0)

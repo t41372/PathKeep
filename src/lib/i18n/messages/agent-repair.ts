@@ -83,8 +83,13 @@ export const agentRepair = defineMessages({
       title: 'Bring conversations back from',
       local: 'The damaged files',
       localHint: 'Every saved version that still checks out',
-      unchecked:
+      unsealed:
         'This copy hasn’t been checked, so it can’t be used for a repair.',
+      missingEvidence:
+        'This copy holds no saved Agent conversations, so it can’t bring them back.',
+      missingReadModel:
+        'This copy doesn’t have all the conversation files a repair needs.',
+      unusable: 'This copy can’t be used for a repair.',
       marked:
         'Conversations couldn’t be read when this copy was made. Checking it shows whether the conversations it holds still check out.',
       held: 'Kept when a conversation file disappeared while PathKeep had it open. It holds saved conversations only.',
@@ -233,7 +238,10 @@ export const agentRepair = defineMessages({
       title: '从哪里找回对话',
       local: '坏掉的文件',
       localHint: '找回每个仍能核对无误的已存版本',
-      unchecked: '这份副本还没检查过，不能用来修复。',
+      unsealed: '这份副本还没检查过，不能用来修复。',
+      missingEvidence: '这份副本里没有已存的 Agent 对话，没法用来找回。',
+      missingReadModel: '这份副本缺少修复需要的对话文件。',
+      unusable: '这份副本不能用来修复。',
       marked:
         '创建这份副本时对话读不了。检查它就知道里面的对话还能不能核对无误。',
       held: 'PathKeep 打开着某个对话文件时，这个文件不见了，于是单独保留了下来。里面只有已存的对话。',
@@ -373,7 +381,10 @@ export const agentRepair = defineMessages({
       title: '從哪裡取回對話',
       local: '壞掉的檔案',
       localHint: '救回每個仍能核對無誤的已存版本',
-      unchecked: '這份副本還沒檢查過，不能用來修復。',
+      unsealed: '這份副本還沒檢查過，不能用來修復。',
+      missingEvidence: '這份副本裡沒有已存的 Agent 對話，沒辦法用來救回。',
+      missingReadModel: '這份副本缺少修復需要的對話檔案。',
+      unusable: '這份副本不能用來修復。',
       marked:
         '建立這份副本時對話讀不了。檢查它就知道裡面的對話還能不能核對無誤。',
       held: 'PathKeep 開著某個對話檔案時，這個檔案不見了，於是單獨留了下來。裡面只有已存的對話。',

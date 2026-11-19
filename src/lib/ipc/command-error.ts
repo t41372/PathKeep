@@ -9,6 +9,8 @@
  *   remediation cases (Full Disk Access, lock-required). Routes must never
  *   sniff message text themselves — and translated copy must never be fed
  *   back into an error channel for re-classification.
+ * - Read the file a refusal names (`affectedFile`), which the bridge keeps
+ *   on the error as the raw envelope (`cause`).
  *
  * ## Not responsible for
  * - Formatting errors for display (`lib/errors.ts` owns that).
@@ -26,6 +28,25 @@ export const ERROR_CODE_ARCHIVE_PASSWORD_WRONG = 'archive-password-wrong'
 
 /** Backend classification: macOS Full Disk Access (TCC) is missing. */
 export const ERROR_CODE_FULL_DISK_ACCESS = 'full-disk-access'
+
+/** Backend classification: writing a destination file failed (`affectedFile` names it). */
+export const ERROR_CODE_ARCHIVE_FILE_WRITE_FAILED = 'archive-file-write-failed'
+
+/**
+ * What a named file is to the archive: one of the browsing files (or a file
+ * of the archive as a whole, such as a copy's seal), the file of saved
+ * conversations, the file of their lists, or a conversation file PathKeep
+ * kept when it went missing. A later backend may add roles.
+ */
+export type AffectedFileRole =
+  'browsing' | 'evidence' | 'readModel' | 'heldGeneration'
+
+/** The archive member a refusal is about (`CommandError.affectedFile`). */
+export interface AffectedFile {
+  /** A local path; it can name a companion (`-wal`) or a file that is gone. */
+  path: string
+  role: AffectedFileRole | (string & {})
+}
 
 /**
  * Error thrown by `invokeCommand` when the desktop backend rejects a command.
@@ -79,6 +100,27 @@ export function commandErrorCode(error: unknown): string | null {
     }
   }
   return null
+}
+
+/**
+ * The file a refusal names, or `null` when it names none (a refusal about
+ * the plan as a whole, such as an expired check). Reads the raw envelope:
+ * the one a `CommandInvokeError` carries as its `cause`, or an un-wrapped one.
+ */
+export function commandErrorAffectedFile(error: unknown): AffectedFile | null {
+  const envelope = error instanceof CommandInvokeError ? error.cause : error
+  if (typeof envelope !== 'object' || envelope === null) return null
+  const file = (envelope as Record<string, unknown>).affectedFile
+  if (typeof file !== 'object' || file === null) return null
+  const { path, role } = file as Record<string, unknown>
+  return typeof path === 'string' && path.length > 0 && typeof role === 'string'
+    ? { path, role }
+    : null
+}
+
+/** Whether PathKeep failed to write a destination file. */
+export function isArchiveFileWriteFailed(error: unknown): boolean {
+  return commandErrorCode(error) === ERROR_CODE_ARCHIVE_FILE_WRITE_FAILED
 }
 
 /**

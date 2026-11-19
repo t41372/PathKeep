@@ -123,6 +123,7 @@ export const REPAIR_ERROR_CODES = [
   'archive-password-required',
   'archive-password-wrong',
   'archive-busy',
+  'archive-file-write-failed',
   'lock-required',
 ] as const
 export type RepairErrorCode = (typeof REPAIR_ERROR_CODES)[number]

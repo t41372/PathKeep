@@ -1,8 +1,9 @@
 /**
  * Plain words for why a check or a repair of saved conversations stopped,
  * keyed on the backend's code (`command_error.rs`), never on its message.
- * The message is added where it carries what the words can't: the file the
- * system refused to read, or a copy's own fault.
+ * The message is added where it carries what the words can't: why a file
+ * couldn't be kept, or a copy's own fault. The file a refusal names is shown
+ * under these words (`AffectedFile`).
  *
  * Not responsible for: what the dialog does next (`use-agent-repair.ts`).
  */
@@ -30,6 +31,7 @@ const plain: Partial<Record<RepairErrorCode, MessageKey>> = {
   'archive-password-required': 'agentRepair.sources.passwordAsked',
   'archive-password-wrong': 'agentRepair.errors.wrongPassword',
   'archive-busy': 'agentRepair.errors.busy',
+  'archive-file-write-failed': 'maintenance.writeFailed',
 }
 
 /** Codes whose sentence carries the backend's message: it names the file or the fault. */

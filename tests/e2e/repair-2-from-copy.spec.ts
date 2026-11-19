@@ -16,12 +16,17 @@
  *   dialog says beforehand what such a copy can and can't be sure to do,
  *   and the copy is listed with that mark;
  * - moving the archive to another computer is refused with nothing written,
- *   and the refusal leads to the repair;
+ *   names the damaged file on a line of its own, and leads to the repair;
  * - checking the damaged files offers to start over and says plainly that
  *   how many conversations it would lose can't be counted (never 0), and
  *   points to the copies listed below;
+ * - a copy can be chosen only when the backend says it may hold what a
+ *   repair needs; the copy of what restore.spec's restore replaced holds
+ *   browsing history only (a restore never moves conversations), so it is
+ *   listed, can't be chosen, and says why;
  * - the copy made during the damage can be chosen, says how it was made,
- *   and its check refuses it because nothing in it verifies;
+ *   and its check refuses it because nothing in it verifies, naming the
+ *   copy's file;
  * - the earlier copy asks for its own password, says when it's wrong, and
  *   then brings back more than starting over would, at least every
  *   conversation the archive held;
@@ -39,6 +44,9 @@ import {
   ARCHIVE_PASSWORD,
   agentKind,
   conversationFile,
+  evidencePath,
+  expectAffectedFile,
+  inside,
   openAgentBackup,
   openStorage,
   opensArchive,
@@ -130,6 +138,7 @@ test('conversations whose file is damaged come back from a safety copy under an 
     'Saved Agent conversations can’t be read right now, so they can’t be packed into the file. Repair them first, then export again. Nothing was changed.',
     { timeout: 60_000 },
   )
+  await expectAffectedFile(offer, 'evidence', evidencePath)
   expect(existsSync(file)).toBe(false)
   await testInfo.attach('the move refused', {
     body: await page.screenshot(),
@@ -188,6 +197,38 @@ test('conversations whose file is damaged come back from a safety copy under an 
   ).toBeChecked()
   const check = dialog.getByRole('button', { name: 'Check this copy' })
 
+  // A copy can be chosen only when it may hold what a repair needs. What
+  // restore.spec's first restore replaced is browsing history only (a restore
+  // never moves conversations aside), sealed when its undo restored from it,
+  // and kept by free-space.spec: listed, not choosable, and it says why.
+  const copies = await recoveryCopies()
+  const browsingOnly = copies.filter(
+    (copy) =>
+      copy.sourceOp === 'restore' &&
+      copy.conversationRepairSource === 'missingEvidence',
+  )
+  expect(
+    browsingOnly.length,
+    'the copy of what restore.spec’s restore replaced',
+  ).toBeGreaterThan(0)
+  for (const copy of copies) {
+    const radio = sources
+      .locator(`[data-copy-path="${copy.path}"]`)
+      .getByRole('radio')
+    if (copy.conversationRepairSource === 'checkRequired') {
+      await expect(radio, copy.path).toBeEnabled()
+    } else {
+      await expect(radio, copy.path).toBeDisabled()
+    }
+  }
+  const browsingOnlyRow = sources.locator(
+    `[data-copy-path="${browsingOnly[0].path}"]`,
+  )
+  await expect(browsingOnlyRow).toContainText('Before a restore')
+  await expect(browsingOnlyRow).toContainText(
+    'This copy holds no saved Agent conversations, so it can’t bring them back.',
+  )
+
   // The copy made during the damage can be checked; nothing in it verifies.
   const markedRow = sources.locator(`[data-copy-path="${marked}"]`)
   await expect(markedRow.getByRole('radio')).toBeEnabled()
@@ -200,6 +241,7 @@ test('conversations whose file is damaged come back from a safety copy under an 
     'None of the saved conversations in this copy check out, so it can’t repair them. Choose another copy.',
     { timeout: 180_000 },
   )
+  await expectAffectedFile(dialog, 'evidence', inside(marked))
   const goodRow = sources.locator(`[data-copy-path="${good}"]`)
   await expect(goodRow).toContainText('Made by you')
   await testInfo.attach('start over, and the copies', {

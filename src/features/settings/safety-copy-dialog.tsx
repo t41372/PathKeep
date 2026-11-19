@@ -30,6 +30,7 @@ import { useI18n } from '@/lib/i18n'
 import { commandErrorCode } from '@/lib/ipc/command-error'
 import { queryKeys } from '@/lib/query'
 import { waitForNextPaint } from '@/lib/wait-for-next-paint'
+import { Refusal } from './affected-file'
 import { Notice } from './notice'
 import { reveal, revealLabelKey } from './reveal'
 
@@ -108,14 +109,11 @@ function SafetyCopyForm({ onClose }: { onClose: () => void }) {
           <Skeleton aria-hidden className="h-10 w-full" />
         </div>
       ) : plan.isError ? (
-        <p
-          role="alert"
-          className="text-[13px] [overflow-wrap:anywhere] text-destructive"
-        >
+        <Refusal error={plan.error}>
           {t('settingsStorage.safetyCopy.checkFailed', {
             message: describeError(plan.error, 'preview_archive_safety_copy'),
           })}
-        </p>
+        </Refusal>
       ) : (
         <div data-safety-copy-plan className="flex flex-col gap-3 text-[13px]">
           <div className="flex flex-col gap-1">
@@ -151,10 +149,7 @@ function SafetyCopyForm({ onClose }: { onClose: () => void }) {
       )}
 
       {create.error && (
-        <p
-          role="alert"
-          className="text-[13px] [overflow-wrap:anywhere] text-destructive"
-        >
+        <Refusal error={create.error}>
           {stale
             ? t('settingsStorage.safetyCopy.stale')
             : commandErrorCode(create.error) ===
@@ -168,7 +163,7 @@ function SafetyCopyForm({ onClose }: { onClose: () => void }) {
                     'create_archive_safety_copy',
                   ),
                 })}
-        </p>
+        </Refusal>
       )}
 
       <DialogFooter>

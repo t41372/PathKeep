@@ -33,6 +33,7 @@ import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
 import type { RecoverySnapshot } from '@/lib/types'
+import { Refusal } from './affected-file'
 import { copyLabelKey } from './copy-label'
 import { Notice } from './notice'
 import { announceReplaced } from './replaced-notice'
@@ -221,14 +222,11 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
         </p>
       )}
       {restore.error && !stopped && (
-        <p
-          role="alert"
-          className="text-[13px] [overflow-wrap:anywhere] text-destructive"
-        >
+        <Refusal error={restore.error}>
           {t('settingsStorage.restore.failed', {
             message: describeError(restore.error, 'run_full_archive_restore'),
           })}
-        </p>
+        </Refusal>
       )}
 
       <DialogFooter>

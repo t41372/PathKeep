@@ -1,13 +1,12 @@
 /**
  * Where saved conversations come back from, when the file that holds them is
  * damaged: what still checks out in the damaged files, or one of the safety
- * copies. Every listed copy is shown, newest first:
- * - one that was never checked (not sealed) is there but can't be chosen,
- *   and says why;
- * - one made while conversations couldn't be read says so and can be
- *   chosen: the check finds out whether what it holds still verifies;
- * - one PathKeep kept when a conversation file disappeared holds saved
- *   conversations only, and says so.
+ * copies. Every listed copy is shown, newest first. The backend says which
+ * can be a source (`conversationRepairSource`) from the files each holds:
+ * - one that can is chosen, then checked (the check verifies what it holds);
+ * - one that can't is there, can't be chosen, and says why;
+ * - one made while conversations couldn't be read, or kept when a
+ *   conversation file disappeared, says so.
  * A copy whose check asked for its own password gets a field for it. When
  * starting over would leave something behind, a line points to the copies.
  *
@@ -31,13 +30,17 @@ const valueOf = (source: SourceChoice) =>
 const sourceOf = (value: string): SourceChoice =>
   value === LOCAL_VALUE ? LOCAL : { kind: 'copy', path: value.slice(5) }
 
-/** A full copy that opens, or a kept conversation file: the copies a repair can check. */
-const listed = (copy: RecoverySnapshot) =>
-  copy.verifiedOpenable || copy.sourceOp === HELD_COPY
+const reasons: Record<string, MessageKey> = {
+  missingEvidence: 'agentRepair.sources.missingEvidence',
+  missingReadModel: 'agentRepair.sources.missingReadModel',
+  unsealed: 'agentRepair.sources.unsealed',
+}
 
-/** Why a listed copy can't be a source; `null` when it can. */
+/** Why a copy can't be a source; `null` when it can. */
 function unusable(copy: RecoverySnapshot): MessageKey | null {
-  return copy.unchecked ? 'agentRepair.sources.unchecked' : null
+  const source = copy.conversationRepairSource
+  if (source === 'checkRequired') return null
+  return reasons[source] ?? 'agentRepair.sources.unusable'
 }
 
 /** What else a person should know about a copy before checking it. */
@@ -115,7 +118,7 @@ export function RepairSources({
     queryFn: archiveClient.listRecoverySnapshots,
     staleTime: 0,
   })
-  const copies = (list.data ?? []).filter(listed).sort(newestFirst)
+  const copies = [...(list.data ?? [])].sort(newestFirst)
   const choosable = copies.filter((copy) => unusable(copy) === null)
   const passwordFor =
     chosen.kind === 'copy' && asked.has(chosen.path) ? chosen.path : null

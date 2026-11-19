@@ -8,12 +8,14 @@
  *   refuses access, which is not damage, so "Try again" asks the backend to
  *   open the files again (`retry_agent_store`); once they open, the dialog's
  *   own button starts the operation again.
+ * Both show the file the refusal names, when it names one.
  */
 import { RotateCw, Wrench } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useRetryStore } from '@/features/data-kinds/use-retry-store'
+import { AffectedFile } from '@/features/settings/affected-file'
 import { useI18n } from '@/lib/i18n'
 import { useAgentKind } from '@/lib/queries/agent-backup'
 import { useOpenAgentRepair } from './links'
@@ -25,9 +27,12 @@ const boxClass =
 
 export function RepairOffer({
   operation,
+  error,
   onLeave,
 }: {
   operation: Operation
+  /** The refusal, for the file it names. */
+  error: unknown
   /** Closes the dialog the offer is in, before the repair opens. */
   onLeave: () => void
 }) {
@@ -38,6 +43,7 @@ export function RepairOffer({
       <p className="[overflow-wrap:anywhere]">
         {t(`agentRepair.required.${operation}`)}
       </p>
+      <AffectedFile error={error} />
       <Button
         type="button"
         size="sm"
@@ -55,7 +61,14 @@ export function RepairOffer({
   )
 }
 
-export function AccessOffer({ operation }: { operation: Operation }) {
+export function AccessOffer({
+  operation,
+  error,
+}: {
+  operation: Operation
+  /** The refusal, for the file it names. */
+  error: unknown
+}) {
   const { t } = useI18n()
   const retry = useRetryStore()
   const { row } = useAgentKind()
@@ -74,6 +87,7 @@ export function AccessOffer({ operation }: { operation: Operation }) {
         </p>
       ) : (
         <>
+          <AffectedFile error={error} />
           <p className="text-muted-foreground">
             {t(
               retried
