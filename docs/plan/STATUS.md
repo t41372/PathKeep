@@ -21,7 +21,7 @@
 
 ### 0. 整合分支自己
 
-- [ ] 改密碼測試在 Windows 上讀鎖檔的修正（`read_unless_locked`）：完整 gate、提交、推上去、Platform Native 再跑一次。2026-11-16 那次 gate 跑到 E2E 第 89 個時 session 結束被中斷，沒有跑完。2026-11-18 第一次重跑在 E2E 第一個 spec 結束：測試 app 的視窗在螢幕上被關掉（見下一項），不是程式的問題；再跑一次。
+- [x] 改密碼測試在 Windows 上讀鎖檔的修正（`read_unless_locked`）：完整 gate、提交、推上去、Platform Native 再跑一次。2026-11-18 在 boxd 上完整 gate 通過、已推上去；Platform Native 上 Windows 只剩已知的模型換檔測試失敗（`WORK-WINDOWS-MODEL-REPLACE`，它失敗後同一個 crate 後面的測試檔不會跑，所以排在前面修）。之前的經過：2026-11-16 那次 gate 跑到 E2E 第 89 個時 session 結束被中斷，沒有跑完。2026-11-18 第一次重跑在 E2E 第一個 spec 結束：測試 app 的視窗在螢幕上被關掉（見下一項），不是程式的問題；再跑一次。
 - [x] 完整 gate 與 E2E 改在 boxd（Linux）上跑，不在用戶的電腦上跑（用戶 2026-11-18）。腳本在交接資料夾的 `boxd-gate/`：同步原始碼、照 CI 的方式跑 `bun run check`、取回紀錄。這台 Mac 只跑不開視窗的輕量檢查與單項 Rust 測試。
 - [ ] E2E 的測試 app 不再到螢幕最前面開視窗（`WORK-E2E-WINDOW-OFF-THE-DESKTOP`）：發布前在 macOS 上跑那一次 E2E 之前做好。
 
@@ -29,10 +29,10 @@
 
 每條：審查 → 驗證 → 修 → 合併並解衝突 → 完整 gate → 刪掉它的 worktree。
 
-- [ ] `feat/semantic-progress-investigation`（2 個 commit，Codex 寫的）：語意索引進度「644 / 94」的第一輪修正。與這條分支只在 STATUS、CHANGELOG 衝突。
-- [ ] `fix/window-controls-every-screen`（5 個 commit）：Windows、Linux 每個畫面都有視窗按鈕、按著移動才拖動、存檔更新途中結束先問、更新途中被結束的測試。衝突在 `vault-core/src/vault.rs`、`app-frame.tsx`、`nav-rail.tsx`、`playwright.config.ts`、`screens-and-nav.md`、STATUS、CHANGELOG。`vault.rs` 與外框正是 Agent 對話要改的地方，所以排在動工之前。
-- [ ] Dependabot PR #28（11 個 JS 套件的小版本）：在這條分支上照做一次，PR 本身之後關掉。
-- [ ] 量測語意索引更新的時間（審查修正時答應的，Codex 給的讀寫次數是從程式推算的，不是量的）：在 boxd 上、同一台機器、修正前後兩版交替跑，大的合成存檔上「什麼都沒變」的一次更新要多久、到讀第一批造訪之前要多久、存檔讀取與洞察資料庫寫入各幾次；再加幾十筆造訪後的一次更新，以及任務結束時自動排的下一個任務有沒有多走一遍。數字寫進 CHANGELOG 才算完。1440 萬筆那一檔看機器磁碟放不放得下，放不下就寫明量到多大。
+- [x] `feat/semantic-progress-investigation`（2 個 commit，Codex 寫的）：語意索引進度「644 / 94」的第一輪修正。Codex astra（xhigh）審查 9 條，逐條驗證後修了該修的（同一個 session），每個修正都試過改壞後測試會紅。2026-11-18 合併，boxd 完整 gate 通過（E2E 144 + 10 + 1），已推上去。審查留下、不在這次修的在 `WORK-SEMANTIC-FOLLOWUP-AUDIT`。
+- [x] `fix/window-controls-every-screen`（5 個 commit；2026-11-18 審查 8 條、驗證、修正、合併，同一次 gate 通過，worktree 已刪）：Windows、Linux 每個畫面都有視窗按鈕、按著移動才拖動、存檔更新途中結束先問、更新途中被結束的測試。衝突在 `vault-core/src/vault.rs`、`app-frame.tsx`、`nav-rail.tsx`、`playwright.config.ts`、`screens-and-nav.md`、STATUS、CHANGELOG。`vault.rs` 與外框正是 Agent 對話要改的地方，所以排在動工之前。
+- [x] Dependabot PR #28（11 個 JS 套件的小版本）：2026-11-18 在這條分支上照做了一次，同一次 gate 通過。PR 本身等這條分支回到 main 時由 Dependabot 自己關。
+- [ ] 量測語意索引更新的時間（審查修正時答應的，Codex 給的讀寫次數是從程式推算的，不是量的）：在 boxd 上、同一台機器、修正前後兩版交替跑，大的合成存檔上「什麼都沒變」的一次更新要多久、到讀第一批造訪之前要多久、存檔讀取與洞察資料庫寫入各幾次；再加幾十筆造訪後的一次更新，以及任務結束時自動排的下一個任務有沒有多走一遍。數字寫進 CHANGELOG 才算完。1440 萬筆那一檔看機器磁碟放不放得下，放不下就寫明量到多大。進度（2026-11-18）：第一次量的時候測試存檔放在 boxd 的 `/tmp`，那是記憶體檔案系統，所以 100 萬筆那組數字量的是記憶體上的讀寫，1440 萬筆那次在 8 GiB 限制下因為存檔本身佔滿記憶體被系統結束（程式自己最多用 0.95 GB）。兩組都改放磁碟重跑中。
 - [ ] `feat/landing-page`（PR #25）：頁面本身做完了，缺 Agent 空間的介紹、圖片與 demo，要等第 4 組的畫面做出來。排在第 7 組。
 - [x] `fix/windows-flush-v05`：內容已全部在這條分支（2026-11-16 逐項對過），分支不合併。
 
