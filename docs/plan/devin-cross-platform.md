@@ -66,6 +66,8 @@ CI 的設定是最準的參考：`.github/workflows/ci.yml`（Linux 完整 gate�
 - `WORK-WINDOWS-RAW-COPY-CHECK`：Chrome 開著時直接複製它的歷史檔，Windows 上可能收下一份複製途中被寫過的檔案。BACKLOG 寫了要先怎麼量（用能判斷交易是否完整的資料，不是只會 append 的假資料）。先量，量完把數字和建議交回，不要沒量就改。
 - 內建語意模型的換檔：模型檔正被打開或映射時，新版本要能裝在旁邊、切換過去，舊的之後清掉。在 Windows 上實際走一次：語意搜尋開著、模型使用中，觸發換新版本、取消、再開始，確認不會兩個下載同時跑、取消不會打到另一個下載、舊檔最後會清掉。
 - 鑰匙圈：Windows Credential Manager、Linux Secret Service（`gnome-keyring`）、macOS Keychain 三條路徑，各走一次「記住金鑰、重開、解鎖、忘記金鑰」。
+- 對話檔被拒絕存取和被刪除的分辨：Windows 對「檔案正在被刪除」和「權限不允許」回同一個錯誤碼 5。PathKeep 拿自己開著的 handle 問檔案是不是 delete-pending，只有是的時候才當成檔案不見了，其餘都是暫時的 `access-denied`，「再試一次」就能恢復。這段只在 Mac 上交叉編譯過，沒有在 Windows 上跑過。在 Windows 上跑 `cargo test -p vault-store --test windows_access`，並且實際走一次：PathKeep 開著時拿掉對話檔的讀取權限，把視窗叫到前面，恢復權限後按「再試一次」，對話要回來，不能要求修復；再走一次真的刪掉對話檔，PathKeep 要把它開著的那份存成安全副本。
+- 模型下載的讀取逾時：連線 15 秒、每次讀取 30 秒沒有資料就算失敗，持續有資料的下載不會被切斷。在 Windows 上用慢速或中途斷線的連線各走一次，確認失敗後可以重試、取消在 30 秒內生效。
 
 ### 6. Agent 對話的工具資料夾
 
