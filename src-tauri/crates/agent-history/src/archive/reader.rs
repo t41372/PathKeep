@@ -149,9 +149,11 @@ impl RawReader {
         let bytes = if chunk.3 == "zstd" {
             use std::io::Read;
             let mut bytes = Vec::new();
-            zstd::stream::read::Decoder::new(chunk.1.as_slice())?
-                .take((CHUNK_BYTES + 1) as u64)
-                .read_to_end(&mut bytes)?;
+            let invalid = |e| io::Error::new(io::ErrorKind::InvalidData, e);
+            let mut decoder =
+                zstd::stream::read::Decoder::new(chunk.1.as_slice()).map_err(invalid)?;
+            decoder.window_log_max(26).map_err(invalid)?;
+            decoder.take((CHUNK_BYTES + 1) as u64).read_to_end(&mut bytes).map_err(invalid)?;
             bytes
         } else if chunk.3 == "native" {
             chunk.1
@@ -168,7 +170,9 @@ impl RawReader {
                 "retained chunk length or digest is invalid",
             ));
         }
-        let remaining = self.info.byte_len - self.read_bytes;
+        let remaining = self.info.byte_len.checked_sub(self.read_bytes).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "slice position exceeds revision length")
+        })?;
         self.chunk = bytes;
         let start = u64::try_from(chunk.4).map_err(io::Error::other)?;
         self.offset = (self.read_bytes - start) as usize;

@@ -11,7 +11,8 @@ use super::{
     Adapter, Artifact, ArtifactKind, Diagnostic, Harness, NativeEvent, ParseContext, ParseReport,
     Reference, SessionMetadata, SourceRoot,
 };
-use events::{event_time, native_event};
+use events::event_time;
+pub(crate) use events::{native_event, parts};
 use metadata::origin;
 use serde_json::Value;
 use std::collections::HashSet;

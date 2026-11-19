@@ -2,6 +2,7 @@
 //! Not responsible for: SDK stores, native restore, attachment reads or native replay.
 //! Evidence and version boundaries: research/agent-history/ecosystem.md.
 
+use crate::read_model::{PartKind, RecordPart, parts};
 use std::io::BufRead;
 
 use serde_json::Value;
@@ -273,7 +274,7 @@ fn parse_task(
     Ok(report)
 }
 
-fn message_event(payload: Value, ordinal: u64, wrapped: bool) -> (NativeEvent, bool) {
+pub(crate) fn message_event(payload: Value, ordinal: u64, wrapped: bool) -> (NativeEvent, bool) {
     let message = if wrapped { payload.get("message").unwrap_or(&Value::Null) } else { &payload };
     let role = message.get("role").and_then(nonempty_string);
     let native_kind = message.get("type").and_then(Value::as_str);
@@ -337,4 +338,55 @@ fn merge_issues(report: &mut ParseReport, issues: Vec<Diagnostic>) {
     for diagnostic in issues {
         common::push_diagnostic(&mut report.diagnostics, diagnostic);
     }
+}
+
+/// Uses the same element grammar as the projection; only the first Continue history is authoritative.
+pub(crate) fn scan_document(
+    input: &mut dyn BufRead,
+    context: &ParseContext,
+    harness: Harness,
+    restart: &std::cell::Cell<Option<crate::read_model::FrameStart>>,
+    emit: &mut dyn FnMut(crate::read_model::RecordLocator, Option<Value>) -> Result<()>,
+) -> Result<Vec<Diagnostic>> {
+    let mut document = Document::new(input, context)?;
+    if harness == Harness::Continue {
+        let mut seen = false;
+        document.object(&mut |key, doc| {
+            if key == "history" && !seen {
+                seen = true;
+                doc.located_array(restart, emit)
+            } else {
+                if key == "history" {
+                    doc.issue("duplicate_metadata_field", None)
+                }
+                doc.value(None)?;
+                Ok(())
+            }
+        })?;
+        if !seen {
+            document.issue("missing_history_array", None)
+        }
+    } else {
+        document.located_array(restart, emit)?
+    }
+    Ok(document.finish()?.diagnostics)
+}
+
+pub(crate) fn parts(event: &NativeEvent, wrapped: bool) -> Vec<RecordPart> {
+    let message = if wrapped { &event.payload["message"] } else { &event.payload };
+    if message["type"] == "reasoning" {
+        return parts::single(PartKind::Thinking, &event.text);
+    }
+    let kind =
+        if event.role.as_deref() == Some("tool") { PartKind::CallResult } else { PartKind::Text };
+    let mut result = parts::content(&message["content"], kind);
+    if let Some(reasoning) = message["reasoning_content"].as_str() {
+        parts::push(&mut result, PartKind::Thinking, reasoning.into())
+    }
+    if let Some(calls) = message["toolCalls"].as_array() {
+        for call in calls {
+            parts::call(&mut result, &call["function"], "arguments")
+        }
+    }
+    result
 }

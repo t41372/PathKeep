@@ -174,3 +174,30 @@ fn committed_backup_survives_a_failed_slice_reclamation() {
     assert_eq!(capture(&archive, &root).unwrap().status, "complete");
     assert_eq!(archive.verify().unwrap().slices.count, 1);
 }
+
+// A retained slice failure comes from storage even when its bytes feed a native decoder.
+#[test]
+fn damaged_slice_is_distinct_from_invalid_native_transport() {
+    use crate::read_model::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = Archive::create_unencrypted(&tmp.path().join("archive")).unwrap();
+    let root = rollout(&tmp.path().join("native"), None);
+    capture(&archive, &root).unwrap();
+    let session = archive.list_sessions(&Default::default()).unwrap().items.remove(0);
+    archive
+        .store
+        .write(Db::AgentHistoryEvidence, Priority::Batch, |tx| {
+            tx.execute("UPDATE ah_chunks SET data=x'00'", ())?;
+            Ok(())
+        })
+        .unwrap();
+    let error = archive
+        .scan_revision(
+            session.revision_id,
+            &Default::default(),
+            &JobControl::default(),
+            &mut |_, _, _| Ok(()),
+        )
+        .unwrap_err();
+    assert_eq!(error.code(), "integrity_error");
+}

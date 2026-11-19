@@ -11,6 +11,7 @@ pub mod error;
 pub mod export;
 pub mod model;
 pub mod query;
+pub mod read_model;
 pub mod search;
 pub mod sqlite;
 pub mod verification;

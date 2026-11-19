@@ -159,3 +159,25 @@ supported formats, limits and remaining gaps. The [verification record](research
 contains macOS/Linux results and the 14.4M synthetic run under enforced 4 CPU /
 8 GiB limits. Native replay, UI integration and Windows runtime validation remain
 outside those results; an adapter name alone is not a completeness claim.
+
+### Physical reads beside the native projection
+
+A retained revision can be scanned into physical locators and per-record interpreter contexts.
+JSONL spans include BOM and line endings; native arrays use the element span. A zstd locator
+also identifies the independently decodable frame containing the record's first byte.
+Range reads verify touched archive slices and bind the revision's source and digest. A full
+scan through EOF also verifies the revision digest. A short or damaged native frame has its
+own error code. A malformed JSON row retains its exact bytes and reports framing coverage.
+
+The `agent_history::read_model` API streams at most 200 selected records per window.
+Callers keep the locator and context together. Each row carries a bounded exact-byte page;
+a complete object also supplies native fields and typed text, reasoning, call-input and
+call-result parts. An oversized preview supplies a continuation offset within its own record.
+The scan and window callbacks run on the caller's blocking worker outside store transactions.
+Maintenance signals their cancellation token before draining active reads. A callback waiting
+on downstream capacity must observe that token. Source membership and publication selection
+are the next layer above these reads.
+
+The [removal matrix](research/agent-history/read-model-removal.md) tracks the existing SQL,
+CLI and fault-injection contracts through cutover. The [measurement commands and oracles](research/agent-history/read-model-measurements.md)
+cover both archive modes, native framing, source-order windows and outline rank seeks.

@@ -2,7 +2,10 @@
 //! and session envelopes. Serde validates each frame; no document-sized Value is
 //! built. Not responsible for harness semantics or preservation of original bytes.
 
-use std::io::BufRead;
+use crate::read_model::{
+    DecodedOffset, FrameStart, PhysicalOrdinal, RecordCoverage, RecordLocator,
+};
+use std::{cell::Cell, io::BufRead};
 
 use serde_json::Value;
 
@@ -14,6 +17,8 @@ pub(super) struct Document<'a> {
     input: &'a mut dyn BufRead,
     context: &'a ParseContext,
     report: ParseReport,
+    position: u64,
+    last_issue: RecordCoverage,
 }
 
 impl<'a> Document<'a> {
@@ -21,7 +26,13 @@ impl<'a> Document<'a> {
         if context.max_record_bytes == 0 {
             return Err(Error::InvalidInput("record byte limit must be positive".into()));
         }
-        let mut document = Self { input, context, report: ParseReport::default() };
+        let mut document = Self {
+            input,
+            context,
+            report: ParseReport::default(),
+            position: 0,
+            last_issue: RecordCoverage::Object,
+        };
         if document.peek()? == Some(0xef) {
             for expected in [0xef, 0xbb, 0xbf] {
                 if document.next()? != Some(expected) {
@@ -56,18 +67,52 @@ impl<'a> Document<'a> {
     }
 
     pub(super) fn array(&mut self, emit: &mut dyn FnMut(Value, u64) -> Result<()>) -> Result<()> {
+        self.located_array(&Cell::new(None), &mut |locator, value| {
+            if let Some(value) = value {
+                emit(value, locator.ordinal.0)?
+            }
+            Ok(())
+        })
+    }
+
+    pub(super) fn located_array(
+        &mut self,
+        restart: &Cell<Option<FrameStart>>,
+        emit: &mut dyn FnMut(RecordLocator, Option<Value>) -> Result<()>,
+    ) -> Result<()> {
         if !self.expect(b'[')? || self.close_empty(b']')? {
             return Ok(());
         }
         let mut ordinal = 0;
         loop {
-            if let Some(value) = self.value(Some(ordinal))? {
+            self.whitespace()?;
+            // Fill before sampling the restart: a delimiter can end exactly at a frame boundary.
+            self.peek()?;
+            let frame = restart.get();
+            let start = self.position;
+            self.last_issue = RecordCoverage::Object;
+            let value = self.value(Some(ordinal))?.filter(|value| {
                 if value.is_object() {
-                    emit(value, ordinal)?;
-                    self.report.event_count += 1;
+                    true
                 } else {
                     self.issue("non_object_record", Some(ordinal));
+                    false
                 }
+            });
+            if value.is_some() {
+                self.report.event_count += 1;
+            }
+            if self.position > start {
+                emit(
+                    RecordLocator {
+                        start: DecodedOffset(start),
+                        frame,
+                        length: self.position - start,
+                        ordinal: PhysicalOrdinal(ordinal),
+                        coverage: self.last_issue,
+                    },
+                    value,
+                )?;
             }
             ordinal += 1;
             if !self.separator(b']')? {
@@ -115,6 +160,7 @@ impl<'a> Document<'a> {
             bytes.extend_from_slice(&available[..retained]);
             oversized |= retained < consumed;
             self.input.consume(consumed);
+            self.position += consumed as u64;
             if finished {
                 break;
             }
@@ -138,6 +184,7 @@ impl<'a> Document<'a> {
     }
 
     pub(super) fn issue(&mut self, code: &str, ordinal: Option<u64>) {
+        self.last_issue = RecordCoverage::from_issue(code);
         self.report.complete = false;
         push_diagnostic(
             &mut self.report.diagnostics,
@@ -214,6 +261,7 @@ impl<'a> Document<'a> {
                 return Ok(());
             }
             self.input.consume(count);
+            self.position += count as u64;
         }
     }
 
@@ -225,6 +273,7 @@ impl<'a> Document<'a> {
         let byte = self.peek()?;
         if byte.is_some() {
             self.input.consume(1);
+            self.position += 1;
         }
         Ok(byte)
     }

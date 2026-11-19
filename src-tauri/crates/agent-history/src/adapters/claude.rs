@@ -3,6 +3,7 @@
 
 mod discovery;
 
+use crate::read_model::{PartKind, RecordPart, parts};
 use std::{collections::HashSet, io::BufRead};
 
 use serde_json::Value;
@@ -108,32 +109,8 @@ impl Adapter for ClaudeAdapter {
                         }
                     }
                 }
-                let kind = string(&payload, "type").unwrap_or("unknown");
-                let message = payload.get("message");
-                let timestamp = event_timestamp(&payload);
-                let event = NativeEvent {
-                    references: event_references,
-                    ordinal,
-                    native_id: string(&payload, "uuid").map(str::to_owned),
-                    parent_id: string(&payload, "parentUuid").map(str::to_owned),
-                    kind: kind.to_owned(),
-                    role: message
-                        .and_then(|message| string(message, "role"))
-                        .or(match kind {
-                            "user" => Some("user"),
-                            "assistant" => Some("assistant"),
-                            _ => None,
-                        })
-                        .map(str::to_owned),
-                    timestamp,
-                    text: common::text(
-                        message
-                            .and_then(|value| value.get("content"))
-                            .or_else(|| payload.get("content"))
-                            .unwrap_or(&Value::Null),
-                    ),
-                    payload,
-                };
+                let mut event = native_event(payload, ordinal);
+                event.references = event_references;
                 emit(event)
             },
             &mut diagnostics,
@@ -185,6 +162,35 @@ impl Adapter for ClaudeAdapter {
             references,
             complete: stats.complete && references_complete,
         })
+    }
+}
+
+pub(crate) fn native_event(payload: Value, ordinal: u64) -> NativeEvent {
+    let kind = string(&payload, "type").unwrap_or("unknown");
+    let message = payload.get("message");
+    let timestamp = event_timestamp(&payload);
+    NativeEvent {
+        references: Vec::new(),
+        ordinal,
+        native_id: string(&payload, "uuid").map(str::to_owned),
+        parent_id: string(&payload, "parentUuid").map(str::to_owned),
+        kind: kind.to_owned(),
+        role: message
+            .and_then(|message| string(message, "role"))
+            .or(match kind {
+                "user" => Some("user"),
+                "assistant" => Some("assistant"),
+                _ => None,
+            })
+            .map(str::to_owned),
+        timestamp,
+        text: common::text(
+            message
+                .and_then(|value| value.get("content"))
+                .or_else(|| payload.get("content"))
+                .unwrap_or(&Value::Null),
+        ),
+        payload,
     }
 }
 
@@ -323,4 +329,13 @@ impl SessionFacts {
             model: self.model,
         }
     }
+}
+
+pub(crate) fn parts(event: &NativeEvent) -> Vec<RecordPart> {
+    if event.role.is_none() && event.kind != "system" {
+        return Vec::new();
+    }
+    let payload = &event.payload;
+    let content = payload.pointer("/message/content").or_else(|| payload.get("content"));
+    content.map(|c| parts::content(c, PartKind::Text)).unwrap_or_default()
 }

@@ -6,6 +6,8 @@
 pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    #[error("invalid native zstd transport: {0}")]
+    NativeTransport(#[source] std::io::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
@@ -49,6 +51,7 @@ impl Error {
             Self::PasswordRequired => "password_required",
             Self::ArchiveNotEncrypted => "archive_not_encrypted",
             Self::ConversationNotFound => "conversation_not_found",
+            Self::NativeTransport(_) => "invalid_native_transport",
             Self::Io(_) => "io_error",
             Self::Json(_) => "invalid_json",
             Self::Store(_) => "storage_error",
