@@ -43,7 +43,6 @@ fn migrations(db: Db) -> Vec<Migration> {
         Db::Archive => {
             let mut steps = vec![archive::migration()];
             steps.extend(backup_identity::archive());
-            steps.push(Migration::sql(24, "INSERT INTO archive_meta(name,value) VALUES('runOrigin',lower(hex(randomblob(16))))"));
             steps
         }
         Db::SourceEvidence => vec![source_evidence::migration()],

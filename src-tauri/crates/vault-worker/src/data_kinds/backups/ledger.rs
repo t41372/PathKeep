@@ -104,6 +104,7 @@ pub(super) fn remember(
         tx.execute("INSERT INTO ah_backup_deliveries(request_id,request_hash,task_id,decision) VALUES(?1,?2,?3,?4)",
             params![request,hash,task.clone(),decision])?;
         if decision=="dismiss" {
+            tx.execute("UPDATE ah_format_notices SET dismissed=1 WHERE run_id=(SELECT run_id FROM ah_desktop_backups WHERE task_id=?1)",[task.clone()])?;
             tx.execute("UPDATE ah_desktop_backups SET acknowledged=1 WHERE task_id=?1",[task])?;
         }else if decision=="cancel" {
             tx.execute("UPDATE ah_desktop_backups SET stop_reason='cancelled' WHERE task_id=?1",[task])?;

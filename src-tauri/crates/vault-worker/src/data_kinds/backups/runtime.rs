@@ -159,7 +159,10 @@ impl Producer {
                 }),
             );
         }
-        let reasons = row.report["issues"]
+        let reasons = row
+            .report
+            .get("captureOutcome")
+            .map_or(&row.report["issues"], |v| &v["warnings"])
             .as_array()
             .into_iter()
             .flatten()
@@ -171,7 +174,8 @@ impl Producer {
             json!({
                 "batchId":intent.task,"taskId":intent.task,"runRef":detail["runRef"],
                 "kind":"agent-history","trigger":intent.trigger,"result":detail["result"],
-                "summary":detail["summary"],"reasonCodes":reasons
+                "summary":detail["summary"],"reasonCodes":reasons,
+                "noteCount":detail["noteCount"],"newNoteCount":detail["newNoteCount"],"formatNotices":row.format_notices
             }),
         );
     }

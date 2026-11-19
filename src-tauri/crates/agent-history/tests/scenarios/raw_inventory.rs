@@ -50,9 +50,9 @@ fn unparseable_evidence_beyond_the_preview_limit_is_recoverable_after_source_del
     case.init();
     let backup = case.call("backup", execute(sources));
     case.equal(
-        "invalid compression cannot claim full interpretation",
+        "invalid compression leaves the raw backup successful",
         backup["status"].clone(),
-        json!("partial"),
+        json!("complete"),
     );
     case.equal(
         "parser failures do not suppress raw capture",

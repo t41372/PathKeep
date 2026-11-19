@@ -175,6 +175,19 @@ const EVIDENCE: &[&str] = &[
     "CREATE INDEX ah_desktop_backups_retry ON ah_desktop_backups(retry_of)",
     "CREATE INDEX ah_sources_root_id ON ah_sources(harness,root,id)",
     "CREATE INDEX ah_backup_runs_time ON ah_backup_runs(started_at DESC,id DESC)",
+    "CREATE TABLE ah_capture_notes(id INTEGER PRIMARY KEY,root_id TEXT NOT NULL,tool TEXT NOT NULL,subject TEXT NOT NULL,code TEXT NOT NULL,
+        qualifier TEXT NOT NULL,first_run INTEGER NOT NULL,UNIQUE(root_id,subject,code,qualifier))",
+    "CREATE TABLE ah_run_notes(run_id INTEGER NOT NULL,note_id INTEGER NOT NULL REFERENCES ah_capture_notes(id),
+        path TEXT,ordinal TEXT,detail TEXT,PRIMARY KEY(run_id,note_id))",
+    "CREATE TABLE ah_run_note_counts(run_id INTEGER NOT NULL,root_id TEXT NOT NULL,tool TEXT NOT NULL,code TEXT NOT NULL,
+        version TEXT NOT NULL,seen INTEGER NOT NULL,fresh INTEGER NOT NULL,PRIMARY KEY(run_id,root_id,code,version))",
+    "CREATE TABLE ah_format_notices(tool TEXT NOT NULL,version TEXT NOT NULL,run_id INTEGER NOT NULL,
+        dismissed INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(tool,version))",
+    "CREATE INDEX ah_format_notices_run ON ah_format_notices(run_id,dismissed)",
+    "CREATE VIEW ah_pending_backup_attention AS
+        SELECT d.run_id FROM ah_desktop_backups d JOIN ah_backup_runs r ON r.id=d.run_id
+        WHERE r.status IN ('failed','partial') AND d.acknowledged=0
+        UNION SELECT run_id FROM ah_format_notices WHERE dismissed=0",
 ];
 
 const USER_STATE: &str = "CREATE TABLE ah_user_state (

@@ -162,7 +162,7 @@ fn committed_backup_survives_a_failed_slice_reclamation() {
     assert_ne!(head.id, old.revision_id);
     let saved = result.unwrap();
     assert!(saved.issues.iter().any(|issue| issue.code == "slice_reclamation_deferred"));
-    assert_eq!(archive.backup_run(saved.run_id).unwrap().status, "partial");
+    assert_eq!(archive.backup_run(saved.run_id).unwrap().status, "complete");
     assert_eq!(archive.session(&old.id).unwrap().revision_id, head.id);
     archive
         .store

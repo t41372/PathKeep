@@ -61,6 +61,7 @@ impl Archive {
             bytes: 0,
             run_id,
             issues: Vec::new(),
+            capture_outcome: None,
             warning_sources: Default::default(),
         };
         let outcome = reparse(self, &source, &artifact, &raw, options, &mut report);

@@ -152,16 +152,27 @@ impl Vault {
             password::check_partial_root(&paths, key.is_some())?;
         }
         if live_archive {
-            store.write(Db::Archive, Priority::Interactive, |s| {
-            s.execute(
-                // One process owns the archive, so a run still running when it opens was cut
-                // short, whatever its kind (a retention prune, a repair, an index build).
-                "UPDATE runs SET status='interrupted', finished_at=?1 WHERE status='running'",
-                [crate::utils::now_rfc3339()],
-            )?;
-            s.execute("UPDATE import_batches SET status='interrupted',previous_status='interrupted' WHERE status='running'", ())?;
-            Ok(())
-        }).map_err(|e| e.at(Db::Archive, vault_store::OpenStage::Recover))?;
+            store
+                .write(Db::Archive, Priority::Interactive, |s| {
+                    // Assign the installed ledger an origin before a reader can publish a link.
+                    s.execute(
+                        "INSERT OR IGNORE INTO archive_meta(name,value)
+                         VALUES('runOrigin',lower(hex(randomblob(16))))",
+                        (),
+                    )?;
+                    // A running entry at owner open was interrupted, whatever its operation.
+                    s.execute(
+                        "UPDATE runs SET status='interrupted', finished_at=?1 WHERE status='running'",
+                        [crate::utils::now_rfc3339()],
+                    )?;
+                    s.execute(
+                        "UPDATE import_batches SET status='interrupted',previous_status='interrupted'
+                         WHERE status='running'",
+                        (),
+                    )?;
+                    Ok(())
+                })
+                .map_err(|e| e.at(Db::Archive, vault_store::OpenStage::Recover))?;
             crate::ai_queue::recover_owner_claims(&store, config.ai.job_queue_paused)
                 .and_then(|()| crate::intelligence_runtime::recover_owner_claims(&store))
                 .map_err(|e| e.at(Db::Intelligence, vault_store::OpenStage::Recover))?;

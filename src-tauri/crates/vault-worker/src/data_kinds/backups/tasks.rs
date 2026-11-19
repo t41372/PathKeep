@@ -48,7 +48,8 @@ pub(super) fn task_row(runtime: &Runtime, r: &Record) -> Result<Value> {
         "complete" => "succeeded",
         other => other,
     };
-    let attention = matches!(state, "partial" | "failed") && !r.ack;
+    let attention =
+        (matches!(state, "partial" | "failed") && !r.ack) || !r.format_notices.is_empty();
     let mut progress = None;
     let active = runtime.active.lock().unwrap();
     if state == "running"
@@ -77,6 +78,9 @@ pub(super) fn task_row(runtime: &Runtime, r: &Record) -> Result<Value> {
     let mut row = json!({"taskId":id,"kind":"agent-history","operation":"backup","trigger":r.trigger,"state":state,
         "phase":phase,"runRef":format!("agent-history:{}",r.public),"startedAt":r.started,"attention":attention,
         "actions":actions,"holdsQuit":matches!(state,"running"|"cancelling"),"snapshotToken":token});
+    if !r.format_notices.is_empty() {
+        row["formatNotices"] = json!(r.format_notices);
+    }
     if let Some(mut p) = progress {
         if let Some(tools) = p.as_object_mut().and_then(|v| v.remove("perTool")) {
             row["perTool"] = tools;
@@ -122,7 +126,7 @@ pub fn tasks(session: &VaultSession, req: ListTasks) -> Result<Value> {
     let (from, to) = (midnight(date)?, midnight(date.succ_opt().ok_or(Refusal::InvalidRequest)?)?);
     let predicate = match req.group {
         Group::Running => "r.status='running'",
-        Group::Attention => "r.status IN ('partial','failed') AND d.acknowledged=0",
+        Group::Attention => "r.id IN (SELECT run_id FROM ah_pending_backup_attention)",
         Group::Today => "r.finished_at>=?3 AND r.finished_at<?4",
         Group::Waiting => unreachable!(),
     };
@@ -152,8 +156,12 @@ pub fn task_summary(session: &VaultSession, _: super::super::Empty) -> Result<Va
     if vault.agent_visibility(&config.capture_policy)? == KindState::Off {
         return Ok(json!({"runningCount":0,"queuedCount":0,"attentionCount":"0","running":[]}));
     }
-    let count=vault.store().read(Db::AgentHistoryEvidence,|s|s.query_one("SELECT COUNT(*) FROM ah_backup_runs r
-        JOIN ah_desktop_backups d ON r.id=d.run_id WHERE r.status IN ('partial','failed') AND d.acknowledged=0",(),|r|Ok(r.get::<i64>(0)?)))?;
+    let count =
+        vault.store().read(Db::AgentHistoryEvidence, |s| {
+            s.query_one("SELECT COUNT(*) FROM ah_pending_backup_attention", (), |r| {
+                Ok(r.get::<i64>(0)?)
+            })
+        })?;
     let id = session.conversations.active.lock().unwrap().as_ref().map(|a| a.intent.task.clone());
     let mut running = Vec::new();
     if let Some(id) = id {
@@ -263,7 +271,16 @@ pub(crate) fn cancel_active(session: &VaultSession, task: Option<&str>) -> Vec<S
 
 pub(super) fn event(row: &Value) -> Value {
     let mut event = json!({});
-    for field in ["taskId", "state", "phase", "progress", "actions", "attention", "snapshotToken"] {
+    for field in [
+        "taskId",
+        "state",
+        "phase",
+        "progress",
+        "actions",
+        "attention",
+        "formatNotices",
+        "snapshotToken",
+    ] {
         if let Some(value) = row.get(field) {
             event[field] = value.clone();
         }

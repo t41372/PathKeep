@@ -42,7 +42,8 @@ pub(super) fn capture_raw(
             if reference.is_some() {
                 archive.reference_coverage_scope(source_id)?;
             }
-            let code = if matches!(error, Error::SourceChanged(_)) {
+            let transient = matches!(error, Error::SourceChanged(_));
+            let code = if transient {
                 "source_changed_during_capture"
             } else {
                 "source_capture_unavailable"
@@ -50,15 +51,15 @@ pub(super) fn capture_raw(
             archive.file_problem(
                 report.run_id,
                 source_id,
-                if matches!(error, Error::SourceChanged(_)) { "unstable" } else { "unavailable" },
+                if transient { "unstable" } else { "unavailable" },
             )?;
             if let Some(reason) = reference {
                 *reason = Some(
-                    match &error {
+                    match error {
+                        Error::SourceChanged(_) => "changing",
                         Error::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
                             "missing"
                         }
-                        Error::InvalidInput(_) | Error::Unsupported(_) => "unsafe_path",
                         _ => "authority_unavailable",
                     }
                     .into(),

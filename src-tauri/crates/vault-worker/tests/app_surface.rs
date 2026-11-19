@@ -412,3 +412,6 @@ fn paused_without_a_grant_can_only_activate_via_a_readable_preview() {
     assert_eq!(to_value(pause()).unwrap()["kinds"][1]["hasBackupSource"], true);
     f.session.close_vault().unwrap();
 }
+
+#[path = "app_surface/outcomes.rs"]
+mod outcomes;

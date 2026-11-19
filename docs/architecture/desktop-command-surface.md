@@ -339,6 +339,14 @@ The owner emits `pathkeep://data-kinds-changed` on policy publication,
 `pathkeep://kind-backup-finished` at completion and
 `pathkeep://agent-catalog-changed` for overview invalidation. Refetch after
 unlock, reconnect or an event gap. The terminal run and attention are durable.
+
+Conversation runs report save failures in `warningCount` and `warnings`. Retained format
+limitations and transient changes appear in `noteCount`, `newNoteCount` and the paged
+`notes` on run detail. A source row groups its most recent notes by code. Counts are decimal
+strings. Reports predating note accounting omit the counts. A successful task may have
+`attention: true` and `formatNotices` containing the first newly encountered tool/version
+pairs. Dismissing that task acknowledges those notices. The finish event includes both
+note counts and the list of newly raised format notices.
 The legacy browsing backup command and its progress and report remain the
 browsing screen's entry point.
 

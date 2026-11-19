@@ -189,7 +189,11 @@ impl<'a> ParseState<'a> {
                 code: code.into(),
                 path: Some(self.context.relative_path.clone()),
                 ordinal,
-                detail: None,
+                detail: (code == "pi-unsupported-version")
+                    .then_some(self.version)
+                    .flatten()
+                    .filter(|v| *v > CURRENT_VERSION)
+                    .map(|v| v.to_string()),
             },
         );
     }

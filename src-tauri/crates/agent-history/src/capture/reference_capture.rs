@@ -71,6 +71,12 @@ pub(super) fn capture_reference(
                 }
                 outcome(archive, parent_revision, reference, None, &mut report.issues)
             } else if reference.kind == "lineage" {
+                let code = if failure.as_deref() == Some("changing") {
+                    "source_changed_during_capture"
+                } else {
+                    "lineage_authority_unavailable"
+                };
+                super::issue(&mut report.issues, code, None);
                 Ok(false)
             } else {
                 outcome(

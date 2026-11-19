@@ -133,9 +133,9 @@ fn corrupt_compressed_sources_remain_recoverable_with_partial_coverage() {
         .to_owned();
     let backup = case.call("backup", execute(source));
     case.equal(
-        "decompression failure is not complete coverage",
+        "decompression failure leaves the raw backup successful",
         backup["status"].clone(),
-        json!("partial"),
+        json!("complete"),
     );
     case.truth("decompression has a diagnostic", !backup["issues"].as_array().unwrap().is_empty());
     let revisions = case.call("revisions", args(&["--source-id", &source_id]));
@@ -179,9 +179,9 @@ fn missing_inherited_rollout_is_reported_without_discarding_the_child() {
     let backup =
         case.call("backup", execute(args(&["--source", &format!("codex={}", root.display())])));
     case.equal(
-        "missing inherited history cannot claim complete coverage",
+        "unresolved inherited history leaves selected evidence intact",
         backup["status"].clone(),
-        json!("partial"),
+        json!("complete"),
     );
     case.truth(
         "lineage diagnosis distinguishes absent inherited history",

@@ -99,6 +99,13 @@ impl Archive {
         let now = chrono::Utc::now().timestamp_millis();
         self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             let succeeded=status=="complete";
+            if matches!(status.as_str(),"complete"|"partial"){
+                // Claim the alert in the terminal transaction. A crash before
+                // publication cannot consume a tool/version's single notice.
+                tx.execute("INSERT OR IGNORE INTO ah_format_notices(tool,version,run_id)
+                    SELECT DISTINCT tool,version,run_id FROM ah_run_note_counts WHERE run_id=?1 AND version<>''
+                    AND EXISTS(SELECT 1 FROM ah_desktop_backups WHERE run_id=?1)",[id])?;
+            }
             let changed = tx.execute(
                 "UPDATE ah_backup_runs SET status=?1, finished_at=?2, report_json=?3 WHERE
                     id=?4 AND status='running'",

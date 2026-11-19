@@ -1,5 +1,5 @@
 //! Responsibilities: pin current-tree paths and on-disk migration ledgers across owner reopen.
-//! Not responsible for: asserting release-generated v0.5.0 compatibility; that fixture is deferred.
+//! Includes the released 0.5.0 move file and its originless safety copy.
 
 use super::support::*;
 use vault_store::Db;
@@ -67,7 +67,7 @@ fn encrypted_files_use_the_literal_historical_key_purpose_at_each_path() {
     // Existing copies must already have these versions. These literal reader ceilings run
     // no schema implementation and cannot manufacture a missing fixture marker/table.
     let mut migrations = MigrationRegistry::default();
-    migrations.register(Db::Archive, vec![Migration::rust(24, |_| Ok(()))]);
+    migrations.register(Db::Archive, vec![Migration::rust(23, |_| Ok(()))]);
     migrations.register(Db::SourceEvidence, vec![Migration::rust(1, |_| Ok(()))]);
     migrations.register(Db::Intelligence, vec![Migration::rust(2, |_| Ok(()))]);
     migrations.register(Db::Agent, vec![Migration::rust(1, |_| Ok(()))]);
@@ -119,7 +119,7 @@ fn current_tree_migration_ledgers_and_data_survive_owner_reopen() {
         // The agent-history schemas are not released yet: their ledgers follow the schema.
         let steps = |db| (1..=vault_core::store_schema::schema_version(db)).collect::<Vec<_>>();
         let expected_ledger = serde_json::json!({
-            "archive/history-vault.db":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24],
+            "archive/history-vault.db":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],
             "archive/source-evidence.db":[1], "derived/intelligence.db":[1,2],
             "derived/agent.db":[1], "derived/scratch.db":[],
             "archive/agent-history.db": steps(Db::AgentHistoryEvidence),
@@ -202,4 +202,78 @@ fn ledgers(vault: &vault_core::Vault, decoded: &std::path::Path) -> serde_json::
     assert!(!scratch_tables.iter().any(|name| name == "__pk_migrations"));
     ledgers.insert("derived/scratch.db".into(), serde_json::json!([]));
     serde_json::Value::Object(ledgers)
+}
+
+/// Use the release's actual encrypted move bundle and its sealed safety copy.
+#[test]
+fn released_schema_23_gets_an_origin_only_when_installed() {
+    use serde_json::{Value, from_value, json};
+    use vault_worker::data_kinds::backups;
+    let f = Fixture::new(false);
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/fixtures/v0.5-archive");
+    let facts: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("expected.json")).unwrap()).unwrap();
+    let bundle = dir.join("move-file.pathkeep");
+    let current = f.vault();
+    let preview = vault_worker::preview_import(current.paths(), bundle.clone()).unwrap();
+    assert_eq!(preview.manifest.archive_schema_version, 23);
+    assert!(preview.schema_up_to_date, "0.5.0 move files must not offer a schema update");
+    let lease = f.session.begin_maintenance().unwrap();
+    let password = facts["exportPassword"].as_str().unwrap();
+    let (_, installed) = vault_worker::apply_import(
+        current.paths(),
+        Some(&current),
+        f.session.owner(),
+        bundle,
+        vault_core::ApplyImportOptions {
+            confirm_overwrite: true,
+            source_archive_key: Some(password.into()),
+        },
+    )
+    .unwrap();
+    f.session
+        .install_archive(
+            installed,
+            Some(password.into()),
+            vault_worker::KeychainAfterInstall::AsSaved,
+        )
+        .unwrap();
+    drop(lease);
+    let list = || {
+        backups::list_runs(
+            &f.session,
+            from_value(json!({"space":"browsing","includeArchiveWide":true,"limit":10})).unwrap(),
+        )
+        .unwrap()
+    };
+    let detail = |reference: &Value| {
+        backups::get_run(&f.session, from_value(json!({"runRef":reference})).unwrap())
+    };
+    let first = list()["items"][0]["runRef"].clone();
+    assert!(first.as_str().unwrap().starts_with("browsing:"));
+    assert_eq!(detail(&first).unwrap()["runRef"], first);
+    assert_eq!(
+        ledgers(&f.vault(), &f.sandbox.path().join("released-ledger"))["archive/history-vault.db"]
+            .as_array()
+            .unwrap()
+            .last(),
+        Some(&json!(23))
+    );
+    let copies = vault_worker::list_recovery_snapshots().unwrap();
+    let copy = copies
+        .iter()
+        .find(|c| {
+            std::path::Path::new(&c.path).ends_with(facts["safetyCopy"]["name"].as_str().unwrap())
+        })
+        .unwrap();
+    vault_worker::run_full_archive_restore(
+        &f.session,
+        Some(facts["password"].as_str().unwrap()),
+        &vault_core::SnapshotRestoreRequest { snapshot_path: copy.path.clone() },
+    )
+    .unwrap();
+    let restored = list()["items"][0]["runRef"].clone();
+    assert_eq!(detail(&restored).unwrap()["runRef"], restored);
+    assert_eq!(detail(&first).unwrap_err().to_string(), "record-unavailable");
 }

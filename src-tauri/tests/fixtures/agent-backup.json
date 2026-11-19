@@ -24,10 +24,16 @@
   "events": {
     "pathkeep://background-task-changed": {
       "taskId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
-      "state": "partial",
+      "state": "succeeded",
       "phase": "finished",
-      "actions": ["retry", "dismiss"],
+      "actions": ["dismiss"],
       "attention": true,
+      "formatNotices": [
+        {
+          "tool": "pi",
+          "version": "1000"
+        }
+      ],
       "snapshotToken": "904e92d66d1a50686fa4dd2b8d1783142107b8f2392bf9e770badde1b5c9c0b1"
     },
     "pathkeep://kind-backup-progress": {
@@ -69,7 +75,7 @@
       "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
       "kind": "agent-history",
       "trigger": "enable",
-      "result": "partial",
+      "result": "success",
       "summary": {
         "type": "agent-history",
         "retainedBytes": null,
@@ -87,7 +93,15 @@
         "unclassified": "0",
         "attachmentsChanged": "0"
       },
-      "reasonCodes": ["pi-unsupported-version"]
+      "reasonCodes": [],
+      "noteCount": "1",
+      "newNoteCount": "1",
+      "formatNotices": [
+        {
+          "tool": "pi",
+          "version": "1000"
+        }
+      ]
     }
   },
   "list_data_kinds": {
@@ -122,7 +136,7 @@
             "state": "complete",
             "reasons": []
           },
-          "firstBackup": "partial"
+          "firstBackup": "success"
         }
       ],
       "policyToken": "93456389149c8360a8402e7ee5d0f9ca4541f03570e8d35e5c8d40574ec3429f"
@@ -177,6 +191,15 @@
           },
           "sourceBytes": "64",
           "autoDeletesByDefault": false,
+          "noteCount": "1",
+          "newNoteCount": "1",
+          "notes": [
+            {
+              "code": "pi-unsupported-version",
+              "count": "1",
+              "newCount": "1"
+            }
+          ],
           "lastRun": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
           "reason": "unknown-format"
         }
@@ -227,13 +250,13 @@
         "state": "partial",
         "reasons": ["incomplete-source-observations"]
       },
-      "firstBackup": "partial",
+      "firstBackup": "success",
       "lastRun": {
         "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
         "scope": "agent-history",
         "operation": "backup",
         "trigger": "enable",
-        "result": "partial",
+        "result": "success",
         "startedAt": 1794355200000,
         "summary": {
           "type": "agent-history",
@@ -252,7 +275,15 @@
           "unclassified": "0",
           "attachmentsChanged": "0"
         },
-        "warningCount": "1",
+        "warningCount": "0",
+        "noteCount": "1",
+        "newNoteCount": "1",
+        "formatNotices": [
+          {
+            "tool": "pi",
+            "version": "1000"
+          }
+        ],
         "finishedAt": 1794355200000,
         "durationMs": 0,
         "batchId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d"
@@ -285,6 +316,15 @@
           },
           "sourceBytes": "64",
           "autoDeletesByDefault": false,
+          "noteCount": "1",
+          "newNoteCount": "1",
+          "notes": [
+            {
+              "code": "pi-unsupported-version",
+              "count": "1",
+              "newCount": "1"
+            }
+          ],
           "lastRun": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
           "reason": "unknown-format"
         },
@@ -344,7 +384,7 @@
           "scope": "agent-history",
           "operation": "backup",
           "trigger": "enable",
-          "result": "partial",
+          "result": "success",
           "startedAt": 1794355200000,
           "summary": {
             "type": "agent-history",
@@ -363,7 +403,15 @@
             "unclassified": "0",
             "attachmentsChanged": "0"
           },
-          "warningCount": "1",
+          "warningCount": "0",
+          "noteCount": "1",
+          "newNoteCount": "1",
+          "formatNotices": [
+            {
+              "tool": "pi",
+              "version": "1000"
+            }
+          ],
           "finishedAt": 1794355200000,
           "durationMs": 0,
           "batchId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d"
@@ -387,7 +435,7 @@
       "scope": "agent-history",
       "operation": "backup",
       "trigger": "enable",
-      "result": "partial",
+      "result": "success",
       "startedAt": 1794355200000,
       "summary": {
         "type": "agent-history",
@@ -406,18 +454,28 @@
         "unclassified": "0",
         "attachmentsChanged": "0"
       },
-      "warningCount": "1",
+      "warningCount": "0",
+      "noteCount": "1",
+      "newNoteCount": "1",
+      "formatNotices": [
+        {
+          "tool": "pi",
+          "version": "1000"
+        }
+      ],
       "finishedAt": 1794355200000,
       "durationMs": 0,
       "batchId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
-      "warnings": [
+      "warnings": [],
+      "notes": [
         {
           "code": "pi-unsupported-version",
           "path": "sessions/project/session.jsonl",
           "ordinal": "0",
-          "detail": null,
+          "detail": "1000",
           "rootId": "f144a959ccf23d8d2a2d36ebe5fa634c730dd387ccc92246355f9fd0bf577afe",
-          "tool": "pi"
+          "tool": "pi",
+          "isNew": true
         }
       ],
       "readGit": false,
@@ -474,7 +532,7 @@
       ],
       "coverage": {
         "state": "partial",
-        "reasons": ["partial"]
+        "reasons": ["capture-notes"]
       }
     }
   },
@@ -503,14 +561,20 @@
           "kind": "agent-history",
           "operation": "backup",
           "trigger": "enable",
-          "state": "partial",
+          "state": "succeeded",
           "phase": "finished",
           "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
           "startedAt": 1794355200000,
           "attention": true,
-          "actions": ["retry", "dismiss"],
+          "actions": ["dismiss"],
           "holdsQuit": false,
           "snapshotToken": "904e92d66d1a50686fa4dd2b8d1783142107b8f2392bf9e770badde1b5c9c0b1",
+          "formatNotices": [
+            {
+              "tool": "pi",
+              "version": "1000"
+            }
+          ],
           "endedAt": 1794355200000
         }
       ],
@@ -536,12 +600,12 @@
         "kind": "agent-history",
         "operation": "backup",
         "trigger": "enable",
-        "state": "partial",
+        "state": "succeeded",
         "phase": "finished",
         "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
         "startedAt": 1794355200000,
         "attention": false,
-        "actions": ["retry"],
+        "actions": [],
         "holdsQuit": false,
         "snapshotToken": "89a34b69f983aa595d9dc68a2e85379d28f5f4eced0905029a9210e11d99d2eb",
         "endedAt": 1794355200000
@@ -610,7 +674,7 @@
             "state": "complete",
             "reasons": []
           },
-          "firstBackup": "partial"
+          "firstBackup": "success"
         }
       ],
       "policyToken": "a0504969e656f25bedbd3d32ef90c5a1e303d24ef08e3bce5504f99a6a06b6f2",
@@ -698,7 +762,7 @@
         "response": {
           "runningCount": 1,
           "queuedCount": 0,
-          "attentionCount": "1",
+          "attentionCount": "0",
           "running": [
             {
               "taskId": "f0d29040-77b6-419c-8ab5-2f8910dee3ad",

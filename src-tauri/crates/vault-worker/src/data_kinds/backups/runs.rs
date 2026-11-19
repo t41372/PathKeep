@@ -30,6 +30,8 @@ struct Cursor {
 struct DetailCursor {
     run: String,
     warnings: usize,
+    #[serde(default)]
+    note_id: i64,
     roots: usize,
 }
 
@@ -55,7 +57,9 @@ pub(super) fn page(items: Vec<Value>, next: Option<String>) -> Result<Value> {
 }
 
 const AGENT_SELECT: &str = "SELECT r.id,r.public_id,r.status,r.started_at,r.finished_at,
-    d.trigger,d.scope_json,d.retry_of,d.acknowledged,r.report_json,d.task_id,d.stop_reason
+    d.trigger,d.scope_json,d.retry_of,d.acknowledged,r.report_json,d.task_id,d.stop_reason,
+    (SELECT json_group_array(json_object('tool',tool,'version',version))
+     FROM (SELECT tool,version FROM ah_format_notices WHERE run_id=r.id AND dismissed=0 ORDER BY tool,version))
     FROM ah_backup_runs r LEFT JOIN ah_desktop_backups d ON d.run_id=r.id";
 
 pub(super) struct Record {
@@ -68,6 +72,7 @@ pub(super) struct Record {
     pub scope: Option<Scope>,
     pub retry_of: Option<String>,
     pub ack: bool,
+    pub format_notices: Vec<Value>,
     pub report: Value,
     pub task: Option<String>,
     pub stop_reason: Option<String>,
@@ -93,6 +98,7 @@ impl Record {
             report: report.as_deref().map(parse).transpose()?.unwrap_or_default(),
             task: r.get(10)?,
             stop_reason: r.get(11)?,
+            format_notices: parse(&r.get::<String>(12)?)?,
         })
     }
     pub fn row(&self, vault: &Vault) -> Result<Value> {
@@ -111,6 +117,30 @@ impl Record {
             .sum::<u64>();
         let mut row = json!({"runRef":format!("agent-history:{}",self.public),"scope":"agent-history","operation":"backup","trigger":self.trigger,
             "result":result_name(&self.status),"startedAt":self.started,"summary":summary,"warningCount":warnings.to_string()});
+        if let Some(outcome) = self.report.get("captureOutcome") {
+            for field in ["warningCount", "noteCount", "newNoteCount"] {
+                row[field] = json!(outcome[field].as_u64().map(|v| v.to_string()));
+            }
+        }
+        if self.report.get("captureOutcome").is_none()
+            && matches!(self.status.as_str(), "running" | "interrupted" | "failed")
+        {
+            let id = self.id;
+            let (seen, fresh) = vault.store().read(Db::AgentHistoryEvidence, move |s| {
+                s.query_one(
+                    "SELECT SUM(seen),SUM(fresh) FROM ah_run_note_counts WHERE run_id=?1",
+                    [id],
+                    |r| Ok((r.get::<Option<i64>>(0)?, r.get::<Option<i64>>(1)?)),
+                )
+            })?;
+            if let (Some(seen), Some(fresh)) = (seen, fresh) {
+                row["noteCount"] = json!(seen.to_string());
+                row["newNoteCount"] = json!(fresh.to_string());
+            }
+        }
+        if !self.format_notices.is_empty() {
+            row["formatNotices"] = json!(self.format_notices);
+        }
         if let Some(end) = self.finished {
             row["finishedAt"] = json!(end);
             row["durationMs"] = json!(end.saturating_sub(self.started));
@@ -241,15 +271,32 @@ pub fn get_run(session: &VaultSession, req: GetRun) -> Result<Value> {
         }
         cursor.run = public.to_owned();
         let skip = cursor.warnings;
-        let warnings = record.report["issues"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let outcome = record.report.get("captureOutcome");
+        let warnings = outcome
+            .map_or(&record.report["issues"], |v| &v["warnings"])
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
         if skip > warnings.len() {
             return Err(Refusal::InvalidCursor.into());
         }
         let mut slice = warnings.iter().skip(skip).take(50).cloned().collect::<Vec<_>>();
         for (index, warning) in slice.iter_mut().enumerate() {
-            if let Some(origin) = record.report["warningSources"].get((skip + index).to_string()) {
+            if outcome.is_none()
+                && let Some(origin) =
+                    record.report["warningSources"].get((skip + index).to_string())
+            {
                 warning["rootId"] = origin["rootId"].clone();
                 warning["tool"] = origin["tool"].clone();
+            }
+            if warning.get("rootId").is_none()
+                && let Some(path) = warning["path"].as_str()
+                && let Some(root) = record.scope.as_ref().and_then(|scope| {
+                    scope.roots.iter().find(|root| root.path == std::path::Path::new(path))
+                })
+            {
+                warning["rootId"] = json!(root.id);
+                warning["tool"] = json!(root.tool);
             }
             if let Some(ordinal) = warning["ordinal"].as_u64() {
                 warning["ordinal"] = json!(ordinal.to_string());
@@ -258,6 +305,14 @@ pub fn get_run(session: &VaultSession, req: GetRun) -> Result<Value> {
         cursor.warnings += slice.len();
         row["warnings"] = json!(slice);
         let mut more = cursor.warnings < warnings.len();
+        let notes = super::notes::detail(&vault, record.id, cursor.note_id)?;
+        more |= notes.len() > 50;
+        let mut items = Vec::new();
+        for (id, note) in notes.into_iter().take(50) {
+            cursor.note_id = id;
+            items.push(note);
+        }
+        row["notes"] = json!(items);
         if let Some(scope) = record.scope {
             row["readGit"] = json!(scope.read_git);
             let mut outcomes = Vec::new();
@@ -303,6 +358,9 @@ pub fn get_run(session: &VaultSession, req: GetRun) -> Result<Value> {
             row["nextCursor"] = json!(serde_json::to_string(&cursor)?);
         }
         row["coverage"] = match record.status.as_str() {
+            "complete" if row["noteCount"].as_str().is_some_and(|v| v != "0") => {
+                json!({"state":"partial","reasons":["capture-notes"]})
+            }
             "complete" => json!({"state":"complete","reasons":[]}),
             "running" => json!({"state":"building","reasons":[]}),
             other => json!({"state":"partial","reasons":[result_name(other)]}),

@@ -76,11 +76,14 @@ fn counts(vault: &Vault, root: Option<&selection::Root>, tool: Option<AgentTool>
 fn source_row(vault: &Vault, policy: &CapturePolicy, r: &selection::Root) -> Result<Value> {
     let key = r.id.clone();
     let last=vault.store().read(Db::AgentHistoryEvidence,move |s|s.query_one(
-        "SELECT o.state,r.public_id,r.status FROM ah_run_roots o JOIN ah_backup_runs r ON r.id=o.run_id
-         WHERE o.root_id=?1 ORDER BY o.run_id DESC LIMIT 1",[key],|r|Ok((r.get::<String>(0)?,r.get::<String>(1)?,r.get::<String>(2)?))).optional())?;
+        "SELECT o.state,r.public_id,r.id,json_type(r.report_json,'$.captureOutcome') FROM ah_run_roots o JOIN ah_backup_runs r ON r.id=o.run_id
+         WHERE o.root_id=?1 ORDER BY o.run_id DESC LIMIT 1",[key],|r|Ok((r.get::<String>(0)?,r.get::<String>(1)?,r.get::<i64>(2)?,r.get::<Option<String>>(3)?))).optional())?;
     let enabled = policy.enabled_tools.contains(&r.tool);
-    let state =
-        if !enabled { "disabled" } else { last.as_ref().map_or("stale", |(s, _, _)| s.as_str()) };
+    let state = if !enabled {
+        "disabled"
+    } else {
+        last.as_ref().map_or("stale", |(s, _, _, _)| s.as_str())
+    };
     let inventory = counts(vault, Some(r), None)?;
     let parts = [
         ("conversations", "transcriptFiles"),
@@ -94,7 +97,10 @@ fn source_row(vault: &Vault, policy: &CapturePolicy, r: &selection::Root) -> Res
     .collect::<Vec<_>>();
     let mut row = json!({"rootId":r.id,"tool":r.tool,"path":r.path,"enabled":enabled,"availability":state,
         "parts":parts,"counts":inventory,"sourceBytes":inventory["sourceBytes"],"autoDeletesByDefault":r.tool==AgentTool::ClaudeCode});
-    if let Some((reason, run, _)) = last {
+    if let Some((reason, run, id, measured)) = last {
+        if measured.is_some() {
+            super::notes::source(vault, id, r.id.clone(), &mut row)?;
+        }
         row["lastRun"] = json!(format!("agent-history:{run}"));
         if reason != "available" {
             row["reason"] = json!(reason);

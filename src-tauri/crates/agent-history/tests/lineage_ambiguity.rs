@@ -87,7 +87,7 @@ fn native_cycle_keeps_each_conversation_readable() {
     let report = archive
         .backup(&[SourceRoot { harness: Harness::Codex, root }], &Default::default())
         .unwrap();
-    assert_eq!(report.status, "partial");
+    assert_eq!(report.status, "complete");
     for id in [first, second] {
         assert!(report.issues.iter().any(|issue| issue.code == "lineage_unresolved"
             && issue.detail.as_deref() == Some("cycle")

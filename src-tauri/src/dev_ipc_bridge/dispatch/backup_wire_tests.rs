@@ -116,7 +116,7 @@ fn conversation_backup_json_examples_match_dispatch() {
             assert!(start.elapsed() < Duration::from_secs(10));
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        assert_eq!(events["pathkeep://kind-backup-finished"]["result"], "partial");
+        assert_eq!(events["pathkeep://kind-backup-finished"]["result"], "success");
         examples["events"] = events;
         invoke(&state, &mut examples, "list_data_kinds", json!({})).await;
         invoke(&state, &mut examples, "get_agent_settings", json!({})).await;

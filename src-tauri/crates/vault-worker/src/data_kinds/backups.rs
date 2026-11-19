@@ -4,6 +4,7 @@ mod browsing_runs;
 #[cfg(test)]
 mod crash_tests;
 mod ledger;
+mod notes;
 mod overview;
 pub use overview::{ListSources, Overview, overview, sources};
 mod runs;

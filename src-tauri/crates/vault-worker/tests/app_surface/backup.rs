@@ -259,7 +259,8 @@ fn first_save_cancel_restart_and_retry_keep_original_scope() {
         .unwrap();
     assert_eq!(receipts, (2, 2), "enable, busy and cancel replays must not allocate runs");
     let retry_row = today()[0].clone();
-    assert_eq!(retry_row["state"], "partial");
+    assert_eq!(retry_row["state"], "succeeded");
+    assert_eq!(retry_row["attention"], false);
     let retry_detail = backups::get_run(
         &fixture.session,
         from_value(json!({"runRef":retry_row["runRef"]})).unwrap(),
@@ -296,147 +297,6 @@ fn first_save_cancel_restart_and_retry_keep_original_scope() {
     }
     let denied = backups::control(&fixture.session, control(&old, "retry"), quiet).unwrap();
     assert_eq!(denied["previewRequired"], true);
-}
-
-/// Losing every selected source refuses activation. A future Pi schema retains
-/// raw bytes and raises durable attention. Correcting the source and retrying
-/// clears that attempt's attention across restart.
-#[test]
-fn source_loss_partial_attention_and_successful_retry() {
-    use std::{
-        sync::Arc,
-        time::{Duration, Instant},
-    };
-    use vault_worker::data_kinds::backups;
-    let f = Fixture::new(true);
-    let folder = f.temp.path().join("agent");
-    let file = folder.join("sessions/project/one.jsonl");
-    let pi = |version: u64| {
-        format!(
-            "{{\"type\":\"session\",\"version\":{version},\"id\":\"one\",\"timestamp\":\"2026-11-10T12:00:00Z\",\"cwd\":\"/synthetic\"}}\n"
-        )
-    };
-    write(&file, pi(1000).as_bytes());
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-    let request = || {
-        let mut frames = preview::start(
-            &f.session,
-            from_value(json!({"purpose":"enable","pickedFolder":{"tool":"pi","path":folder}}))
-                .unwrap(),
-        )
-        .unwrap();
-        let inventory = runtime.block_on(async {
-            loop {
-                let frame = frames.next_frame().await.unwrap();
-                if frame["type"] == "finished" {
-                    break frame["payload"].clone();
-                }
-            }
-        });
-        from_value(json!({"requestId":uuid::Uuid::new_v4().to_string(),"previewId":inventory["previewId"],"selectedRootIds":[inventory["rows"][0]["rootId"]],"readGit":false,
-            "expectedPolicyToken":kinds::settings().unwrap().policy_token})).unwrap()
-    };
-    let lost = request();
-    let other = folder.with_extension("offline");
-    std::fs::rename(&folder, &other).unwrap();
-    assert!(backups::enable(&f.session, lost, Arc::new(|_, _| {})).is_err());
-    assert_eq!(kinds::settings().unwrap().policy.agent_history, KindState::Off);
-    std::fs::rename(&other, &folder).unwrap();
-    let receipt = backups::enable(&f.session, request(), Arc::new(|_, _| {})).unwrap();
-    let wait = |id: &serde_json::Value| {
-        let start = Instant::now();
-        loop {
-            let rows = backups::tasks(
-                &f.session,
-                from_value(json!({"group":"today","limit":20})).unwrap(),
-            )
-            .unwrap();
-            if let Some(row) = rows["items"].as_array().unwrap().iter().find(|r| r["taskId"] == *id)
-            {
-                return row.clone();
-            }
-            assert!(start.elapsed() < Duration::from_secs(10));
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    };
-    let first = wait(&receipt["firstSave"]["taskId"]);
-    assert_eq!(first["state"], "partial");
-    assert_eq!(first["attention"], true);
-    let sources = backups::sources(&f.session, from_value(json!({"limit":20})).unwrap()).unwrap();
-    let source = sources["items"].as_array().unwrap().iter().find(|r| r["tool"] == "pi").unwrap();
-    assert_eq!(source["availability"], "unknown-format", "{sources}");
-    let overview =
-        backups::overview(&f.session, from_value(json!({"purpose":"backup"})).unwrap()).unwrap();
-    assert_eq!(overview["firstBackup"], "partial");
-    let detail =
-        backups::get_run(&f.session, from_value(json!({"runRef":first["runRef"]})).unwrap())
-            .unwrap();
-    assert_eq!(detail["readGit"], false);
-    assert_eq!(detail["summary"]["filesVisited"], "1");
-    assert_eq!(detail["summary"]["unknownFormat"], "1");
-    assert_eq!(detail["roots"][0]["availability"], "unknown-format");
-    assert_eq!(detail["perTool"][0]["availability"], "unknown-format");
-    assert_eq!(detail["roots"][0]["counts"]["filesCaptured"], "1");
-    assert_eq!(
-        overview["perTool"].as_array().unwrap().iter().find(|r| r["tool"] == "pi").unwrap()["sourceBytes"],
-        pi(1000).len().to_string()
-    );
-    let attention = || {
-        backups::task_summary(&f.session, from_value(json!({})).unwrap()).unwrap()["attentionCount"]
-            .clone()
-    };
-    f.session.close_vault().unwrap();
-    assert_eq!(attention(), "1");
-    let added = f.temp.path().join("another-pi");
-    write(&added.join("sessions/new.jsonl"), pi(3).replace("one", "two").as_bytes());
-    let mut frames = preview::start(
-        &f.session,
-        from_value(json!({"purpose":"rescan","pickedFolder":{"tool":"pi","path":added}})).unwrap(),
-    )
-    .unwrap();
-    let review = runtime.block_on(async {
-        loop {
-            let frame = frames.next_frame().await.unwrap();
-            if frame["type"] == "finished" {
-                break frame["payload"].clone();
-            }
-        }
-    });
-    let patch = json!({"selectedRootIds":[source["rootId"],review["rows"][0]["rootId"]],"expectedToken":kinds::settings().unwrap().policy_token});
-    let refused =
-        kinds::update_sources(&f.session, from_value(patch.clone()).unwrap(), |_| {}).unwrap_err();
-    assert_eq!(refused.downcast::<Refusal>().unwrap().code(), "enable-preview-required");
-    let mut reviewed = patch;
-    reviewed["previewId"] = review["previewId"].clone();
-    kinds::update_sources(&f.session, from_value(reviewed).unwrap(), |_| {}).unwrap();
-    write(&file, pi(3).as_bytes());
-    let retry=backups::control(&f.session,from_value(json!({"taskId":first["taskId"],"action":"retry","expectedToken":first["snapshotToken"],"requestId":uuid::Uuid::new_v4().to_string()})).unwrap(),Arc::new(|_,_|{})).unwrap();
-    assert_eq!(wait(&retry["replacementTaskId"])["state"], "succeeded");
-    assert_eq!(attention(), "0");
-    let roots = f
-        .session
-        .vault()
-        .unwrap()
-        .store()
-        .read(vault_store::Db::AgentHistoryEvidence, |s| {
-            s.query("SELECT DISTINCT root FROM ah_sources", (), |r| Ok(r.get::<String>(0)?))
-        })
-        .unwrap();
-    assert_eq!(roots, [folder.canonicalize().unwrap().to_str().unwrap()]);
-    let save = || {
-        let d=backups::start(&f.session,from_value(json!({"scope":{"type":"kind","kind":"agent-history"},"requestId":uuid::Uuid::new_v4().to_string()})).unwrap(),Arc::new(|_,_|{})).unwrap();
-        let row = wait(&d["kinds"][0]["taskId"]);
-        backups::get_run(&f.session, from_value(json!({"runRef":row["runRef"]})).unwrap()).unwrap()
-    };
-    std::fs::remove_file(&file).unwrap();
-    let absent = save();
-    assert_eq!(absent["summary"]["filesAbsent"], "1");
-    assert_eq!(absent["result"], "success");
-    std::fs::rename(&folder, folder.with_extension("offline-again")).unwrap();
-    let offline = save();
-    assert_eq!(offline["result"], "partial");
-    assert_eq!(offline["summary"]["filesAbsent"], "0", "an inaccessible root cannot prove absence");
-    assert_eq!(offline["roots"][0]["availability"], "root-missing");
 }
 
 /// Stop a large first save at a known raw commit. Pausing and turning off each

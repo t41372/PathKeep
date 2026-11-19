@@ -8,6 +8,7 @@
 mod attachment_counts;
 mod attachment_outcomes;
 mod capture_facts;
+mod capture_notes;
 mod chunks;
 mod comparison;
 mod conversation;

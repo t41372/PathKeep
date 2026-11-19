@@ -219,9 +219,9 @@ fn rewrite_truncation_partial_tail_and_deletion_keep_every_raw_revision() {
     write(&file, &incomplete);
     let partial = case.call("backup", execute(source_args.clone()));
     case.equal(
-        "incomplete tail has explicit partial coverage",
+        "incomplete tail preserves the captured bytes",
         partial["status"].clone(),
-        json!("partial"),
+        json!("complete"),
     );
     case.truth(
         "partial coverage gives a machine-readable reason",

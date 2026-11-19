@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::{Diagnostic, Error, ParseContext, Reference, Result};
 
-const DIAGNOSTIC_SAMPLES: usize = 128;
+pub(crate) const DIAGNOSTIC_SAMPLES: usize = 128;
 pub(crate) const REFERENCE_LIMIT: usize = 4096;
 pub(crate) const REFERENCE_TARGET_BYTES: usize = 64 * 1024;
 pub(crate) const REFERENCE_TOTAL_BYTES: usize = 4 * 1024 * 1024;
@@ -134,13 +134,13 @@ fn record_issue(issues: &mut Vec<Diagnostic>, context: &ParseContext, ordinal: u
 
 /// Keeps representative failures bounded while recording how many were omitted.
 pub fn push_diagnostic(issues: &mut Vec<Diagnostic>, issue: Diagnostic) {
-    if issue.code == "diagnostics_omitted" {
+    if issue.omission() {
         let omitted = issue.detail.as_deref().and_then(|n| n.parse::<u64>().ok()).unwrap_or(1);
-        add_omitted(issues, omitted);
+        add_omitted(issues, &issue.code, omitted);
         return;
     }
-    let summary = issues.iter().position(|issue| issue.code == "diagnostics_omitted");
-    let samples = issues.len().saturating_sub(usize::from(summary.is_some()));
+    let summary = issues.iter().position(Diagnostic::omission);
+    let samples = summary.unwrap_or(issues.len());
     if samples < DIAGNOSTIC_SAMPLES {
         if let Some(index) = summary {
             issues.insert(index, issue);
@@ -148,17 +148,21 @@ pub fn push_diagnostic(issues: &mut Vec<Diagnostic>, issue: Diagnostic) {
             issues.push(issue);
         }
     } else {
-        add_omitted(issues, 1);
+        add_omitted(
+            issues,
+            if issue.save_warning() { "capture_warnings_omitted" } else { "diagnostics_omitted" },
+            1,
+        );
     }
 }
 
-fn add_omitted(issues: &mut Vec<Diagnostic>, omitted: u64) {
-    if let Some(summary) = issues.iter_mut().find(|issue| issue.code == "diagnostics_omitted") {
+fn add_omitted(issues: &mut Vec<Diagnostic>, code: &str, omitted: u64) {
+    if let Some(summary) = issues.iter_mut().find(|issue| issue.code == code) {
         let previous = summary.detail.as_deref().and_then(|n| n.parse::<u64>().ok()).unwrap_or(0);
         summary.detail = Some(previous.saturating_add(omitted).to_string());
     } else {
         issues.push(Diagnostic {
-            code: "diagnostics_omitted".into(),
+            code: code.into(),
             path: None,
             ordinal: None,
             detail: Some(omitted.to_string()),

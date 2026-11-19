@@ -5,6 +5,9 @@
 //! the operation; source limitations retain earlier evidence and produce diagnostics.
 mod debug_delay;
 mod defaults;
+mod diagnostics;
+use diagnostics::RootOutcome;
+pub use diagnostics::{CaptureOutcome, SaveWarning};
 pub(crate) mod discovery;
 pub use discovery::Discovery;
 mod grant;
@@ -89,6 +92,8 @@ pub struct BackupReport {
     pub unchanged: u64,
     pub bytes: u64,
     pub run_id: i64,
+    #[serde(rename = "captureOutcome", skip_serializing_if = "Option::is_none")]
+    pub capture_outcome: Option<CaptureOutcome>,
     pub issues: Vec<Diagnostic>,
     /// Bounded indices into the native report, with the directory that produced the warning.
     #[serde(
@@ -133,39 +138,51 @@ impl Archive {
         options: &BackupOptions,
         issues: Vec<Diagnostic>,
     ) -> Result<BackupReport> {
+        let mut capture_outcome = CaptureOutcome::default();
+        // The owner rejected these selected directories before discovery could start.
+        for issue in &issues {
+            capture_outcome.warning(issue, None);
+        }
         let mut report = BackupReport {
             status: "complete".into(),
             captured: 0,
             unchanged: 0,
             bytes: 0,
             run_id,
+            capture_outcome: Some(capture_outcome),
             warning_sources: Default::default(),
             issues,
         };
-        let outcome = execute(self, selected, declared, options, &mut report);
-        match outcome {
-            Ok(()) => {
-                if !report.issues.is_empty() {
-                    report.status = "partial".into();
-                }
-                self.end_backup_run(run_id, &report.status, &serde_json::to_value(&report)?)?;
-                Ok(report)
+        let outcome = execute(self, selected, declared, options, &mut report).and_then(|()| {
+            if report.capture_outcome.as_ref().is_some_and(|o| o.warning_count > 0) {
+                report.status = "partial".into();
             }
-            Err(error) => {
-                report.status = if matches!(error, Error::Cancelled) {
-                    "interrupted".into()
-                } else {
-                    "failed".into()
+            self.end_backup_run(run_id, &report.status, &serde_json::to_value(&report)?)
+        });
+        if let Err(error) = outcome {
+            report.status = if matches!(error, Error::Cancelled) {
+                "interrupted"
+            } else {
+                let issue = Diagnostic {
+                    code: "archive-publication-failed".into(),
+                    path: None,
+                    ordinal: None,
+                    detail: Some(error.code().into()),
                 };
-                // Preserve the original destination/cancellation error if writing its
-                // terminal audit record also fails. Recovery marks it interrupted.
-                if let Ok(mut saved) = serde_json::to_value(&report) {
-                    saved["error_code"] = serde_json::json!(error.code());
-                    let _ = self.end_backup_run(run_id, &report.status, &saved);
-                }
-                Err(error)
+                report.capture_outcome.as_mut().expect("backup outcome").warning(&issue, None);
+                common::push_diagnostic(&mut report.issues, issue);
+                if report.captured > 0 || report.unchanged > 0 { "partial" } else { "failed" }
             }
+            .into();
+            // Preserve the original error if the archive cannot even publish the
+            // terminal receipt. Open will then recover the attempt as interrupted.
+            if let Ok(mut saved) = serde_json::to_value(&report) {
+                saved["error_code"] = serde_json::json!(error.code());
+                let _ = self.end_backup_run(run_id, &report.status, &saved);
+            }
+            return Err(error);
         }
+        Ok(report)
     }
 }
 
@@ -199,43 +216,30 @@ fn execute(
     for source in sources {
         check_cancel(options)?;
         let root_key = plan::root_identity(source)?;
-        let mut earlier = std::mem::take(&mut report.issues);
-        let result = capture_root(archive, source, &root_key, declared_roots, options, report);
-        if result.is_ok() {
-            archive.root_outcome(report.run_id, &root_key, source, root_outcome(&report.issues))?;
-        }
-        for issue in report.issues.drain(..) {
-            let sample = earlier
-                .iter()
-                .position(|d| d.code == "diagnostics_omitted")
-                .unwrap_or(earlier.len());
-            common::push_diagnostic(&mut earlier, issue);
-            if earlier.get(sample).is_some_and(|d| d.code != "diagnostics_omitted") {
-                report.warning_sources.insert(
-                    sample,
-                    WarningSource { root_id: root_key.clone(), tool: source.harness },
-                );
-            }
-        }
-        report.issues = earlier;
-        result?;
+        let mut state = RootOutcome::default();
+        let issues =
+            capture_root(archive, source, &root_key, declared_roots, options, report, &mut state)?;
+        state.include(&issues);
+        record_diagnostics(archive, source, &root_key, None, report, issues)?;
+        archive.root_outcome(report.run_id, &root_key, source, state.state())?;
     }
     check_cancel(options)?;
-    for source in sources.iter().filter(|source| {
-        matches!(
+    for source in sources {
+        let root = plan::root_identity(source)?;
+        let earlier = std::mem::take(&mut report.issues);
+        if matches!(
             source.harness,
             crate::Harness::ClaudeCode
                 | crate::Harness::Codex
                 | crate::Harness::Pi
                 | crate::Harness::Deepseek
-        )
-    }) {
-        if options.validate_root(&source.root).is_ok() {
+        ) && options.validate_root(&source.root).is_ok()
+        {
             observations::folders(archive, source, options, report)?;
         }
-    }
-    for source in sources {
         archive.lineage_issues_for(&mut report.issues, Some(source), &options.cancel)?;
+        let issues = std::mem::replace(&mut report.issues, earlier);
+        record_diagnostics(archive, source, &root, None, report, issues)?;
     }
     notify_phase(options, "index", None);
     archive.synchronize_search_with_cancel(&|| options.cancel.check().is_err())?;
@@ -244,7 +248,20 @@ fn execute(
     check_cancel(options)?;
     if archive.reclaim_slices_with_cancel(&options.cancel).is_err() {
         check_cancel(options)?;
-        issue(&mut report.issues, "slice_reclamation_deferred", None);
+        let mut cleanup = Vec::new();
+        issue(&mut cleanup, "slice_reclamation_deferred", None);
+        if let Some(source) = sources.first() {
+            record_diagnostics(
+                archive,
+                source,
+                &plan::root_identity(source)?,
+                None,
+                report,
+                cleanup,
+            )?;
+        } else {
+            report.issues.extend(cleanup);
+        }
     }
     check_cancel(options)?;
     notify_phase(options, "finishing", None);
@@ -258,27 +275,29 @@ fn capture_root(
     declared_roots: &[SourceRoot],
     options: &BackupOptions,
     report: &mut BackupReport,
-) -> Result<()> {
+    state: &mut RootOutcome,
+) -> Result<Vec<Diagnostic>> {
+    let mut discovery_issues = Vec::new();
     let pin = match options.directory(&source.root)? {
         Some(expected) => match directory_handle(&source.root) {
             Ok(handle) if directory_identity(&handle).is_ok_and(|now| now == expected) => {
                 Some((source.root.clone(), Arc::new(handle)))
             }
             _ => {
-                issue(&mut report.issues, "root_changed", source.root.to_str());
+                issue(&mut discovery_issues, "root_changed", source.root.to_str());
                 archive.set_coverage(root_key, false)?;
-                return Ok(());
+                return Ok(discovery_issues);
             }
         },
         None => None,
     };
     if !files::root_readable(&source.root) {
-        issue(&mut report.issues, "root_unreadable", source.root.to_str());
+        issue(&mut discovery_issues, "root_unreadable", source.root.to_str());
         archive.set_coverage(root_key, false)?;
-        return Ok(());
+        return Ok(discovery_issues);
     }
     let discovery = Discovery::new(&options.cancel, pin);
-    let mut discovery_issues = Vec::new();
+
     let mut callback_error = None;
     let delay = debug_delay::configured("PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US");
     let discovered = adapter(source.harness).discover_cancellable(
@@ -291,9 +310,22 @@ fn capture_root(
                 return Err(Error::SourceChanged("reviewed root changed".into()));
             }
             // Declared aliases constrain native references. A reference is never a new grant.
-            if let Err(error) =
-                process_artifact(archive, source, &artifact, declared_roots, options, report)
-            {
+            let earlier = std::mem::take(&mut report.issues);
+            let processed =
+                process_artifact(archive, source, &artifact, declared_roots, options, report);
+            let issues = std::mem::replace(&mut report.issues, earlier);
+            state.include(&issues);
+            let recorded = processed.and_then(|()| {
+                record_diagnostics(
+                    archive,
+                    source,
+                    root_key,
+                    Some(&artifact.relative_path),
+                    report,
+                    issues,
+                )
+            });
+            if let Err(error) = recorded {
                 callback_error = Some(error);
                 return Err(Error::Integrity("capture callback failed".into()));
             }
@@ -318,30 +350,41 @@ fn capture_root(
         issue(&mut discovery_issues, "root_changed", source.root.to_str());
     }
     archive.set_coverage(root_key, discovery_issues.is_empty())?;
-    for diagnostic in discovery_issues {
-        common::push_diagnostic(&mut report.issues, diagnostic);
-    }
-    Ok(())
+    Ok(discovery_issues)
 }
 
-fn root_outcome(issues: &[Diagnostic]) -> &'static str {
+/// Keep the raw CLI samples bounded. Product status and note identities were
+/// recorded at file/root scope before different files' samples are merged.
+fn record_diagnostics(
+    archive: &Archive,
+    source: &SourceRoot,
+    root: &str,
+    file: Option<&str>,
+    report: &mut BackupReport,
+    issues: Vec<Diagnostic>,
+) -> Result<()> {
     if issues.is_empty() {
-        "available"
-    } else if issues.iter().any(|d| d.code == "root_changed") {
-        "root-changed"
-    } else if issues.iter().any(|d| {
-        d.code.contains("unsupported")
-            || d.code.contains("unrecognized")
-            || d.code == "session_metadata_unavailable"
-    }) {
-        "unknown-format"
-    } else if issues.iter().any(|d| {
-        matches!(d.code.as_str(), "source_changed_during_capture" | "first_record_in_progress")
-    }) {
-        "changing"
-    } else {
-        "unreadable"
+        return Ok(());
     }
+    report.capture_outcome.as_mut().expect("backup outcome").observe(
+        archive,
+        report.run_id,
+        root,
+        source.harness,
+        file,
+        &issues,
+    )?;
+    for diagnostic in issues {
+        let sample =
+            report.issues.iter().position(Diagnostic::omission).unwrap_or(report.issues.len());
+        common::push_diagnostic(&mut report.issues, diagnostic);
+        if report.issues.get(sample).is_some_and(|d| !d.omission()) {
+            report
+                .warning_sources
+                .insert(sample, WarningSource { root_id: root.to_owned(), tool: source.harness });
+        }
+    }
+    Ok(())
 }
 
 fn process_artifact(
@@ -374,6 +417,11 @@ fn process_artifact(
         archive.set_coverage(&source_id, captured.complete)?;
         return Ok(());
     }
+    if captured.byte_len == 0 && adapter(source.harness).needs_first_line_end() {
+        issue(&mut report.issues, "empty_transcript", Some(&artifact.relative_path));
+        archive.set_coverage(&source_id, false)?;
+        return Ok(());
+    }
     let prepared = match projection::prepare(
         archive,
         source,
@@ -403,6 +451,11 @@ fn process_artifact(
             return Ok(());
         }
     };
+    for diagnostic in &prepared.report.diagnostics {
+        if diagnostic.detail.as_deref() != Some("remote") {
+            common::push_diagnostic(&mut report.issues, diagnostic.clone());
+        }
+    }
     if prepared.report.session.as_ref().is_some_and(|session| session.native_id.is_empty())
         && unreadable::publish(
             archive,
@@ -416,12 +469,10 @@ fn process_artifact(
         archive.set_coverage(&source_id, false)?;
         return Ok(());
     }
-    if prepared
-        .report
-        .diagnostics
-        .iter()
-        .any(|d| d.code.contains("unsupported") || d.code == "session_metadata_unavailable")
-    {
+    if prepared.report.diagnostics.iter().any(|d| {
+        d.code.contains("unsupported")
+            || matches!(d.code.as_str(), "session_metadata_unavailable" | "deepseek-format-limited")
+    }) {
         archive.file_problem(report.run_id, &source_id, "unknownFormat")?;
     }
     let prior = archive.published_identity(&source_id)?;
@@ -429,11 +480,6 @@ fn process_artifact(
     let mut reference_changes = false;
     if !complete && prepared.report.diagnostics.is_empty() {
         issue(&mut report.issues, "source_interpretation_partial", Some(&artifact.relative_path));
-    }
-    for diagnostic in &prepared.report.diagnostics {
-        if diagnostic.detail.as_deref() != Some("remote") {
-            common::push_diagnostic(&mut report.issues, diagnostic.clone());
-        }
     }
     for reference in &prepared.report.references {
         check_cancel(options)?;
