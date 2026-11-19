@@ -20,6 +20,7 @@ import { intelligenceClient } from '@/lib/backend-client/intelligence'
 import { describeError } from '@/lib/errors'
 import {
   cancelModelDownload,
+  isModelDownloadInFlight,
   useModelDownloadProgress,
 } from '@/lib/ipc/model-download'
 import { runLocalSemanticSetup } from '@/lib/ipc/semantic-setup'
@@ -194,11 +195,25 @@ export function useSemanticIndex() {
     }
   }, [buildWith, save])
 
+  /**
+   * The built-in model is downloaded only because semantic search is on and
+   * uses it. Taking either back stops the download, the same as Cancel: no
+   * network work goes on that the user no longer asked for.
+   */
+  const stopDownload = useCallback(async () => {
+    if (!isModelDownloadInFlight()) return
+    cancelled.current = true
+    await cancelModelDownload().catch(() => false)
+  }, [])
+
   /** Chooses the model; its index is built only when the user says so. */
   const chooseModel = useCallback(
     async (providerId: string) => {
       setError(null)
       try {
+        if (providerId !== BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID) {
+          await stopDownload()
+        }
         await save.mutateAsync((config) => {
           config.ai.embeddingProviderId = providerId
           return config
@@ -208,12 +223,13 @@ export function useSemanticIndex() {
         setError(describeError(reason))
       }
     },
-    [refresh, save],
+    [refresh, save, stopDownload],
   )
 
   const disable = useCallback(async () => {
     setError(null)
     try {
+      await stopDownload()
       await save.mutateAsync((config) => {
         config.ai.semanticIndexEnabled = false
         config.ai.enabled = masterStaysOn(config.ai)
@@ -222,7 +238,7 @@ export function useSemanticIndex() {
     } catch (reason) {
       setError(describeError(reason))
     }
-  }, [save])
+  }, [save, stopDownload])
 
   const setAutoUpdate = useCallback(
     (next: boolean) =>
