@@ -35,6 +35,7 @@ export type BackupOutcome =
   | { ok: false; error: unknown; report?: BackupReport }
 
 interface RunOptions {
+  kindSpecific?: boolean
   /** Onboarding shows the result itself, so it turns the toasts off. */
   toast?: boolean
 }
@@ -123,7 +124,7 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
       if (event.source !== 'menu-bar') return
       if (event.report) {
         setLastReport(event.report)
-        announceDone(event.report)
+        if (!event.report.dueSkipped) announceDone(event.report)
       } else {
         announceFailed(event.error)
       }
@@ -133,16 +134,16 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
   }, [announceDone, announceFailed])
 
   const run = useCallback(
-    async ({ toast: notify = true }: RunOptions = {}) => {
+    async ({ toast: notify = true, kindSpecific = false }: RunOptions = {}) => {
       if (runningRef.current) return null
       runningRef.current = true
       setRunning(true)
       setProgress(null)
       const unsubscribe = await subscribeToBackupProgress(setProgress)
       try {
-        const report = await archiveClient.runBackupNow(false)
+        const report = await archiveClient.runBackupNow(false, kindSpecific)
         setLastReport(report)
-        if (notify) announceDone(report)
+        if (notify && !report.dueSkipped) announceDone(report)
         await refreshAfterArchiveChange()
         // A partial run still saved what it read; its warnings say what it left out.
         return { ok: true, report } as const

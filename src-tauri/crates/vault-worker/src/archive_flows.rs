@@ -233,6 +233,17 @@ pub fn run_backup_now_with_progress<F>(
 where
     F: FnMut(BackupProgressEvent),
 {
+    run_browsing_backup(vault, session_database_key, due_only, true, report_progress)
+}
+
+/// Admit the explicit browsing request separately from tray, palette and all-now dispatch.
+pub fn run_browsing_backup(
+    vault: &Vault,
+    session_database_key: Option<&str>,
+    due_only: bool,
+    kind_specific: bool,
+    report_progress: impl FnMut(BackupProgressEvent),
+) -> Result<vault_core::BackupReport> {
     let _running = crate::foreground_work::begin(crate::ForegroundWork::Backup);
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
@@ -241,7 +252,13 @@ where
         &paths,
         &config,
         session_database_key,
-        due_only,
+        if due_only {
+            BrowsingTrigger::Scheduled
+        } else if kind_specific {
+            BrowsingTrigger::Kind
+        } else {
+            BrowsingTrigger::Shared
+        },
         report_progress,
     )
 }
@@ -250,11 +267,25 @@ where
 pub(crate) fn run_scheduled_backup_with_progress(
     vault: &Vault,
     paths: &vault_core::ProjectPaths,
-    config: &vault_core::AppConfig,
     database_key: Option<&str>,
     progress: impl FnMut(BackupProgressEvent),
 ) -> Result<vault_core::BackupReport> {
-    run_backup_with_loaded_config(vault, paths, config, database_key, true, progress)
+    let latest = crate::context::load_background_backup_config(paths)?;
+    run_backup_with_loaded_config(
+        vault,
+        paths,
+        &latest,
+        database_key,
+        BrowsingTrigger::Scheduled,
+        progress,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BrowsingTrigger {
+    Kind,
+    Shared,
+    Scheduled,
 }
 
 fn run_backup_with_loaded_config<F>(
@@ -262,14 +293,24 @@ fn run_backup_with_loaded_config<F>(
     paths: &vault_core::ProjectPaths,
     config: &vault_core::AppConfig,
     session_database_key: Option<&str>,
-    due_only: bool,
+    trigger: BrowsingTrigger,
     mut report_progress: F,
 ) -> Result<vault_core::BackupReport>
 where
     F: FnMut(BackupProgressEvent),
 {
-    let wake_interval =
-        due_only.then(|| vault_platform::ScheduleParameters::from(config).wake_interval(None));
+    if let Some(reason) = config
+        .capture_policy
+        .backup_skip_reason(vault_core::DataKind::Browsing, trigger == BrowsingTrigger::Kind)
+    {
+        return Ok(vault_core::BackupReport {
+            due_skipped: true,
+            reason_code: Some(reason.into()),
+            ..Default::default()
+        });
+    }
+    let wake_interval = (trigger == BrowsingTrigger::Scheduled)
+        .then(|| vault_platform::ScheduleParameters::from(config).wake_interval(None));
     let mut report =
         run_backup_with_progress(&vault.with_config(config.clone()), wake_interval, |event| {
             report_progress(event);

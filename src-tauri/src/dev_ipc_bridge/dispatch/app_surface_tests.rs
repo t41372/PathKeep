@@ -2,6 +2,16 @@
 //! whole-config writes bypassing policy, replay after lock, and preview writing evidence.
 use super::*;
 use crate::dev_ipc_bridge::preview;
+/// Each simulated installation has its own identity and empty native tools home.
+fn isolated_env() -> (crate::test_support::EnvGuard, tempfile::TempDir) {
+    let guard = lock_env();
+    let platform = tempdir().unwrap();
+    unsafe {
+        std::env::set_var("PATHKEEP_PLATFORM_TEST_SANDBOX_DIR", platform.path());
+        std::env::set_var("CHB_AGENT_TOOLS_HOME", platform.path().join("tools"));
+    }
+    (guard, platform)
+}
 fn wire() -> Value {
     serde_json::from_str(include_str!("../../../tests/fixtures/data-kinds-preview.json")).unwrap()
 }
@@ -10,7 +20,7 @@ fn wire() -> Value {
 fn app_surface_policy_contract() {
     // Failure modes: omitted request wrapper, a forged enable or pause, stale
     // policy overwriting another window, and lock leaking the management snapshot.
-    let _guard = lock_env();
+    let (_guard, _platform) = isolated_env();
     let root = tempdir().unwrap();
     unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path()) };
     let state =
@@ -59,6 +69,21 @@ fn app_surface_policy_contract() {
             let err = dispatch_command(&state, cmd, json!({"config":forged})).await.unwrap_err();
             assert_eq!(err.code.as_deref(), Some("last-active-kind"), "{cmd}");
         }
+        forged["capturePolicy"]["browsing"] = json!("on");
+        forged["capturePolicy"]["agentHistory"] = json!("on");
+        forged["capturePolicy"]["enabledTools"] = json!(["pi"]);
+        forged["capturePolicy"]["readGit"] = json!(false);
+        for cmd in ["save_config", "initialize_archive"] {
+            dispatch_command(&state, cmd, json!({"config":forged})).await.unwrap();
+            state.session.close_vault().unwrap();
+            let reopened = state.session.vault().unwrap();
+            assert_eq!(
+                reopened.config().capture_policy,
+                vault_core::CapturePolicy::default(),
+                "{cmd} forged consent"
+            );
+        }
+        assert!(events().iter().all(|(name, _)| *name == "pathkeep://archive-upgrade"));
         let settings = dispatch_command(&state, "get_agent_settings", read).await.unwrap();
         assert_eq!(settings, contract["get_agent_settings"]["response"]);
         assert_eq!(settings["policy"]["enabledTools"], json!([]));
@@ -124,7 +149,7 @@ fn app_surface_policy_contract() {
 
 #[test]
 fn app_surface_preview_contract() {
-    let _guard = lock_env();
+    let (_guard, _platform) = isolated_env();
     let archive = tempdir().unwrap();
     let home = tempdir().unwrap();
     unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, archive.path()) }
@@ -204,7 +229,7 @@ fn app_surface_preview_contract() {
 /// must return the same task and there must be exactly one native backup run.
 #[test]
 fn enable_publishes_one_background_backup_of_the_reviewed_source() {
-    let _guard = lock_env();
+    let (_guard, _platform) = isolated_env();
     let archive = tempdir().unwrap();
     let home = tempdir().unwrap();
     unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, archive.path()) };
@@ -269,7 +294,7 @@ fn enable_publishes_one_background_backup_of_the_reviewed_source() {
 /// before inferring that a run, an approval, or a task does not exist.
 #[test]
 fn damaged_conversation_store_refuses_each_backup_and_tasks_command() {
-    let _guard = lock_env();
+    let (_guard, _platform) = isolated_env();
     let root = tempdir().unwrap();
     unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path()) };
     let state =
@@ -331,7 +356,7 @@ fn damaged_conversation_store_refuses_each_backup_and_tasks_command() {
 
 #[test]
 fn followup_sizes_are_opt_in() {
-    let _guard = lock_env();
+    let (_guard, _platform) = isolated_env();
     let root = tempdir().unwrap();
     unsafe {
         std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
@@ -376,7 +401,7 @@ fn followup_sizes_are_opt_in() {
 
 #[test]
 fn followup_retry_rechecks_the_same_owner() {
-    let _guard = lock_env();
+    let (_guard, _platform) = isolated_env();
     let root = tempdir().unwrap();
     unsafe {
         std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
@@ -419,7 +444,7 @@ fn followup_retry_rechecks_the_same_owner() {
 
 #[test]
 fn followup_preferences_survive_restart_and_hints_preserve_the_preview_token() {
-    let _guard = lock_env();
+    let (_guard, _platform) = isolated_env();
     let root = tempdir().unwrap();
     unsafe {
         std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());

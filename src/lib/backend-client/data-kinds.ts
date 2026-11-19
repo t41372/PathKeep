@@ -81,6 +81,7 @@ export interface DataKindRow {
    * storage cannot be opened, and from a backend that predates it.
    */
   hasBackupSource?: boolean
+  sourceReviewRequired?: boolean
   /** The kind's bytes in the archive; only when asked for (`listWithSizes`). */
   archiveBytes?: WireCount
 }

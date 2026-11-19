@@ -75,7 +75,7 @@ function ChooseFlow({
     preview.state.phase === 'finished' ? preview.state.report : null
   const expired = preview.state.phase === 'finished' && preview.state.expired
   const tools = useMemo(() => (report ? toolChoices(report) : []), [report])
-  const choices = useAgentChoices(tools)
+  const choices = useAgentChoices(tools, report?.previewId)
   const saving = useStartSaving()
   const anyTicked = tools.some(
     (tool) => tool.readable && choices.ticked.has(tool.tool),

@@ -14,13 +14,22 @@ use vault_store::CancelToken;
 /// Desktop discovery pins the reviewed object. Standalone commands can make
 /// a fresh selection at invocation and retain their file-root semantics.
 #[derive(Default)]
-pub struct Discovery {
+pub struct Discovery<'a> {
+    pub(super) progress: Option<&'a dyn Fn() -> crate::Result<()>>,
+    folders: std::cell::Cell<u64>,
+    unknown: std::cell::Cell<u64>,
     cancel: CancelToken,
     root: Option<(PathBuf, Arc<Handle>)>,
 }
-impl Discovery {
+impl Discovery<'_> {
     pub(crate) fn new(cancel: &CancelToken, root: Option<(PathBuf, Arc<Handle>)>) -> Self {
-        Self { cancel: cancel.clone(), root }
+        Self { cancel: cancel.clone(), root, ..Default::default() }
+    }
+    pub(crate) fn visited_entry(&self) -> crate::Result<()> {
+        if let Some(progress) = self.progress {
+            progress()?;
+        }
+        self.check()
     }
     pub(crate) fn check(&self) -> crate::Result<()> {
         self.cancel.check().map_err(|_| crate::Error::Cancelled)
@@ -36,24 +45,45 @@ impl Discovery {
             if rel.as_os_str().is_empty() {
                 return cap::Metadata::from_file(pinned.as_file());
             }
-            cap::stat(pinned.as_file(), rel, cap::FollowSymlinks::No)
+            let dir = Self::descendant(pinned, rel.parent().unwrap_or(Path::new("")))?;
+            cap::stat(
+                &dir,
+                Path::new(rel.file_name().ok_or(io::ErrorKind::InvalidInput)?),
+                cap::FollowSymlinks::No,
+            )
         } else {
             fs::symlink_metadata(path).map(cap::Metadata::from_just_metadata)
         }
     }
-    pub(crate) fn read_dir(&self, path: &Path) -> io::Result<Entries> {
-        let opened = if let Some((root, pinned)) = &self.root {
-            let mut dir = pinned.as_file().try_clone()?;
-            for component in path.strip_prefix(root).map_err(io::Error::other)?.components() {
-                let Component::Normal(name) = component else {
-                    return Err(io::ErrorKind::PermissionDenied.into());
-                };
-                if name.eq_ignore_ascii_case(".git") {
-                    return Err(io::ErrorKind::PermissionDenied.into());
-                }
-                dir = cap::open_dir_nofollow(&dir, Path::new(name))?;
+    fn descendant(pinned: &Handle, relative: &Path) -> io::Result<fs::File> {
+        let mut dir = pinned.as_file().try_clone()?;
+        for part in relative.components() {
+            let Component::Normal(name) = part else {
+                return Err(io::ErrorKind::PermissionDenied.into());
+            };
+            if name.eq_ignore_ascii_case(".git") {
+                return Err(io::ErrorKind::PermissionDenied.into());
             }
-            dir
+            dir = cap::open_dir_nofollow(&dir, Path::new(name))?;
+        }
+        Ok(dir)
+    }
+    pub(crate) fn unknown_file(&self) {
+        self.unknown.set(self.unknown.get() + 1)
+    }
+    pub(super) fn inventory_counts(&self) -> (u64, u64) {
+        (self.folders.get(), self.unknown.get())
+    }
+    pub(crate) fn read_dir(&self, path: &Path) -> io::Result<Entries> {
+        let entries = self.reread_dir(path)?;
+        if self.root.as_ref().is_some_and(|(root, _)| path != root) {
+            self.folders.set(self.folders.get() + 1);
+        }
+        Ok(entries)
+    }
+    pub(crate) fn reread_dir(&self, path: &Path) -> io::Result<Entries> {
+        let opened = if let Some((root, pinned)) = &self.root {
+            Self::descendant(pinned, path.strip_prefix(root).map_err(io::Error::other)?)?
         } else {
             directory_handle(path)?.as_file().try_clone()?
         };
@@ -76,9 +106,6 @@ impl Entry {
     }
     pub(crate) fn file_type(&self) -> io::Result<cap::FileType> {
         self.inner.file_type()
-    }
-    pub(crate) fn metadata(&self) -> io::Result<cap::Metadata> {
-        self.inner.metadata()
     }
 }
 pub(crate) struct Entries {

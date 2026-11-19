@@ -339,8 +339,9 @@ export interface StartResult {
   kinds: {
     kind: DataKindId
     decision: 'started' | 'already-running' | (string & {})
-    taskId: string
-    runRef: string
+    taskId?: string
+    runRef?: string
+    reason?: string
   }[]
 }
 
@@ -403,8 +404,10 @@ export const agentBackupClient = {
   enable: (request: EnableRequest) =>
     call<EnableResult>('enable_agent_history', { request }),
   /** One backup per kind at a time: a second request gets the running one back. */
-  start: (scope: BackupScope, requestId: string) =>
-    call<StartResult>('start_backup', { request: { scope, requestId } }),
+  start: (scope: BackupScope, requestId: string, shared = false) =>
+    call<StartResult>('start_backup', {
+      request: { scope, requestId, shared },
+    }),
   overview: (purpose: 'backup' | 'space') =>
     call<AgentOverview>('get_agent_overview', { request: { purpose } }),
   sources: (limit: number, cursor?: string) =>

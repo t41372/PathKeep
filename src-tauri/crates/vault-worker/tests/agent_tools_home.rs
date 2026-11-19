@@ -26,6 +26,19 @@ fn one_override_isolates_presence_preview_and_capture_defaults() {
         if std::env::var_os(OVERRIDE).unwrap().is_empty() {
             assert!(known_sources().is_empty());
             assert!(default_sources().is_empty());
+            check_empty_preview(json!({"purpose":"enable"}));
+            check_empty_preview(json!({"purpose":"rescan","tools":["pi"]}));
+            for invalid in [json!({"tools":[]}), json!({"rootIds":["invalid"]})] {
+                let mut req = invalid;
+                req["purpose"] = json!("rescan");
+                assert!(
+                    preview::start(&VaultSession::default(), from_value(req).unwrap()).is_err()
+                );
+            }
+        } else if !Path::new(&root).exists() {
+            assert_eq!(known_sources().len(), 5);
+            assert!(default_sources().is_empty());
+            check_empty_preview(json!({"purpose":"enable"}));
         } else {
             check_worker(&PathBuf::from(root));
         }
@@ -86,6 +99,8 @@ fn one_override_isolates_presence_preview_and_capture_defaults() {
     let opens = watch_opens(&watched);
     let status = child.status().unwrap();
     let empty_status = child.env(OVERRIDE, "").status().unwrap();
+    let missing = temp.path().join("no-tools-installed");
+    let missing_status = child.env(OVERRIDE, &missing).env(CHILD, &missing).status().unwrap();
     for path in watched {
         let meta = fs::metadata(&path).unwrap();
         if cfg!(unix) || meta.is_file() {
@@ -98,7 +113,22 @@ fn one_override_isolates_presence_preview_and_capture_defaults() {
         let error = (&opens).read(&mut [0; 4096]).expect_err("opened a decoy");
         assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
     }
-    assert!(status.success() && empty_status.success());
+    assert!(status.success() && empty_status.success() && missing_status.success());
+}
+
+fn check_empty_preview(request: serde_json::Value) {
+    let mut frames =
+        preview::start(&VaultSession::default(), from_value(request).unwrap()).unwrap();
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+        while let Some(frame) = frames.next_frame().await {
+            if frame["type"] == "finished" {
+                assert_eq!(frame["payload"]["rows"], json!([]));
+                assert_eq!(frame["payload"]["totals"]["files"], "0");
+                return;
+            }
+        }
+        panic!("empty preview lost its report");
+    });
 }
 
 fn check_worker(home: &Path) {

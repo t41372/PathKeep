@@ -45,6 +45,7 @@ impl Fixture {
         fs::create_dir(&root).unwrap();
         let values = [
             ("CHB_PROJECT_ROOT", root.clone()),
+            ("CHB_AGENT_TOOLS_HOME", temp.path().join("agent-tools")),
             ("CHB_CHROME_USER_DATA_DIR", temp.path().join("chrome")),
             ("CHB_FIREFOX_PROFILES_DIR", temp.path().join("firefox")),
             ("CHB_SAFARI_ROOT", temp.path().join("safari")),

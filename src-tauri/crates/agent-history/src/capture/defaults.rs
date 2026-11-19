@@ -119,3 +119,40 @@ fn same_location(left: &Path, right: &Path) -> bool {
         _ => left == right,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Exercise native override precedence without asking the OS for the
+    /// account's roaming, XDG or Claude Desktop location on the test host.
+    #[test]
+    fn native_settings_use_the_supplied_home_and_desktop_base() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let desktop = temp.path().join("application-data");
+        let tool_dirs = temp.path().join("native-settings");
+        let roots = sources_under(&home, &desktop, true, |variable| Some(tool_dirs.join(variable)));
+        let expected = [
+            (Harness::ClaudeCode, tool_dirs.join("CLAUDE_CONFIG_DIR")),
+            (Harness::Codex, tool_dirs.join("CODEX_HOME")),
+            (Harness::Codex, tool_dirs.join("CODEX_SQLITE_HOME")),
+            (Harness::Pi, tool_dirs.join("PI_CODING_AGENT_DIR")),
+            (Harness::Pi, tool_dirs.join("PI_CODING_AGENT_SESSION_DIR")),
+            (Harness::Deepseek, tool_dirs.join("DSH_HOME")),
+            (Harness::ClaudeCode, desktop.join("Claude")),
+        ];
+        assert_eq!(roots.into_iter().map(|r| (r.harness, r.root)).collect::<Vec<_>>(), expected);
+        let defaults = sources_under(&home, &desktop, true, |_| None);
+        assert_eq!(
+            defaults.into_iter().map(|r| r.root).collect::<Vec<_>>(),
+            [
+                home.join(".claude"),
+                home.join(".codex"),
+                home.join(".pi/agent"),
+                home.join(".dsh"),
+                desktop.join("Claude"),
+            ]
+        );
+    }
+}

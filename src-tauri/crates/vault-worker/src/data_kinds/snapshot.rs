@@ -22,6 +22,8 @@ pub struct KindRow {
     archive_bytes: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     has_backup_source: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_review_required: Option<bool>,
     count_unit: &'static str,
     coverage: Coverage,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -135,6 +137,14 @@ pub fn list_with(session: &VaultSession, request: ListKinds) -> Result<KindList>
                 (Some(visits), None)
             }
         };
+        let has_backup_source = if agent && !unavailable {
+            Some(match &vault {
+                Some(v) => backups::has_grant(v, &config.capture_policy)?,
+                None => false,
+            })
+        } else {
+            None
+        };
         kinds.push(KindRow {
             kind,
             order: order as u8,
@@ -153,14 +163,14 @@ pub fn list_with(session: &VaultSession, request: ListKinds) -> Result<KindList>
                 ),
                 _ => None,
             },
-            has_backup_source: if agent && !unavailable {
-                Some(match &vault {
-                    Some(v) => backups::has_grant(v, &config.capture_policy)?,
-                    None => false,
+            source_review_required: (config.initialized
+                && config.capture_policy.state(kind) == KindState::On
+                && match kind {
+                    DataKind::AgentHistory => has_backup_source == Some(false),
+                    DataKind::Browsing => config.selected_profile_ids.is_empty(),
                 })
-            } else {
-                None
-            },
+            .then_some(true),
+            has_backup_source,
             availability: if unavailable {
                 "unavailable"
             } else if vault.is_some() {

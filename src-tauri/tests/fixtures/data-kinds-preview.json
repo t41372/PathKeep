@@ -16,7 +16,8 @@
           "coverage": {
             "state": "complete",
             "reasons": []
-          }
+          },
+          "sourceReviewRequired": true
         },
         {
           "kind": "agent-history",
@@ -96,7 +97,8 @@
           "coverage": {
             "state": "complete",
             "reasons": []
-          }
+          },
+          "sourceReviewRequired": true
         },
         {
           "kind": "agent-history",
@@ -434,7 +436,8 @@
             "coverage": {
               "state": "complete",
               "reasons": []
-            }
+            },
+            "sourceReviewRequired": true
           },
           {
             "kind": "agent-history",
@@ -482,7 +485,8 @@
               "state": "complete",
               "reasons": []
             },
-            "archiveBytes": "262144"
+            "archiveBytes": "262144",
+            "sourceReviewRequired": true
           },
           {
             "kind": "agent-history",

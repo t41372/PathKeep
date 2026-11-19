@@ -46,6 +46,7 @@ struct Permit {
     owner_permit: super::delivery::Permit,
     initialized: bool,
     policy: String,
+    enable_choices: bool,
     cancel: CancelToken,
     deadline: Arc<Mutex<Instant>>,
 }
@@ -105,6 +106,7 @@ struct Ticket {
 struct Registry {
     streams: HashMap<String, Permit>,
     tickets: HashMap<String, Ticket>,
+    reaping: bool,
 }
 static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(Default::default);
 impl Registry {
@@ -115,6 +117,32 @@ impl Registry {
     }
 }
 
+static TICKETS_CHANGED: std::sync::Condvar = std::sync::Condvar::new();
+
+fn schedule_expiry(registry: &mut Registry) {
+    if registry.reaping {
+        TICKETS_CHANGED.notify_one();
+        return;
+    }
+    registry.reaping = true;
+    std::thread::spawn(|| {
+        let mut registry = REGISTRY.lock().unwrap();
+        loop {
+            registry.prune();
+            let Some(next) =
+                registry.tickets.values().map(|t| *t.permit.deadline.lock().unwrap()).min()
+            else {
+                registry.reaping = false;
+                return;
+            };
+            registry = TICKETS_CHANGED
+                .wait_timeout(registry, next.saturating_duration_since(Instant::now()))
+                .unwrap()
+                .0;
+        }
+    });
+}
+
 pub(crate) fn revoke(root: &Path) {
     let mut registry = REGISTRY.lock().unwrap();
     for permit in registry.streams.values().chain(registry.tickets.values().map(|t| &t.permit)) {
@@ -123,6 +151,41 @@ pub(crate) fn revoke(root: &Path) {
         }
     }
     registry.prune();
+}
+
+pub(super) struct ChoiceEdit<'a> {
+    pub ticket: &'a str,
+    pub tools: &'a std::collections::BTreeMap<vault_core::AgentTool, bool>,
+}
+
+/// Rotate only the enable dialog's named receipt across an edit to its checklist or Git choice.
+pub(super) fn policy_changed(root: &Path, before: &str, after: &str, keep: Option<ChoiceEdit<'_>>) {
+    let mut registry = REGISTRY.lock().unwrap();
+    registry.prune();
+    let keep = keep.filter(|edit| {
+        registry.tickets.get(edit.ticket).is_some_and(|t| {
+            t.permit.paths.app_root == root
+                && t.permit.enable_choices
+                && edit
+                    .tools
+                    .keys()
+                    .all(|tool| t.roots.iter().any(|b| b.source.harness == tool.harness()))
+                && t.permit.policy == before
+                && t.permit.owner_permit.valid()
+        })
+    });
+    let retained = keep.and_then(|edit| registry.tickets.remove_entry(edit.ticket));
+    for p in registry.streams.values().chain(registry.tickets.values().map(|t| &t.permit)) {
+        if p.paths.app_root == root {
+            p.stop()
+        }
+    }
+    registry.prune();
+    if let Some((id, mut ticket)) = retained {
+        ticket.permit.policy = after.into();
+        ticket.permit.cancel = CancelToken::new();
+        registry.tickets.insert(id, ticket);
+    }
 }
 
 /// Repeated cancellation of a closed picker is harmless.
@@ -290,9 +353,13 @@ fn terminal_error(id: &str, seq: u64, reason: Option<&anyhow::Error>) -> Value {
 /// Backpressure applies only to this producer. Closing the receiver wakes a blocked send.
 pub fn start(session: &VaultSession, request: PreviewRequest) -> Result<Frames> {
     let paths = vault_core::project_paths()?;
-    let _gate = vault_core::ControlGate::acquire(&paths);
     let config = admitted_config(&paths)?;
-    let roots = sources::resolve(request, &paths.app_root)?;
+    let enable_choices = matches!(request.purpose, Purpose::Enable);
+    let roots = sources::resolve(request, &paths.app_root, session, &config)?;
+    let _gate = vault_core::ControlGate::acquire(&paths);
+    if admitted_config(&paths)?.capture_policy != config.capture_policy {
+        return Err(Refusal::PolicyChanged.into());
+    }
     let (sender, receiver) = tokio::sync::mpsc::channel(4);
     let receiver = Arc::new(Inbox { receiver: Mutex::new(receiver), room: Default::default() });
     let permit = Permit {
@@ -304,6 +371,7 @@ pub fn start(session: &VaultSession, request: PreviewRequest) -> Result<Frames> 
 
         generation: session.current_vault().map(|v| Arc::downgrade(v.store())),
         policy: config.capture_policy.token(),
+        enable_choices,
         cancel: CancelToken::new(),
         deadline: Arc::new(Mutex::new(Instant::now() + LIFETIME)),
     };
@@ -350,4 +418,42 @@ pub fn start(session: &VaultSession, request: PreviewRequest) -> Result<Frames> 
         let _ = completed.send(result);
     })?;
     Ok(frames)
+}
+
+#[cfg(test)]
+#[test]
+fn idle_ticket_releases_pinned_directory_at_expiry() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = vault_core::project_paths_with_root(temp.path());
+    let permit = Permit {
+        inbox: Weak::new(),
+        session: VaultSession::default(),
+        generation: None,
+        owner_permit: super::delivery::Permit::at(temp.path()),
+        initialized: false,
+        enable_choices: false,
+        policy: String::new(),
+        cancel: CancelToken::new(),
+        deadline: Arc::new(Mutex::new(Instant::now() + LIFETIME)),
+        paths,
+    };
+    let dir = Arc::new(directory_handle(temp.path()).unwrap());
+    let observed = Arc::downgrade(&dir);
+    let root = Binding {
+        root_id: "test".into(),
+        canonical: temp.path().into(),
+        source: SourceRoot { root: temp.path().into(), harness: agent_history::Harness::Pi },
+        directory: dir,
+    };
+    summary::retain_ticket(
+        Uuid::new_v4().to_string(),
+        &permit,
+        vec![root],
+        Duration::from_millis(40),
+    );
+    let timeout = Instant::now() + Duration::from_secs(2);
+    while observed.strong_count() > 0 && Instant::now() < timeout {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(observed.strong_count(), 0);
 }

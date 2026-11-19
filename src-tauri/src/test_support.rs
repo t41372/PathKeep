@@ -39,6 +39,7 @@ pub(crate) fn lock_env() -> EnvGuard {
         TEST_KEYRING_OVERRIDE_ENV,
         "CHB_FIREFOX_PROFILES_DIR",
         "CHB_SAFARI_ROOT",
+        "CHB_AGENT_TOOLS_HOME",
         "PATHKEEP_PLATFORM_TEST_SANDBOX_DIR",
         "PATHKEEP_TEST_SAVE_DIR",
     ]

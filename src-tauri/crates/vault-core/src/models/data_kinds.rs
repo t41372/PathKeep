@@ -103,6 +103,15 @@ impl CapturePolicy {
         }
     }
 
+    /// Only an explicitly scoped manual request can use a paused kind.
+    pub fn backup_skip_reason(&self, kind: DataKind, manual_kind: bool) -> Option<&'static str> {
+        match self.state(kind) {
+            KindState::Off => Some("kind-off"),
+            KindState::Paused if !manual_kind => Some("kind-paused"),
+            _ => None,
+        }
+    }
+
     pub fn state(&self, kind: DataKind) -> KindState {
         match kind {
             DataKind::Browsing => self.browsing,

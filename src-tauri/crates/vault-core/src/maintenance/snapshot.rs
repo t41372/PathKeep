@@ -82,7 +82,8 @@ pub(super) fn seal_replaced(copy: &Path) -> Result<()> {
     ))?;
     let layout = crate::admission::root_layout(copy)?;
     let paths = crate::project_paths_with_root(copy);
-    let mut document = crate::config::load_document(&paths)?;
+    // Strip even a foreign installation's grant from the displaced control.
+    let mut document = crate::config::decode_document(&fs::read(&paths.config_path)?)?;
     if document.config.capture_policy != Default::default()
         || !document.config.dismissed_agent_hints.is_empty()
     {

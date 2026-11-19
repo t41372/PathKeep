@@ -14,7 +14,8 @@ mod grant;
 pub use grant::{directory_handle, directory_identity, directory_issue};
 mod inventory;
 pub use inventory::{
-    InventoryCounts, RootInventory, inventory_root, inventory_root_bound, root_status,
+    InventoryCounts, InventoryObserver, RootInventory, inventory_root, inventory_root_bound,
+    root_status,
 };
 pub use plan::{normalized_root, root_identity};
 mod raw;

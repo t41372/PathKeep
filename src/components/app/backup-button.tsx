@@ -75,7 +75,7 @@ export function BackupNowButton({ className }: { className?: string }) {
   const percent = backup.progress?.progressPercent
   return (
     <Button
-      onClick={() => void backup.run()}
+      onClick={() => void backup.run({ kindSpecific: true })}
       disabled={backup.running}
       className={cn('h-9', className)}
     >

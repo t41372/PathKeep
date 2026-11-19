@@ -15,7 +15,7 @@ use events::{event_time, native_event};
 use metadata::origin;
 use serde_json::Value;
 use std::collections::HashSet;
-use std::fs;
+
 use std::io::BufRead;
 use std::path::Path;
 
@@ -62,7 +62,7 @@ impl Adapter for CodexAdapter {
         emit: &mut dyn FnMut(Artifact) -> crate::Result<()>,
         issues: &mut Vec<Diagnostic>,
     ) -> crate::Result<()> {
-        match fs::symlink_metadata(&source.root) {
+        match cancel.metadata(&source.root) {
             Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
             Ok(_) => {
                 discovery_issue(issues, "codex-source-not-directory");
@@ -82,7 +82,7 @@ impl Adapter for CodexAdapter {
             }
         };
         for entry in entries {
-            cancel.check()?;
+            cancel.visited_entry()?;
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(_) => {
@@ -105,6 +105,7 @@ impl Adapter for CodexAdapter {
                 &entry.path(),
                 &mut |path| {
                     if kind == ArtifactKind::Transcript && !is_rollout(&path) {
+                        cancel.unknown_file();
                         return Ok(());
                     }
                     let Some(relative) =

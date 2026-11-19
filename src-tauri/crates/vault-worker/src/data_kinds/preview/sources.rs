@@ -97,8 +97,28 @@ pub struct PreviewRequest {
     root_ids: Option<Vec<String>>,
     picked_folder: Option<PickedFolder>,
 }
-pub(super) fn resolve(request: PreviewRequest, archive: &Path) -> Result<Vec<SourceRoot>> {
-    let roots = if let Some(picked) = request.picked_folder {
+pub(super) struct Candidate {
+    pub source: SourceRoot,
+    pub directory: Option<String>,
+}
+
+pub(super) fn resolve(
+    request: PreviewRequest,
+    archive: &Path,
+    session: &crate::VaultSession,
+    config: &vault_core::AppConfig,
+) -> Result<Vec<Candidate>> {
+    if request.root_ids.as_ref().is_some_and(Vec::is_empty)
+        || request.tools.as_ref().is_some_and(Vec::is_empty)
+    {
+        return Err(Refusal::EmptySelection.into());
+    }
+    let requires_match = request.root_ids.is_some() || request.picked_folder.is_some();
+    let rescan = matches!(request.purpose, Purpose::Rescan)
+        && request.picked_folder.is_none()
+        && request.root_ids.is_some();
+    let mut bindings = std::collections::BTreeMap::new();
+    let mut roots = if let Some(picked) = request.picked_folder {
         if !picked.path.is_absolute()
             || picked.path.components().any(|p| p == std::path::Component::ParentDir)
         {
@@ -108,28 +128,57 @@ pub(super) fn resolve(request: PreviewRequest, archive: &Path) -> Result<Vec<Sou
     } else {
         capture::known_sources()
     };
+    let ids =
+        request.root_ids.as_ref().map(|ids| ids.iter().collect::<std::collections::BTreeSet<_>>());
+    if let Some(ids) = &ids
+        && rescan
+        && config.capture_policy.selection_ref.is_some()
+    {
+        let vault = session.vault().map_err(anyhow::Error::msg)?;
+        for saved in super::super::backups::selection::device_roots(&vault, &config.capture_policy)?
+        {
+            if !ids.contains(&saved.id)
+                || request.tools.as_ref().is_some_and(|tools| !tools.contains(&saved.tool))
+            {
+                continue;
+            }
+            if saved.issue(&vault) == Some("root-changed") {
+                return Err(Refusal::RootChanged.into());
+            }
+            roots.push(saved.source());
+            bindings.insert(saved.id, saved.directory);
+        }
+    }
     let target = capture::normalized_root(archive)?;
     let mut filtered = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
     for root in roots {
-        let id = capture::root_identity(&root)?;
         if request
             .tools
             .as_ref()
-            .is_some_and(|tools| !tools.iter().any(|&t| t.harness() == root.harness))
-            || request.root_ids.as_ref().is_some_and(|ids| !ids.contains(&id))
+            .is_some_and(|tools| !tools.iter().any(|t| t.harness() == root.harness))
         {
             continue;
         }
+        let id = capture::root_identity(&root)?;
+        if ids.as_ref().is_some_and(|ids| !ids.contains(&id)) || !seen.insert(id.clone()) {
+            continue;
+        }
         let real = capture::normalized_root(&root.root)?;
-        if real.components().any(|c| c.as_os_str().eq_ignore_ascii_case(".git")) {
+        if real.components().any(|p| p.as_os_str().eq_ignore_ascii_case(".git"))
+            || real.starts_with(&target)
+            || target.starts_with(real)
+        {
             return Err(Refusal::ScopeDenied.into());
         }
-        if real.starts_with(&target) || target.starts_with(real) {
-            return Err(Refusal::ScopeDenied.into());
-        }
-        filtered.push(root)
+        filtered.push(Candidate { source: root, directory: bindings.remove(&id) });
     }
-    if filtered.is_empty() {
+    if !requires_match
+        && filtered.iter().all(|c| capture::root_status(&c.source.root) == Some("root-missing"))
+    {
+        filtered.clear()
+    }
+    if requires_match && filtered.is_empty() {
         return Err(Refusal::EmptySelection.into());
     }
     if request.root_ids.as_ref().is_some_and(|ids| ids.len() != filtered.len()) {

@@ -323,6 +323,23 @@ reading allowed within a future approved capture. A tool switch alone grants
 no folder access. The SHA-256 of the serialized policy lets two windows
 compare the choices they saw. The token is computed on demand.
 
+A control with device choices or dismissed Agent hints carries
+`captureInstallation`. The binding is the SHA-256 digest of a random 256-bit installation identifier
+in `capture-device` beneath the platform local-data directory for
+`<application>-installation`, a sibling of the normal archive namespace.
+Creation publishes a complete file without replacing an existing identity.
+Reading an intact live folder checks this binding before using a selection,
+an explicit off choice, a pending save or a dismissal. A missing or foreign
+binding gives the installation fresh defaults; stored transcripts then appear
+paused under decision 9. This also handles unbound pre-release controls.
+The installation identity is independent of archive location, encryption,
+backup, restore and wipe. Removing the archive removes its binding and choices.
+Portable and sealed copies omit the binding along with the choices. Restore
+and move-in bind eligible destination settings to the receiving installation.
+If the incoming evidence cannot resolve the same immutable descriptor, import
+clears its reference, enabled tools and pending intent and requires source
+review. An offline source with an intact descriptor keeps its approval.
+
 | Operation                | Capture policy                                                                                                                                                                                                                                                                                                                                              | Preview references, directory identities and queued inventory                                      |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Open or reopen           | Read live values. A malformed present policy refuses the control. A released 0.4/0.5 executable stops at the stamped archive mode.                                                                                                                                                                                                                          | Owner memory only. A new process starts empty.                                                     |

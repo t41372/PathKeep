@@ -31,6 +31,16 @@ pub(super) fn run_scheduled_backup_cli(
         }
     };
 
+    if let Some(reason) =
+        config.capture_policy.backup_skip_reason(vault_core::DataKind::Browsing, false)
+    {
+        attempt.finish(ScheduledBackupAttemptOutcome::Skipped, Some(reason), None, None)?;
+        return Ok(serde_json::to_string(&vault_core::BackupReport {
+            due_skipped: true,
+            reason_code: Some(reason.into()),
+            ..Default::default()
+        })?);
+    }
     attempt.advance(ScheduledBackupAttemptPhase::Backup)?;
     let vault = match vault() {
         Ok(vault) => vault,
@@ -46,7 +56,7 @@ pub(super) fn run_scheduled_backup_cli(
             ));
         }
     };
-    let report = match run_scheduled_backup_with_progress(&vault, &paths, &config, key, |event| {
+    let report = match run_scheduled_backup_with_progress(&vault, &paths, key, |event| {
         progress.send(serde_json::to_value(event).expect("backup progress is serializable"));
     }) {
         Ok(report) => report,
@@ -93,6 +103,8 @@ fn classify_scheduled_report(
     }
     match reason_code {
         Some("write-lock") => (ScheduledBackupAttemptOutcome::Deferred, "write-lock"),
+        Some("kind-off") => (ScheduledBackupAttemptOutcome::Skipped, "kind-off"),
+        Some("kind-paused") => (ScheduledBackupAttemptOutcome::Skipped, "kind-paused"),
         Some("not-due") => (ScheduledBackupAttemptOutcome::Skipped, "not-due"),
         _ => (ScheduledBackupAttemptOutcome::Skipped, "worker-error"),
     }

@@ -271,9 +271,10 @@ modification time was observed.
 
 A root reports `known-layout` for Claude's recognized positions,
 `file-candidates` for the other tools, or `unavailable` for an inaccessible
-root. The mutually exclusive file counts cover top-level candidates,
-recognizable child files, ambiguous candidates, ancillary files, and unknown
-files within the inspected trees. Source bytes include all five categories.
+root. Native discovery supplies the same file stream to the inventory and the
+capture producer. Top-level candidates, recognizable child files, ambiguous
+candidates and ancillary files sum to `files`; `sourceBytes` measures those files.
+`unknownFiles` counts unrecognized names skipped inside native transcript trees.
 Directory counts exclude the selected root. A row can be readable with a
 reason if a descendant was inaccessible. Totals then cover observed metadata.
 The estimate budgets the observed byte length of native-compressed and ordinary
@@ -404,3 +405,27 @@ walk and `PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US` per capture root. Positive
 integer values are microseconds per entry or discovered file. Unset, invalid
 and zero values disable pacing. Waits check cancellation in slices of at most
 10 ms. Release builds ignore both variables.
+
+### Capture eligibility and review
+
+- Browsing callers can pass `{"dueOnly":false,"kindSpecific":true}` to
+  `run_backup_now` for the browsing space's explicit button. Menu, palette,
+  all-now and due-only dispatch skip paused and off kinds. A skip uses the
+  existing report with `dueSkipped:true`, `run:null`, and `reasonCode` equal to
+  `kind-paused` or `kind-off`. The scheduled wake records a skipped attempt.
+- The all-now conversation caller sends `shared:true` inside the existing
+  `start_backup` request with a kind scope. A skip returns
+  `{"batchId":"<requestId>","kinds":[{"kind":"agent-history","decision":"skipped","reason":"kind-paused"}]}`.
+  An off kind uses `kind-off`. Explicit tool and kind requests retain their manual behavior.
+- A source edit that would remove the sole on kind's last approved source returns
+  `source-selection-empty`. A disconnected approved folder still counts.
+  An on conversation kind whose destination descriptor is lost during import
+  reports `hasBackupSource:false` and `sourceReviewRequired:true` in the kind row.
+  An initialized on browsing kind with an empty profile selection also reports
+  `sourceReviewRequired:true`. The user's other kind keeps its existing state.
+- Pass the completed enable dialog's `previewId` in `update_agent_sources`
+  when saving its tool ticks or Git preference. That ticket follows those
+  changes. A different policy edit, lock, expiry or replaced directory requires
+  review again. Rescan accepts saved custom root IDs alongside default IDs.
+  An unfiltered discovery with no tools completes with `rows:[]` and zero totals.
+  The owner releases a ticket's directory handles at expiry even while idle.

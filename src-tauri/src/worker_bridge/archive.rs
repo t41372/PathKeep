@@ -168,16 +168,18 @@ pub(crate) fn run_retention_prune_impl(
 /// Runs a backup immediately and forwards progress to the UI callback.
 pub(crate) fn run_backup_now_impl(
     due_only: bool,
+    kind_specific: bool,
     state: &crate::session::SessionState,
     report_progress: impl FnMut(vault_core::BackupProgressEvent),
 ) -> Result<vault_core::BackupReport, CommandError> {
     let vault = state.vault()?;
     let key = state.typed_password();
     let session_database_key = key.as_deref();
-    worker_result(vault_worker::run_backup_now_with_progress(
+    worker_result(vault_worker::run_browsing_backup(
         &vault,
         session_database_key,
         due_only,
+        kind_specific,
         report_progress,
     ))
 }

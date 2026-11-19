@@ -157,7 +157,7 @@ fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
             std::thread::spawn(move || {
                 // The result reaches the user through the status line and
                 // the backup-finished event; log failures for diagnostics.
-                if let Err(error) = run_backup(&app, BackupSource::MenuBar, false) {
+                if let Err(error) = run_backup(&app, BackupSource::MenuBar, false, false) {
                     log::warn!("menu bar backup failed: {}", error.message);
                 }
             });

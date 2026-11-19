@@ -336,11 +336,11 @@ pub(super) fn walk_files_cancellable(
         Err(e) => path_issue(issues, root, "source_unavailable", Some(format!("{:?}", e.kind()))),
     }
     while let Some(entries) = stack.last_mut() {
-        check()?;
         let Some(entry) = entries.next() else {
             stack.pop();
             continue;
         };
+        cancel.visited_entry()?;
         let entry = match entry {
             Ok(entry) => entry,
             Err(e) => {

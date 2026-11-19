@@ -44,6 +44,7 @@ fn first_save_recovers_each_process_death_boundary() {
         .env("CHB_PROJECT_ROOT", "root")
         .env("CHB_AGENT_TOOLS_HOME", temp.path().join("tools"))
         .env("CHB_TEST_KEYRING_DIR", temp.path().join("keyring"))
+        .env("PATHKEEP_PLATFORM_TEST_SANDBOX_DIR", temp.path().join("platform"))
         .env("PATHKEEP_FIRST_SAVE_CHILD", "capture")
         .env(MARK, point);
         let mut process = cmd.spawn().unwrap();
