@@ -61,6 +61,11 @@ impl Discovery<'_> {
             let Component::Normal(name) = part else {
                 return Err(io::ErrorKind::PermissionDenied.into());
             };
+            // A known path (an observation, a recorded source) reaches here without the
+            // directory walk, so the Git exclusion is enforced on every component too.
+            if name.eq_ignore_ascii_case(".git") {
+                return Err(io::ErrorKind::PermissionDenied.into());
+            }
             dir = cap::open_dir_nofollow(&dir, Path::new(name))?;
         }
         Ok(dir)
