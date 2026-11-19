@@ -53,6 +53,7 @@ enum Operation {
     CheckpointPreview,
     CheckpointReplay,
     CoreBackup,
+    ModelInstall,
 }
 
 #[derive(Debug)]
@@ -304,6 +305,13 @@ fn observe(operation: Operation, control: &str) -> Observation {
             &vault_core::SnapshotRestoreRequest {
                 snapshot_path: source.unwrap().display().to_string(),
             },
+        )),
+        ModelInstall => error(vault_core::ensure_model_downloaded(
+            &f.paths(),
+            vault_core::DEFAULT_STATIC_MODEL_REPO,
+            vault_core::DEFAULT_STATIC_MODEL_FILES,
+            false,
+            &mut vault_core::NoopDownloadProgress,
         )),
         CoreBackup => error(vault_core::run_backup(f.vault(), None)),
     };
@@ -558,3 +566,4 @@ fn every_owner_route_that_uses_the_archive_refuses_at_the_owner() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+refuses!(model_install_refuses_before_touching_generations, ModelInstall);

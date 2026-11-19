@@ -13,9 +13,8 @@
 //!   change — a single thread-local borrow plus a lookup miss.
 //! - Keep the consult path in the measured (coverage/CI) build. It is NOT `cfg`-compiled out,
 //!   because the quality gate forbids stubbing production paths out of coverage. Only the arming
-//!   side is `#[cfg(test)]` ([`FaultGuard`]); process-exit integration fixtures require the explicit
-//!   `test-fixtures` feature ([`exit_process_at_next_checkpoint`]). Normal production builds cannot
-//!   arm anything.
+//!   side is test-only. Unit tests can exit at a checkpoint. Integration-test children use
+//!   the explicit `test-fixtures` feature to arm [`exit_process_at_next_checkpoint`].
 //! - Let the desktop E2E runs fail a checkpoint in the real app, whose threads the registry cannot
 //!   reach: a debug build also returns an error at a checkpoint while a file of its name is in the
 //!   folder `PATHKEEP_TEST_FAULTS_DIR` names ([`requested_by_the_e2e_run`]). Release builds never
@@ -72,7 +71,7 @@ fn take_armed_error(name: &str) -> bool {
 /// test catches with `std::panic::catch_unwind`), and a `test-fixtures` child process armed with
 /// [`exit_process_at_next_checkpoint`] exits here without running destructors.
 pub fn checkpoint(name: &str) -> Result<()> {
-    #[cfg(feature = "test-fixtures")]
+    #[cfg(any(test, feature = "test-fixtures"))]
     EXIT_CHECKPOINT.with(|armed| {
         if armed.borrow().as_deref() == Some(name) {
             std::process::exit(86);
@@ -95,14 +94,14 @@ fn requested_by_the_e2e_run(name: &str) -> bool {
             .is_some_and(|folder| std::path::Path::new(&folder).join(name).exists())
 }
 
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(test, feature = "test-fixtures"))]
 thread_local! {
     static EXIT_CHECKPOINT: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 /// Integration-test children exit without destructors at a real durable boundary.
 /// The arming API is absent from normal application builds.
-#[cfg(feature = "test-fixtures")]
+#[cfg(any(test, feature = "test-fixtures"))]
 pub fn exit_process_at_next_checkpoint(name: &str) {
     EXIT_CHECKPOINT.with(|armed| *armed.borrow_mut() = Some(name.into()));
 }

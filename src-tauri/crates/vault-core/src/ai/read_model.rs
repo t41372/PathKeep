@@ -419,12 +419,15 @@ fn static_embedding_status(
     } else {
         provider.default_model.as_str()
     };
-    let model_dir = model_dir_for_repo(paths, repo);
-    let model_downloaded = model_files_verified(&model_dir, DEFAULT_STATIC_MODEL_FILES);
+    let model_dir = open_model_directory(paths, repo).ok();
+    let verified = model_dir
+        .as_ref()
+        .filter(|dir| model_files_verified(dir.path(), DEFAULT_STATIC_MODEL_FILES));
+    let model_downloaded = verified.is_some();
     // On-disk size only AFTER the files are present + verified; 0 before download (the FE shows a
     // static pre-download estimate). Summed from the real files so the Settings card states the honest
     // footprint instead of a guess.
-    let model_size_bytes = if model_downloaded { static_model_size_bytes(&model_dir) } else { 0 };
+    let model_size_bytes = verified.map_or(0, |dir| static_model_size_bytes(dir.path()));
     Some(StaticEmbeddingStatus {
         provider_id: provider.id.clone(),
         model_repo: repo.to_string(),

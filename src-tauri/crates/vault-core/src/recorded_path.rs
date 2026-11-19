@@ -70,7 +70,7 @@ impl RecordedPath {
 
 /// One name, and the same one, to every system: not empty, not `.` or `..`, without `/`, `\`, `:`
 /// or NUL, and one plain name to this system as well.
-fn is_plain(name: &str) -> bool {
+pub(crate) fn is_plain(name: &str) -> bool {
     !matches!(name, "" | "." | "..")
         && !name.contains(['/', '\\', ':', '\0'])
         && Path::new(name).components().eq([Component::Normal(name.as_ref())])

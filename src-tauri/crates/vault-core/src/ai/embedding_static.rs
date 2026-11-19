@@ -43,6 +43,10 @@ use anyhow::{Context, Result};
 use std::sync::Arc;
 #[cfg(not(test))]
 mod cache;
+#[cfg(not(test))]
+pub(crate) use cache::forget_archive;
+#[cfg(not(test))]
+pub(super) use cache::forget_replaced_model;
 mod storage;
 mod tokenizer;
 mod unigram;
@@ -397,8 +401,8 @@ fn load_static_matrix(
     // SAFETY: this is PathKeep's own model folder. cache::load verifies every model file before
     // loading (model_files_verified: a full SHA-256 unless the file's size and mtime still match
     // those recorded when it last passed one), checks size/mtime again after loading and before
-    // reuse, and drops its cached engine on change. Downloads replace verified files atomically,
-    // leaving any active mapping on its original file. This relies on external tools not modifying
+    // reuse, and drops its cached engine on change. The engine pins its model directory.
+    // Downloads publish a separate directory and never write these mapped bytes. This relies on external tools not modifying
     // model files in place while mapped; metadata checks cannot protect an already-borrowed engine.
     let bytes =
         Arc::new(unsafe { memmap2::Mmap::map(&file) }.with_context(|| {
@@ -565,6 +569,9 @@ struct StaticEngine {
     matrix: StaticEmbeddingMatrix,
     tokenizer: StaticTokenizer,
     normalize: bool,
+    // Declared last so the matrix is unmapped before retirement can remove its files.
+    #[cfg(not(test))]
+    directory: super::model_generations::ModelDirectory,
 }
 
 impl StaticEmbeddingProvider {
@@ -584,15 +591,9 @@ impl StaticEmbeddingProvider {
     /// but fail verification (in `cache::load`, hashed only when they changed) are an error.
     #[cfg(not(test))]
     pub fn load(paths: &ProjectPaths, repo: &str, files: &[ModelFile]) -> Result<Self> {
-        let model_dir = model_dir_for_repo(paths, repo);
-        if !super::model_files::model_files_present(&model_dir, files) {
-            cache::forget(&model_dir);
-            return Err(super::EmbeddingServiceError::wrap(anyhow::anyhow!(
-                "static model {repo} is not present in {}; download it (with consent) before selecting the static engine",
-                model_dir.display()
-            )));
-        }
-        let engine = cache::load(&model_dir, files, || {
+        let root = model_dir_for_repo(paths, repo);
+        let engine = cache::load(&root, files, |directory| {
+            let model_dir = directory.path();
             let config_bytes = std::fs::read(model_dir.join("config.json"))
                 .with_context(|| format!("reading config.json for {repo}"))?;
             let config = parse_static_config(&config_bytes)?;
@@ -616,7 +617,7 @@ impl StaticEmbeddingProvider {
                     matrix.dim()
                 );
             }
-            Ok(StaticEngine { matrix, tokenizer, normalize: config.normalize })
+            Ok(StaticEngine { matrix, tokenizer, normalize: config.normalize, directory })
         })?;
         Ok(Self {
             provider_id: format!("static:{repo}"),

@@ -185,6 +185,7 @@ impl Vault {
             _temporary_root: None,
         };
         if live_archive {
+            crate::ai::model_generations::recover_builtin(vault.paths());
             if let Err(error) = crate::ai::generations::migrate_flat_indexes(&vault) {
                 eprintln!("pathkeep: semantic index migration will retry on next open: {error:#}");
                 return Ok(vault);

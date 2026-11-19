@@ -139,17 +139,15 @@ async fn static_matrix_replacement_preserves_active_mapping_and_invalidates_cach
     );
     let replacement_dir =
         model_dir_for_repo(&project_paths_with_root(replacement_root.path()), REPO);
-    let replacement_path = replacement_dir.join("model.safetensors");
-    // Force a distinct revision even on filesystems whose timestamp resolution is coarse. Windows
-    // changes a file's times only through a handle that may write.
-    std::fs::OpenOptions::new()
-        .write(true)
-        .open(&replacement_path)
-        .expect("replacement file")
-        .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1))
-        .expect("distinct mtime");
-    std::fs::rename(replacement_path, model_dir_for_repo(&paths, REPO).join("model.safetensors"))
-        .expect("atomically replace matrix");
+    // A verified candidate left by an interrupted download. Resume the actual publication offline.
+    let flat = model_dir_for_repo(&paths, REPO);
+    let candidate = flat.join("gen-0123456789abcdef0123456789abcdef");
+    std::fs::rename(replacement_dir, &candidate).expect("place verified candidate");
+    let selected =
+        ensure_model_downloaded(&paths, REPO, &replacement_files, false, &mut NoopDownloadProgress)
+            .expect("recover verified replacement");
+    assert_eq!(selected, candidate);
+    assert!(flat.join("model.safetensors").exists(), "a borrowed engine pins the old bundle");
     assert!(StaticEmbeddingProvider::load(&paths, REPO, &files).is_err(), "reject stale digest");
     let replacement = StaticEmbeddingProvider::load(&paths, REPO, &replacement_files)
         .expect("load replacement revision");
@@ -161,6 +159,8 @@ async fn static_matrix_replacement_preserves_active_mapping_and_invalidates_cach
         original.embed(&texts, EmbeddingRole::Query).await.expect("active old query"),
         expected
     );
+    drop(original);
+    assert!(!flat.join("model.safetensors").exists(), "last mapping released the old bundle");
 }
 
 #[test]

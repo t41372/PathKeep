@@ -7,7 +7,7 @@
 //! - bridge the vault-core [`vault_core::ModelDownloadProgress`] trait callbacks onto the desktop
 //!   emit sink as [`vault_core::ModelDownloadProgressEvent`]s on
 //!   [`vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT`], plus a terminal `Done`/`Error`
-//! - support cooperative cancellation between files via a shared atomic flag
+//! - support cooperative cancellation between reads via a shared atomic flag
 //!
 //! ## Not responsible for
 //! - emitting Tauri events directly (the desktop command supplies the `emit` sink closure)
@@ -29,7 +29,7 @@ use vault_core::{
 };
 
 /// A single live download's cancellation flag, so a second "Download" press or a navigate-away can
-/// stop the current run between files (the §C.5 cancelable contract). One at a time is enough: the
+/// stop the current run between reads (the §C.5 cancelable contract). One at a time is enough: the
 /// app only ever fetches the one default in-app model.
 static DOWNLOAD_CANCEL: std::sync::OnceLock<Arc<AtomicBool>> = std::sync::OnceLock::new();
 
@@ -39,7 +39,7 @@ fn cancel_flag() -> &'static Arc<AtomicBool> {
 
 /// Requests cancellation of any in-flight in-app model download.
 ///
-/// Idempotent and cheap: sets the shared flag the running download checks between files. A download
+/// Idempotent and cheap: sets the shared flag the running download checks between reads. A download
 /// that already finished simply leaves the flag set; the next download resets it on start.
 pub fn cancel_model_download() {
     cancel_flag().store(true, Ordering::SeqCst);
