@@ -84,6 +84,12 @@ impl Store {
                         Error::InvalidConfig(_) | Error::Closed | Error::JobPanicked { .. }
                     ) =>
             {
+                *self.initial_access_refusal.lock().unwrap() =
+                    failure.cause.access_refused().then(|| self.conversation_file_ids());
+                self.rejected_pair.store(
+                    matches!(failure.cause, Error::PairUnverified),
+                    std::sync::atomic::Ordering::Release,
+                );
                 *self.conversation_failure.write().unwrap() = Some(failure);
                 Ok(())
             }
@@ -104,6 +110,12 @@ impl Store {
             ownership: Mutex::new(Some(lock)),
             adding: Mutex::default(),
             retired_files: Default::default(),
+            conversation_generation: Default::default(),
+            held_publisher: Default::default(),
+            rejected_pair: Default::default(),
+            initial_access_refusal: Default::default(),
+            pending_anchors: Default::default(),
+            anchor_monitor: Default::default(),
             availability_observer: Default::default(),
             conversation_failure: RwLock::default(),
             closed: false.into(),
@@ -140,6 +152,14 @@ impl Store {
                 .map_err(|_| Error::JobPanicked { message: "verifying safety copy".into() })?
         })
     }
+    fn conversation_file_ids(&self) -> [Option<turso::core::io::FileId>; 2] {
+        [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel].map(|role| {
+            turso::core::io::get_file_id(
+                self.paths.get(role).to_str().expect("validated role path"),
+            )
+            .ok()
+        })
+    }
     /// Rechecks both conversation databases against the live paths, then migrates on
     /// private workers. Browsing reads continue until the short publication write lock.
     pub fn retry_conversations(&self, config: Config) -> Result<()> {
@@ -170,24 +190,40 @@ impl Store {
         // The service has drained producers. Remove both before inspecting either pathname.
         {
             let mut old = self.workers_mut();
+            self.protect_held(&old)?;
             for (db, w) in old.iter_mut().filter(|(db, _)| conversation_role(*db)) {
                 w.quarantine.store(true, std::sync::atomic::Ordering::Release);
                 // A failed retry must leave the unlinked generation available to a
                 // subsequent safety copy even though its SQL workers must be closed.
                 if crate::maintenance::displaced(*db, w, self.paths.get(*db))? {
-                    self.retired_files
-                        .lock()
-                        .unwrap()
-                        .push((*db, std::mem::take(&mut w.held_files)));
+                    self.retired_files.lock().unwrap().push((
+                        self.generation(),
+                        *db,
+                        std::mem::take(&mut w.held_files),
+                    ));
                 }
             }
             old.retain(|(db, _)| !conversation_role(*db));
         }
         let result = preflight_conversations(config)
-            .and_then(|()| Self::verify_conversation_pair(config))
+            .and_then(|()| {
+                let ordinary = self.initial_access_refusal.lock().unwrap().is_some_and(|prior| {
+                    prior
+                        .into_iter()
+                        .zip(self.conversation_file_ids())
+                        .all(|(old, now)| old.is_none() || old == now)
+                });
+                if ordinary { Ok(()) } else { Self::verify_conversation_pair(config) }
+            })
             .and_then(|()| verify(config))
             .and_then(|()| self.publish_conversations(config));
         if let Err(Error::Open(reason)) = &result {
+            if !reason.cause.access_refused() {
+                self.initial_access_refusal.lock().unwrap().take();
+            }
+            if matches!(reason.cause, Error::PairUnverified) {
+                self.rejected_pair.store(true, std::sync::atomic::Ordering::Release);
+            }
             let mut recorded = self.conversation_failure.write().unwrap();
             if !recorded.as_ref().is_some_and(|f| matches!(f.cause, Error::RetainedBytes { .. })) {
                 *recorded = Some(reason.clone());
@@ -207,7 +243,11 @@ impl Store {
         if !self.is_open() {
             return Err(Error::Closed);
         }
+        self.conversation_generation.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        self.rejected_pair.store(false, std::sync::atomic::Ordering::Release);
+        self.initial_access_refusal.lock().unwrap().take();
         published.extend(ready);
+        self.record_attachment_ids(&published);
         if self.conversation_failure.write().unwrap().take().is_some() {
             self.announce_availability();
         }
@@ -243,7 +283,7 @@ impl Store {
             self.announce_availability()
         }
     }
-    fn announce_availability(&self) {
+    pub(crate) fn announce_availability(&self) {
         if let Some(observer) = self.availability_observer.get() {
             observer()
         }

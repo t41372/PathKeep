@@ -415,6 +415,21 @@ fn process_artifact(
         // Discovery may replace a fallback (for example Cowork audit) with a
         // primary transcript. Its bytes remain evidence, but its old view must
         // no longer duplicate the primary conversation in search.
+        if source.harness == crate::Harness::ClaudeCode
+            && artifact.kind == ArtifactKind::Metadata
+            && artifact.relative_path.ends_with("/audit.jsonl")
+        {
+            let id = source_id.clone();
+            archive.store.write(
+                vault_store::Db::AgentHistoryEvidence,
+                vault_store::Priority::Batch,
+                move |s| {
+                    s.execute("UPDATE ah_sources SET kind='metadata' WHERE id=?1", [id.as_str()])?;
+                    s.execute("DELETE FROM ah_source_conversations WHERE source_id=?1", [id])?;
+                    Ok(())
+                },
+            )?;
+        }
         archive.retire_projection(&source_id)?;
         archive.set_coverage(&source_id, captured.complete)?;
         return Ok(());

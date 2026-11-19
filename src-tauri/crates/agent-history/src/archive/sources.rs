@@ -100,6 +100,14 @@ impl Archive {
         Ok(())
     }
 
+    pub(crate) fn retired_fallback(&self, source: &SourceInfo) -> Result<bool> {
+        if !source.relative_path.ends_with("/audit.jsonl") {
+            return Ok(false);
+        }
+        let source = source.clone();
+        Ok(self.store.read(Db::AgentHistoryEvidence, move |tx| retired_audit(tx, &source))?)
+    }
+
     /// Loads provenance for exact source association; native session IDs are not used here.
     pub fn source(&self, source_id: &str) -> Result<SourceInfo> {
         let id = source_id.to_owned();
@@ -161,4 +169,34 @@ fn kind_rank(kind: &str) -> u8 {
         "transcript" => 3,
         _ => 0,
     }
+}
+
+/// Older evidence kept the highest kind ever observed. For a Cowork fallback
+/// use the last retained sighting and the primary transcripts seen alongside it.
+/// New captures record the effective metadata role at retirement.
+pub(crate) fn retired_audit(
+    tx: &vault_store::Session<'_>,
+    source: &SourceInfo,
+) -> vault_store::Result<bool> {
+    if source.harness != "claude-code" {
+        return Ok(false);
+    }
+    let Some(body) = source.relative_path.strip_suffix("/audit.jsonl") else { return Ok(false) };
+    if !body.rsplit('/').next().is_some_and(|name| name.starts_with("local_")) {
+        return Ok(false);
+    }
+    let prefix = format!("{body}/.claude/projects/");
+    let mut retired = false;
+    tx.for_each("SELECT s.relative_path FROM ah_sources s
+        WHERE s.harness='claude-code' AND s.root=?1 AND s.relative_path>=?2 AND s.relative_path<?3
+        AND s.kind='transcript' AND EXISTS(SELECT 1 FROM ah_source_observations o
+        WHERE o.source_id=s.id AND o.seen=1 AND o.run_id=(SELECT max(run_id) FROM ah_source_observations WHERE source_id=?4 AND seen=1))",
+        params![source.root.clone(),prefix.clone(),format!("{prefix}\u{10ffff}"),source.id.clone()],|r|{
+            let path=r.get::<String>(0)?;
+            if let Some((_,name))=path.strip_prefix(&prefix).and_then(|p|p.split_once('/')){
+                retired |= !name.contains('/') && !name.starts_with("agent-") && name.ends_with(".jsonl") && crate::adapters::adapter(crate::Harness::ClaudeCode).publishes_transcript(&path);
+            }
+            Ok(())
+        })?;
+    Ok(retired)
 }

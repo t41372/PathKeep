@@ -126,6 +126,8 @@ pub(crate) fn watch<R: Runtime>(app: AppHandle<R>, session: SessionState, activi
                     log::info!("background launch idle for {idle:?}; exiting");
                     if let Err(error) = session.close_vault() {
                         log::warn!("closing the archive before an idle exit: {error}");
+                        quiet_since = Instant::now();
+                        continue;
                     }
                     app.exit(0);
                     return;

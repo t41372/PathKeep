@@ -226,6 +226,11 @@ impl Vault {
             _temporary_root: None,
         };
         if live_archive {
+            let paths = vault.paths().clone();
+            vault.store.on_displacement(move |held| {
+                crate::maintenance::snapshot::publish_held(&paths, held)
+                    .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))
+            })?;
             if let Err(error) = crate::ai::generations::migrate_flat_indexes(&vault) {
                 eprintln!("pathkeep: semantic index migration will retry on next open: {error:#}");
                 return Ok(vault);
@@ -455,6 +460,9 @@ struct Lifetime {
 }
 impl Lifetime {
     fn close(&self) -> Result<()> {
+        if let Some(store) = self.store.upgrade() {
+            store.preserve_displaced_conversations()?;
+        }
         self.conversations.close();
         if let Some(sessions) = self.sessions.upgrade() {
             sessions.close();

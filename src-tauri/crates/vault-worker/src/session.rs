@@ -210,6 +210,15 @@ impl VaultSession {
 
     /// Status reads inspect an existing handle without opening storage or the keychain.
     pub fn current_vault(&self) -> Option<Vault> {
+        let state = self.inner.0.lock().expect("session state");
+        if state.transition == Transition::Closing {
+            return None;
+        }
+        state.vault.clone().filter(|v| v.store().is_open())
+    }
+
+    /// Include the old owner while close is saving its last readable handle.
+    pub fn owner_for_exit(&self) -> Option<Vault> {
         self.inner.0.lock().expect("session state").vault.clone().filter(|v| v.store().is_open())
     }
 
@@ -532,17 +541,24 @@ impl VaultSession {
             return Err("archive-busy: archive is closing".into());
         }
         state.transition = Transition::Closing;
-        state.password = None;
-        state.data_key = None;
-        state.last_error = None;
-        state.result = Arc::default();
-        let vault = state.vault.take();
+        let vault = state.vault.clone();
         drop(state);
-        if let Some(vault) = &vault {
-            crate::data_kinds::delivery::revoke(&vault.paths().app_root);
+        let result = vault.as_ref().map_or(Ok(()), |v| v.close().map_err(|e| e.to_string()));
+        let retired = result.is_ok() || vault.as_ref().is_none_or(|v| !v.store().is_open());
+        if retired && let Some(v) = &vault {
+            crate::data_kinds::delivery::revoke(&v.paths().app_root);
         }
-        let result = vault.map_or(Ok(()), |vault| vault.close().map_err(|e| e.to_string()));
-        lock.lock().expect("session state").transition = Transition::Idle;
+        let mut state = lock.lock().expect("session state");
+        if retired {
+            state.vault = None;
+            state.password = None;
+            state.data_key = None;
+            state.last_error = None;
+            state.result = Arc::default();
+        } else {
+            state.vault = vault;
+        }
+        state.transition = Transition::Idle;
         ready.notify_all();
         result
     }

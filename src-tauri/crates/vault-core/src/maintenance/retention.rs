@@ -36,6 +36,7 @@ pub fn preview_retention(
             &directory,
             bucket_keeps(kind, &kept),
             kind == vault_layout::RetentionBucket::Staging,
+            &paths.artifact_path(vault_layout::ArtifactId::NativeSnapshots),
             measure,
         )?;
         buckets.push(RetentionBucket {
@@ -127,6 +128,7 @@ pub fn prune(
                 &paths.artifact_path(id),
                 bucket_keeps(kind, &kept),
                 kind == vault_layout::RetentionBucket::Staging,
+                &paths.artifact_path(vault_layout::ArtifactId::NativeSnapshots),
                 remove_path,
             )?;
             if kind == vault_layout::RetentionBucket::Snapshots {
@@ -210,6 +212,7 @@ fn walk_except(
     root: &Path,
     keep: &[PathBuf],
     staging: bool,
+    native_copies: &Path,
     each: fn(&Path) -> Result<(u64, usize)>,
 ) -> Result<(u64, usize)> {
     let entries = match fs::read_dir(root) {
@@ -219,13 +222,22 @@ fn walk_except(
     };
     let mut totals = (0, 0);
     for entry in entries {
-        let path = entry?.path();
+        let entry = entry?;
+        let path = entry.path();
+        // A sole-handle copy can be published without waiting for browsing
+        // maintenance. Bulk pruning never owns this family, even if it appeared
+        // after enumeration. An explicit copy selection still removes the row.
+        if root == native_copies && super::snapshot::is_held_copy(&path) {
+            continue;
+        }
         if keep.contains(&path) || (staging && super::conversation_repair::cache::is_preview(&path))
         {
             continue;
         }
-        let (bytes, files) = if keep.iter().any(|kept| kept.starts_with(&path)) {
-            walk_except(&path, keep, false, each)?
+        let (bytes, files) = if (path == native_copies && entry.file_type()?.is_dir())
+            || keep.iter().any(|kept| kept.starts_with(&path))
+        {
+            walk_except(&path, keep, false, native_copies, each)?
         } else {
             each(&path)?
         };

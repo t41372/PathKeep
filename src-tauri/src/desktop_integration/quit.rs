@@ -89,6 +89,8 @@ struct Quit {
     reveal: bool,
     /// The person said the quit may go ahead; it is not held again.
     confirmed: bool,
+    saving_handles: bool,
+    handles_saved: bool,
     /// A watcher thread is running.
     watching: bool,
 }
@@ -145,6 +147,44 @@ pub(crate) fn hold_quit<R: Runtime>(app: &AppHandle<R>) -> bool {
             with_quit(app, |quit| quit.confirmed = true);
             return false;
         }
+    }
+    true
+}
+
+/// Check disconnected handles on a blocking thread. A confirmed quit can still
+/// interrupt ordinary background work without waiting for the maintenance lease.
+pub(crate) fn preserve_before_exit<R: Runtime>(app: &AppHandle<R>, code: Option<i32>) -> bool {
+    let Some(vault) = app.state::<crate::session::SessionState>().owner_for_exit() else {
+        return false;
+    };
+    let start = with_quit(app, |q| {
+        if std::mem::take(&mut q.handles_saved) {
+            return None;
+        }
+        Some(!std::mem::replace(&mut q.saving_handles, true))
+    });
+    let Some(start) = start else { return false };
+    if start {
+        let handle = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let saved = vault.store().preserve_observed_displacements();
+            with_quit(&handle, |q| {
+                q.handles_saved = saved.is_ok();
+                q.saving_handles = false;
+                if saved.is_err() {
+                    q.confirmed = false;
+                }
+            });
+            match saved {
+                Ok(()) => handle.exit(code.unwrap_or(0)),
+                Err(error) => {
+                    log::error!("Could not preserve an open archive file before exit: {error}");
+                    let window = handle.clone();
+                    let _ =
+                        handle.run_on_main_thread(move || super::window::show_main_window(&window));
+                }
+            }
+        });
     }
     true
 }
@@ -228,6 +268,7 @@ pub(crate) fn answer_quit_request<R: Runtime>(
                 quit.open = None;
             }
             QuitAnswer::KeepOpen => {
+                quit.handles_saved = false;
                 quit.open = None;
                 quit.waiting = false;
             }

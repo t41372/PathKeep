@@ -38,6 +38,7 @@ impl Archive {
         let _job = self.jobs.enter(Some(&options.cancel))?;
         let provenance = self.source(source_id)?;
         if provenance.kind != "transcript"
+            || self.retired_fallback(&provenance)?
             || !adapter(provenance.harness.parse()?).publishes_transcript(&provenance.relative_path)
         {
             return Err(Error::Unsupported(

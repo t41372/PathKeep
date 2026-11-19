@@ -123,9 +123,6 @@ impl Vault {
         if slot.pauses != 1 {
             return Err(vault_store::Error::cancelled());
         }
-        if let Some(archive) = slot.archive.take() {
-            archive.stop_jobs();
-        }
         let layout = crate::admission::root_layout(&self.paths.app_root)
             .map_err(|e| vault_store::Error::Operation(Box::new(e)))?;
         if layout != self.layout {
@@ -136,6 +133,18 @@ impl Vault {
             self.data_key().is_some(),
             ArtifactId::Envelope,
         )?;
+        if self.store.retry_access()? {
+            if slot.recovery_failure.is_some() || slot.archive.is_none() {
+                self.attach_conversations(&mut slot).map_err(|e| match e {
+                    agent_history::Error::Store(error) => error,
+                    other => vault_store::Error::Operation(Box::new(other)),
+                })?;
+            }
+            return Ok(());
+        }
+        if let Some(archive) = slot.archive.take() {
+            archive.stop_jobs();
+        }
         let mut config =
             super::storage_config(&self.paths, layout, self.data_key(), Some(self.store.owner()?))?;
         config.required_existing =
@@ -160,7 +169,7 @@ impl Vault {
     /// Whole-archive operations must be able to account for every original database.
     pub fn require_complete(&self) -> vault_store::Result<()> {
         self.check_available_files()?;
-        self.conversation_availability().map_err(vault_store::Error::RepairRequired)
+        self.conversation_availability().map_err(vault_store::Error::unavailable)
     }
 
     /// Verify source pages and logical evidence before a conversion reads them.
@@ -192,7 +201,7 @@ impl Vault {
             agent_history::Archive::verify_retained_evidence(&self.store, cancel)?;
             Ok(())
         })();
-        self.store.conversation_availability().map_err(vault_store::Error::RepairRequired)?;
+        self.store.conversation_availability().map_err(vault_store::Error::unavailable)?;
         result
     }
 
@@ -208,7 +217,11 @@ impl Vault {
             match self.store().check_database_files(roles) {
                 Ok(()) => {}
                 Err(vault_store::Error::Open(reason)) => {
-                    self.store().remember_conversation_failure(reason)
+                    let check_held = !reason.cause.access_refused();
+                    self.store().remember_conversation_failure(reason);
+                    if check_held {
+                        self.store().preserve_displaced_conversations()?;
+                    }
                 }
                 Err(other) => return Err(other),
             }

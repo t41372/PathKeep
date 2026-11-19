@@ -73,6 +73,7 @@ impl Archive {
                     Err(e) => return Err(e),
                 };
                 if source.latest_revision_id.is_some()
+                    && !self.retired_fallback(&source)?
                     && crate::adapters::adapter(harness).publishes_transcript(&source.relative_path)
                 {
                     // A capture can commit a raw head without publishing its new interpretation.

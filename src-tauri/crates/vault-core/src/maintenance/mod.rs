@@ -12,8 +12,9 @@ pub use audit::{record_mode_change, record_restore};
 pub(crate) mod conversation_repair;
 pub(crate) mod snapshot;
 pub use conversation_repair::{
-    ConversationRepairPreview, preview_conversation_repair,
-    preview_conversation_repair_with_cancel, repair_conversations,
+    ConversationRepairPreview, VerifiedConversationRepair, install_conversation_repair,
+    preview_conversation_repair, preview_conversation_repair_with_cancel, repair_conversations,
+    verify_conversation_repair,
 };
 pub use snapshot::{
     list_snapshots, manual_snapshot, recover_native_maintenance, restore_snapshot,

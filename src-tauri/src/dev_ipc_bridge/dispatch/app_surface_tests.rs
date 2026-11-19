@@ -575,7 +575,7 @@ fn conversation_repair_screen_wire_contract() {
             json!({"request":{"copyPath":marked["path"]}}),
             false
         );
-        assert_eq!(refused["code"], "conversation-copy-unreadable-at-creation");
+        assert_eq!(refused["code"], "conversation-copy-no-verified-evidence");
         let copy = invoke!(
             "preview_agent_history_repair",
             json!({"request":{"copyPath":good["path"]}}),

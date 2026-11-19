@@ -63,6 +63,8 @@ pub enum Error {
     PairUnverified,
     #[error("conversation-repair-required: {0}")]
     RepairRequired(#[source] std::sync::Arc<StoreOpenFailure>),
+    #[error("conversation-access-unavailable: {0}")]
+    AccessUnavailable(#[source] std::sync::Arc<StoreOpenFailure>),
     #[error("this archive is owned by another process: {path}")]
     OwnedElsewhere {
         path: PathBuf,
@@ -120,6 +122,34 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
+    pub fn unavailable(reason: std::sync::Arc<StoreOpenFailure>) -> Self {
+        if reason.cause.access_refused() {
+            Self::AccessUnavailable(reason)
+        } else {
+            Self::RepairRequired(reason)
+        }
+    }
+
+    pub fn access_refused(&self) -> bool {
+        let transient = |k| {
+            matches!(
+                k,
+                std::io::ErrorKind::PermissionDenied
+                    | std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::Interrupted
+                    | std::io::ErrorKind::TimedOut
+            )
+        };
+        match self {
+            Self::Io(e) => {
+                transient(e.kind()) || cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33))
+            }
+            Self::Engine(turso::Error::IoError(k, _)) => transient(*k),
+            Self::Busy { .. } => true,
+            _ => false,
+        }
+    }
+
     /// A fixed source-column decoder could not interpret a stored SQL value.
     pub fn invalid_stored_value(&self) -> bool {
         matches!(self, Self::Engine(turso::Error::ConversionFailure(_)))

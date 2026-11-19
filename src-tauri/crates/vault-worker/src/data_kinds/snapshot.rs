@@ -56,13 +56,14 @@ impl From<&vault_store::StoreOpenFailure> for RoleFailure {
                 OpenStage::Write => "write",
             },
             reason: match &failure.cause {
+                Error::Busy { .. } => "archive-busy",
+                e if e.access_refused() => "access-denied",
                 Error::MissingStore(_) => "archive-store-missing",
                 Error::WrongKey { .. } => "wrong-key",
                 Error::Corrupt { .. }
                 | Error::RetainedBytes { .. }
                 | Error::IntegrityCheck { .. } => "integrity-failed",
                 Error::SchemaTooNew { .. } => "schema-too-new",
-                Error::Busy { .. } => "archive-busy",
                 _ => "kind-unavailable",
             },
         }

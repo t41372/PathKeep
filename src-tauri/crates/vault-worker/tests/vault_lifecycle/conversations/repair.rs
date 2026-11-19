@@ -302,7 +302,7 @@ fn screens_can_preview_protect_and_repair_an_unavailable_kind() {
     assert_eq!(copy.source_op, "manual");
     let reject =
         repair::preview(&f.session, preview_req(json!({"copyPath":copy.path}))).unwrap_err();
-    assert!(reject.to_string().contains("conversation-copy-unreadable-at-creation"));
+    assert!(reject.to_string().contains("conversation-copy-no-verified-evidence"));
     let preview = repair::preview(&f.session, preview_req(json!({}))).unwrap();
     assert_eq!(preview.action, "startFresh");
     assert!(

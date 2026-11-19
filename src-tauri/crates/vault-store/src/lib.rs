@@ -34,7 +34,7 @@ pub use config::{Config, Db, IoLayer, Paths};
 pub use copy::{CopyPhase, CopyProgress, TableDigest};
 pub use engine_log::route_engine_diagnostics_to_log;
 pub use error::{Error, OpenStage, Result, StoreOpenFailure};
-pub use maintenance::Maintenance;
+pub use maintenance::{HeldGeneration, Maintenance};
 pub use migration::{BackfillProgress, Migration, MigrationRegistry};
 pub use owner_lock::OwnerLock;
 pub use queue::Priority;
@@ -46,13 +46,21 @@ use std::sync::{
 };
 pub use turso::{IntoParams, Row, Value, params, params_from_iter};
 
+type HeldPublisher = dyn Fn(HeldGeneration<'_>) -> Result<()> + Send + Sync;
+
 /// All handles are joined before the ownership file is released. Share Store via
 /// Arc between blocking command threads; a closure cannot recursively call it.
 pub struct Store {
     workers: RwLock<Vec<(Db, worker::Workers)>>,
     /// Serializes attempts to add workers. Ordinary reads never take this lock.
     adding: Mutex<()>,
-    retired_files: Mutex<Vec<(Db, worker::HeldFiles)>>,
+    retired_files: Mutex<Vec<(u64, Db, worker::HeldFiles)>>,
+    conversation_generation: std::sync::atomic::AtomicU64,
+    held_publisher: std::sync::OnceLock<Box<HeldPublisher>>,
+    rejected_pair: AtomicBool,
+    initial_access_refusal: Mutex<Option<[Option<turso::core::io::FileId>; 2]>>,
+    pending_anchors: Mutex<Vec<(Db, turso::core::io::FileId)>>,
+    anchor_monitor: Mutex<Option<std::sync::mpsc::Sender<()>>>,
     availability_observer: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
     conversation_failure: RwLock<Option<Arc<StoreOpenFailure>>>,
     ownership: Mutex<Option<Arc<owner_lock::OwnerLock>>>,
@@ -139,6 +147,8 @@ impl Store {
         match worker.request(read, priority, work) {
             Err(cause)
                 if matches!(cause, Error::Corrupt { .. } | Error::WrongKey { .. })
+                    || (matches!(cause, Error::Engine(_) | Error::Busy { .. })
+                        && cause.access_refused())
                     || (matches!(cause, Error::JobPanicked { .. })
                         && worker.integrity_check_failed()) =>
             {
@@ -155,8 +165,14 @@ impl Store {
     pub fn close(&self) -> Result<()> {
         worker::check_caller()?;
         let mut workers = self.workers_mut();
-        let sealed = self.seal_if_available(&workers);
+        self.protect_held(&workers)?;
+        let sealed = if workers.iter().any(|(_, w)| *w.held_saved.lock().unwrap()) {
+            Ok(())
+        } else {
+            self.seal_if_available(&workers)
+        };
         self.closed.store(true, Ordering::Release);
+        self.anchor_monitor.lock().unwrap().take();
         while let Some((_, worker)) = workers.pop() {
             drop(worker);
         }
@@ -166,6 +182,7 @@ impl Store {
     }
     fn seal_if_available(&self, workers: &[(Db, worker::Workers)]) -> Result<()> {
         if self.pair_seals && self.conversation_availability().is_ok() {
+            self.protect_held(workers)?;
             for (db, w) in workers.iter().filter(|(db, _)| opening::conversation_role(*db)) {
                 maintenance::check_identity(*db, w, self.paths.get(*db))?;
             }
