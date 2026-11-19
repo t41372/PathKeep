@@ -174,6 +174,26 @@ const CODED_FAILURES: [&str; 24] = [
 ///   [`CODED_FAILURES`] or an archive refusal's; when a chain holds several, the
 ///   first one names the failure.
 fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str>) {
+    if message.starts_with("conversation-repair-required:") {
+        return (Some("conversation-repair-required"), Some("preview_agent_history_repair"));
+    }
+    for code in [
+        "conversation-copy-unreadable-at-creation",
+        "conversation-copy-not-listed",
+        "conversation-copy-incomplete",
+        "conversation-copy-invalid-seal",
+        "conversation-schema-too-new",
+        "conversation-copy-duplicate-role",
+        "conversation-copy-unsafe-path",
+        "conversation-repair-preview-stale",
+        "conversation-repair-healthy",
+        "conversation-evidence-readable",
+        "conversation-pair-unverified",
+    ] {
+        if message == code || message.strip_prefix(code).is_some_and(|rest| rest.starts_with(':')) {
+            return (Some(code), None);
+        }
+    }
     let refusals = vault_core::admission::Reason::ALL.map(vault_core::admission::Reason::code);
     // The first code in the chain wins: the outermost context is what the operation concluded and
     // a code further in only its cause; a code inside a longer one (`keychain-unavailable` in

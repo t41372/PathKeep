@@ -231,3 +231,6 @@ mod damage;
 
 #[path = "conversations/visibility.rs"]
 mod visibility;
+
+#[path = "conversations/repair.rs"]
+mod repair;

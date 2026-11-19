@@ -112,41 +112,75 @@ impl Vault {
 
     /// After an external fix, retry both conversation workers in this generation.
     pub fn retry_conversations(&self) -> vault_store::Result<()> {
+        if self.conversation_availability().is_ok() {
+            return if self.store.is_open() { Ok(()) } else { Err(vault_store::Error::Closed) };
+        }
+        let _pause = self.pause_conversations();
         let mut slot = self.lifetime.conversations.0.lock().unwrap();
         if slot.closed || !self.store.is_open() {
             return Err(vault_store::Error::Closed);
         }
-        if slot.pauses > 0 {
+        if slot.pauses != 1 {
             return Err(vault_store::Error::cancelled());
         }
-        if slot.recovery_failure.is_some() {
-            return self.attach_conversations(&mut slot).map(|_| ()).map_err(|e| match e {
-                agent_history::Error::Store(error) => error,
-                other => vault_store::Error::Operation(Box::new(other)),
-            });
-        }
-        if self.store.conversation_availability().is_ok() {
-            return Ok(());
+        if let Some(archive) = slot.archive.take() {
+            archive.stop_jobs();
         }
         let layout = crate::admission::root_layout(&self.paths.app_root)
             .map_err(|e| vault_store::Error::Operation(Box::new(e)))?;
         if layout != self.layout {
             return Err(vault_store::Error::InvalidConfig("archive layout changed".into()));
         }
-        super::password::check_partial_root(&self.paths, self.data_key().is_some())?;
+        super::password::check_partial_root(
+            &self.paths,
+            self.data_key().is_some(),
+            ArtifactId::Envelope,
+        )?;
         let mut config =
             super::storage_config(&self.paths, layout, self.data_key(), Some(self.store.owner()?))?;
         config.required_existing =
             crate::maintenance::creation::check_required_stores(&self.paths, layout)
                 .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
         let _update = super::upgrade::UpdateScope::track(&mut config.migrations);
-        self.store.retry_conversations(config)
+        self.store.retry_conversations(config)?;
+        self.attach_conversations(&mut slot).map(|_| ()).map_err(|e| match e {
+            agent_history::Error::Store(error) => error,
+            other => vault_store::Error::Operation(Box::new(other)),
+        })
     }
 
     /// Whole-archive operations must be able to account for every original database.
     pub fn require_complete(&self) -> vault_store::Result<()> {
-        self.conversation_availability().map_err(vault_store::Error::Open)?;
-        self.store.check_database_files(vault_layout::at_rest_databases(self.layout))
+        self.check_available_files()?;
+        self.conversation_availability().map_err(vault_store::Error::RepairRequired)
+    }
+
+    /// Validate the browsing files first. If a conversion or at-rest check is the
+    /// first to discover a displaced conversation role, publish its failure immediately.
+    pub(crate) fn check_available_files(&self) -> vault_store::Result<()> {
+        self.check_browsing_files()?;
+        if self.conversation_availability().is_ok() {
+            let roles = vault_layout::at_rest_databases(self.layout()).filter(|db| {
+                vault_layout::spec(vault_layout::db_artifact(*db)).scope
+                    == vault_layout::DataScope::AgentHistory
+            });
+            match self.store().check_database_files(roles) {
+                Ok(()) => {}
+                Err(vault_store::Error::Open(reason)) => {
+                    self.store().remember_conversation_failure(reason)
+                }
+                Err(other) => return Err(other),
+            }
+        }
+        Ok(())
+    }
+
+    /// A browsing-only operation verifies the historical files even during conversation recovery.
+    pub fn check_browsing_files(&self) -> vault_store::Result<()> {
+        self.store.check_database_files(vault_layout::at_rest_databases(self.layout).filter(|db| {
+            vault_layout::spec(vault_layout::db_artifact(*db)).scope
+                != vault_layout::DataScope::AgentHistory
+        }))
     }
 
     /// Returns this generation's conversation service. First use runs recovery on the
@@ -199,6 +233,7 @@ impl Vault {
         let archive = match Archive::from_store(self.store.clone(), resources) {
             Ok(archive) => Arc::new(archive),
             Err(agent_history::Error::Store(vault_store::Error::Open(reason))) => {
+                self.store.remember_conversation_failure(reason.clone());
                 slot.recovery_failure = Some(reason.clone());
                 return Err(vault_store::Error::Open(reason).into());
             }
@@ -247,7 +282,6 @@ pub(crate) struct PausedStore<'a> {
 impl Vault {
     pub(crate) fn pause_store(&self) -> vault_store::Result<PausedStore<'_>> {
         let conversations = self.pause_conversations();
-        self.conversation_availability().map_err(vault_store::Error::Open)?;
         Ok(PausedStore { storage: self.store.pause()?, vault: self, _conversations: conversations })
     }
 }

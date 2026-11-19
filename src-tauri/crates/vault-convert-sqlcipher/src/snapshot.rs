@@ -30,7 +30,7 @@ pub fn restore_snapshot(
     mut progress: impl FnMut(Progress),
 ) -> Result<InstalledArchive> {
     if let Some(vault) = current {
-        vault.require_complete()?;
+        vault.check_browsing_files()?;
     }
     cancel.check()?;
     let input = crate::source::open(source, password)?;

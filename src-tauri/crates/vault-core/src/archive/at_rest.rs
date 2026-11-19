@@ -171,6 +171,7 @@ pub(crate) fn check_config_disk_consistency(paths: &ProjectPaths) -> Result<()> 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReconcileReport {
+    pub conversations_unreadable: bool,
     /// True when the recorded mode had to change to match the files.
     pub repaired: bool,
     /// The drifted on-disk mode that was found (`None` when nothing was repaired).

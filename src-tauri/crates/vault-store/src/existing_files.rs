@@ -18,7 +18,7 @@ use turso::core::{
 
 struct ExistingFiles {
     inner: IoLayer,
-    required: Vec<PathBuf>,
+    required: Vec<(PathBuf, Option<FileId>)>,
 }
 
 impl Config {
@@ -32,8 +32,15 @@ impl Config {
             Some(io) => io,
             None => Arc::new(PlatformIO::new().map_err(|e| Error::Operation(Box::new(e)))?),
         };
-        let required =
-            self.required_existing.iter().map(|db| self.paths.get(*db).to_owned()).collect();
+        let required = self
+            .required_existing
+            .iter()
+            .map(|db| {
+                let path = self.paths.get(*db);
+                let id = path.to_str().and_then(|p| core::io::get_file_id(p).ok());
+                (path.to_owned(), id)
+            })
+            .collect();
         self.io = Some(Arc::new(ExistingFiles { inner, required }));
         Ok(())
     }
@@ -53,10 +60,24 @@ impl Clock for ExistingFiles {
 /// coordination, fixed buffers, completion polling) stay in effect. Only `open_file` differs.
 impl IO for ExistingFiles {
     fn open_file(&self, path: &str, flags: OpenFlags, direct: bool) -> core::Result<Arc<dyn File>> {
-        if !self.required.iter().any(|required| required == Path::new(path)) {
+        let Some((_, expected)) =
+            self.required.iter().find(|(required, _)| required == Path::new(path))
+        else {
             return self.inner.open_file(path, flags, direct);
-        }
+        };
+        let check = || {
+            if let Some(expected) = expected
+                && self.inner.file_id(path)? != *expected
+            {
+                return Err(core::LimboError::InternalError(
+                    "database identity changed during open".into(),
+                ));
+            }
+            Ok(())
+        };
+        check()?;
         let file = self.inner.open_file(path, flags - OpenFlags::Create, direct)?;
+        check()?;
         if file.size()? < 16 {
             return Err(core::LimboError::Corrupt("incomplete required database header".into()));
         }

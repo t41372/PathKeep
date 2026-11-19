@@ -10,3 +10,6 @@ pub use catalog::{ArtifactSpec, DatabaseSpec, database_spec, db_artifact, spec};
 pub use identity::{ArtifactId, Db, KeyPurpose};
 pub use paths::*;
 pub use policies::*;
+
+/// A sealed copy carrying opaque conversation files may restore browsing, but cannot repair conversations.
+pub const UNREADABLE_CONVERSATIONS: &str = "conversations-unreadable";

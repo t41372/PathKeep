@@ -70,7 +70,7 @@ impl Vault {
     ) -> Result<Self> {
         crate::admission::require_control(&paths.app_root)
             .map_err(|refusal| vault_store::Error::Operation(Box::new(refusal)))?;
-        Self::open_database(paths, config, key, owner, true)
+        Self::open_database(paths, config, key, owner, Some(vault_layout::ArtifactId::Envelope))
     }
 
     /// A staged maintenance copy preserves its run ledger until publication.
@@ -81,7 +81,7 @@ impl Vault {
     ) -> Result<Self> {
         crate::admission::guard(&paths.app_root)
             .map_err(|refusal| vault_store::Error::Operation(Box::new(refusal)))?;
-        Self::open_database(paths, config, key, None, false)
+        Self::open_database(paths, config, key, None, None)
     }
 
     fn open_database(
@@ -89,8 +89,9 @@ impl Vault {
         config: AppConfig,
         key: Option<&vault_crypto::DataKey>,
         owner: Option<Arc<vault_store::OwnerLock>>,
-        live_archive: bool,
+        live_envelope: Option<vault_layout::ArtifactId>,
     ) -> Result<Self> {
+        let live_archive = live_envelope.is_some();
         let owner = match owner {
             Some(owner) => owner,
             None => Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)?),
@@ -146,10 +147,12 @@ impl Vault {
                 return Err(error);
             }
         };
-        if store.conversation_availability().is_err() {
+        if let Some(envelope) = live_envelope
+            && store.conversation_availability().is_err()
+        {
             // The browsing workers have verified their keys. Check the shared control
             // and envelope before attributing the remaining failure to conversations.
-            password::check_partial_root(&paths, key.is_some())?;
+            password::check_partial_root(&paths, key.is_some(), envelope)?;
         }
         if live_archive {
             store
@@ -409,6 +412,7 @@ pub(crate) fn storage_config(
     // Only the stores this archive's layout holds. Opening one it does not would create it.
     storage.databases = vault_layout::databases_in(layout);
     storage.owner = owner;
+    storage.pair_seals = layout == vault_layout::ArchiveLayout::AgentHistoryV2;
     if let Some(readers) = crate::test_support::store_readers() {
         storage.readers_per_database = readers;
     }

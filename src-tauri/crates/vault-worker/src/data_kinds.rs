@@ -7,6 +7,7 @@ mod snapshot;
 pub use hints::{DismissHint, HintAcknowledgement, dismiss_hint};
 pub use snapshot::{KindList, KindRow, Transition, list, list_with, retry_agent_store};
 pub mod preview;
+pub mod repair;
 use crate::VaultSession;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

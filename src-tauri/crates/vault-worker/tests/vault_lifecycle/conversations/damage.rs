@@ -90,6 +90,13 @@ fn assert_later_read_fails(vault: &Vault, role: Db, encrypted: bool) {
         (agent_history::Error::Store(cause), Db::AgentHistoryReadModel) => Some(cause),
         _ => None,
     };
+    let cause = match cause {
+        Some(vault_store::Error::Open(reason)) => {
+            assert_eq!((reason.role, reason.stage), (role, vault_store::OpenStage::Read));
+            Some(&reason.cause)
+        }
+        other => other,
+    };
     if encrypted {
         assert!(matches!(cause, Some(vault_store::Error::WrongKey { .. })), "{error:?}");
     } else {
@@ -147,6 +154,10 @@ fn conversation_files_fail_as_one_group_and_browsing_works() {
                 let reopened = f.reopen(encrypted);
                 if matches!(damage, Damage::LaterPageGarbage) {
                     assert_later_read_fails(&reopened, role, encrypted);
+                    assert_eq!(reopened.conversation_availability().unwrap_err().role, role);
+                    assert!(reopened.agent_history().is_err());
+                    assert!(reopened.retry_conversations().is_err());
+                    assert_eq!(reopened.conversation_availability().unwrap_err().role, role);
                 }
                 f.create_browser();
                 assert_eq!(f.backup().run.unwrap().new_visits, 1);
@@ -331,23 +342,17 @@ fn maintenance_waits_for_retry() {
         assert!(vault.retry_conversations().is_err());
         let failure = vault.conversation_availability().unwrap_err();
         for error in [
-            vault_core::maintenance::snapshot(&vault, &snapshot).unwrap_err(),
-            vault_core::maintenance::restore_snapshot(
-                &vault,
-                &safety,
-                encrypted.then_some(PASSWORD),
-                Default::default(),
-            )
-            .unwrap_err(),
             vault_worker::export_app_data(&vault, bundle.clone(), EXPORT_PASSWORD).unwrap_err(),
-            vault_worker::reconcile_archive_encryption(&vault).unwrap_err(),
             switch().unwrap_err(),
         ] {
             assert!(
-                matches!(error.downcast_ref::<vault_store::Error>(), Some(vault_store::Error::Open(reason)) if Arc::ptr_eq(reason, &failure)),
+                matches!(error.downcast_ref::<vault_store::Error>(), Some(vault_store::Error::RepairRequired(reason)) if Arc::ptr_eq(reason, &failure)),
                 "{error:#}"
             );
         }
+        assert!(
+            vault_worker::reconcile_archive_encryption(&vault).unwrap().conversations_unreadable
+        );
         assert!(!snapshot.exists() && !bundle.exists());
         assert_eq!(hashes(&f.root), before);
         vault
@@ -359,6 +364,7 @@ fn maintenance_waits_for_retry() {
             .unwrap();
         fs::write(path, original).unwrap();
         vault.retry_conversations().unwrap();
+        vault.conversation_availability().unwrap();
         // Retry on this owner; re-opening it would discard retry_marker.
         corpus.check(&vault, encrypted.then_some(PASSWORD));
         vault
@@ -410,35 +416,27 @@ fn wipe_includes_the_unavailable_group() {
 }
 
 #[test]
-fn lazy_recovery_failure_names_the_role_and_blocks_snapshot() {
+fn retry_reopens_replaced_roles_before_reporting_availability() {
     for (db, table) in
         [(CONVERSATIONS[0], "ah_backup_runs"), (CONVERSATIONS[1], "ah_projection_work")]
     {
         let f = Fixture::new(false);
         let corpus = Corpus::seed(&f);
-        f.vault()
-            .store()
-            .write(db, Priority::Interactive, move |s| {
-                s.execute(&format!("ALTER TABLE {table} RENAME TO temporarily_missing"), ())?;
-                Ok(())
-            })
-            .unwrap();
         f.session.close_vault().unwrap();
+        let path = f.root.join(vault_layout::database_path(db));
+        let saved = f.sandbox.path().join("healthy-role.db");
+        fs::copy(&path, &saved).unwrap();
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute(&format!("ALTER TABLE {table} RENAME TO temporarily_missing"), ())
+            .unwrap();
         let vault = f.reopen(false);
         assert!(vault.agent_history().is_err());
         let why = vault.conversation_availability().unwrap_err();
         assert_eq!((why.role, why.stage), (db, vault_store::OpenStage::Recover));
-        assert!(
-            vault_core::maintenance::snapshot(&vault, &f.sandbox.path().join("snapshot")).is_err()
-        );
-        vault
-            .store()
-            .write(db, Priority::Interactive, move |s| {
-                s.execute(&format!("ALTER TABLE temporarily_missing RENAME TO {table}"), ())?;
-                Ok(())
-            })
-            .unwrap();
+        fs::rename(saved, &path).unwrap();
         vault.retry_conversations().unwrap();
+        vault.conversation_availability().unwrap();
         corpus.check(&vault, None);
     }
 }
@@ -452,12 +450,16 @@ fn whole_operations_recheck_required_files() {
     let path = f.root.join(vault_layout::database_path(Db::AgentHistoryReadModel));
     let saved = f.sandbox.path().join("saved.db");
     fs::rename(&path, &saved).unwrap();
+    let refused = vault.require_complete().unwrap_err();
+    assert!(
+        matches!(refused, vault_store::Error::RepairRequired(ref why) if why.role == Db::AgentHistoryReadModel)
+    );
     let result = vault_worker::reconcile_archive_encryption(&vault);
     fs::rename(saved, path).unwrap();
-    let error = result.unwrap_err();
-    assert!(matches!(error.downcast_ref::<vault_store::Error>(),
-        Some(vault_store::Error::Open(reason)) if reason.role == Db::AgentHistoryReadModel));
-    vault_worker::reconcile_archive_encryption(&vault).unwrap();
+    assert!(result.unwrap().conversations_unreadable);
+    assert_eq!(vault.conversation_availability().unwrap_err().role, Db::AgentHistoryReadModel);
+    vault.retry_conversations().unwrap();
+    assert!(!vault_worker::reconcile_archive_encryption(&vault).unwrap().conversations_unreadable);
 }
 
 #[test]
@@ -533,5 +535,225 @@ fn conversation_start_refuses_a_replaced_shared_scratch() {
         }
         Err(other) => panic!("expected a role-specific open error: {other:?}"),
         Ok(store) => panic!("accepted replaced Scratch: {:?}", store.conversation_availability()),
+    }
+}
+
+#[test]
+fn safety_copy_carries_unavailable_conversation_bytes() {
+    for encrypted in [false, true] {
+        let f = Fixture::new(encrypted);
+        let _corpus = Corpus::seed(&f);
+        spoil(&f, Db::AgentHistoryReadModel, Damage::FirstPageGarbage);
+        let vault = f.reopen(encrypted);
+        // No conversation worker owns this file. Every opaque companion matters,
+        // including a WAL the damaged main file prevents SQLite from replaying.
+        let broken = vault_layout::database_path(Db::AgentHistoryReadModel);
+        for suffix in ["-wal", "-shm", "-tshm"] {
+            fs::write(f.root.join(format!("{broken}{suffix}")), suffix.as_bytes()).unwrap();
+        }
+        for direct_store in [true, false] {
+            let target = vault
+                .paths()
+                .artifact_path(vault_layout::ArtifactId::NativeSnapshots)
+                .join(format!("opaque-{direct_store}"));
+            if direct_store {
+                vault.store().pause().unwrap().snapshot(&target).unwrap();
+            } else {
+                vault_core::maintenance::snapshot(&vault, &target).unwrap();
+                let copies = vault_core::maintenance::list_snapshots(vault.paths()).unwrap();
+                let copy = copies.iter().find(|copy| Path::new(&copy.path) == target).unwrap();
+                assert_eq!(serde_json::to_value(copy).unwrap()["conversationsUnreadable"], true);
+            }
+            assert_eq!(
+                fs::read(target.join(vault_layout::UNREADABLE_CONVERSATIONS)).unwrap(),
+                b"1\n"
+            );
+            for suffix in ["-wal", "-shm", "-tshm"] {
+                assert_eq!(
+                    fs::read(target.join(format!("{broken}{suffix}"))).unwrap(),
+                    suffix.as_bytes()
+                );
+            }
+            for db in CONVERSATIONS {
+                let name = vault_layout::database_path(db);
+                assert_eq!(
+                    fs::read(target.join(name)).unwrap(),
+                    fs::read(f.root.join(name)).unwrap()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn retry_refuses_an_independently_closed_conversation_role() {
+    let f = Fixture::new(false);
+    let _corpus = Corpus::seed(&f);
+    f.session.close_vault().unwrap();
+    let other = f.sandbox.path().join("diverged");
+    let paths = vault_core::project_paths_with_root(&other);
+    for name in expected_root::files_under(&f.root).unwrap() {
+        let target = other.join(&name);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::copy(f.root.join(name), target).unwrap();
+    }
+    let fork = Vault::open(paths.clone(), vault_core::load_config(&paths).unwrap(), None).unwrap();
+    fork.agent_history().unwrap().start_backup_run().unwrap();
+    fork.close().unwrap();
+    let name = vault_layout::database_path(Db::AgentHistoryEvidence);
+    fs::remove_file(f.root.join(name)).unwrap();
+    let vault = f.reopen(false);
+    fs::copy(other.join(name), f.root.join(name)).unwrap();
+    let before = hashes(&f.root);
+    assert!(vault.retry_conversations().is_err());
+    assert!(vault.conversation_availability().is_err());
+    let error =
+        vault_core::maintenance::preview_conversation_repair(&vault, None, None).unwrap_err();
+    assert!(error.to_string().contains("conversation-pair-unverified"));
+    assert_eq!(hashes(&f.root), before);
+}
+
+#[test]
+fn browsing_restore_from_a_marked_copy_keeps_both_live_roles_and_the_displaced_bytes() {
+    for encrypted in [false, true] {
+        let f = Fixture::new(encrypted);
+        f.create_browser();
+        assert_eq!(f.backup().run.unwrap().new_visits, 1);
+        let _corpus = Corpus::seed(&f);
+        spoil(&f, Db::AgentHistoryEvidence, Damage::Truncated);
+        let vault = f.reopen(encrypted);
+        let copies = vault.paths().artifact_path(vault_layout::ArtifactId::NativeSnapshots);
+        let copy = copies.join("manual-damaged");
+        vault_core::maintenance::snapshot(&vault, &copy).unwrap();
+        vault
+            .store()
+            .write(Db::Archive, Priority::Interactive, |s| {
+                s.execute("UPDATE urls SET title='after the copy'", ())?;
+                Ok(())
+            })
+            .unwrap();
+        let before =
+            CONVERSATIONS.map(|db| fs::read(f.root.join(vault_layout::database_path(db))).unwrap());
+        let report = vault_worker::run_full_archive_restore(
+            &f.session,
+            encrypted.then_some(PASSWORD),
+            &vault_core::SnapshotRestoreRequest { snapshot_path: copy.display().to_string() },
+        )
+        .unwrap();
+        let kept = Path::new(&report.quarantine_dir);
+        assert!(kept.join(vault_layout::UNREADABLE_CONVERSATIONS).exists());
+        for (db, bytes) in CONVERSATIONS.into_iter().zip(before) {
+            let file = vault_layout::database_path(db);
+            assert_eq!(fs::read(f.root.join(file)).unwrap(), bytes);
+            assert_eq!(fs::read(kept.join(file)).unwrap(), bytes);
+        }
+        let vault = f.vault();
+        assert!(vault.conversation_availability().is_err());
+        let title: String = vault
+            .store()
+            .read(Db::Archive, |s| s.query_one("SELECT title FROM urls", (), |r| Ok(r.get(0)?)))
+            .unwrap();
+        assert_eq!(title, "pksearchelm");
+    }
+}
+
+#[test]
+fn recent_runs_quarantines_the_role_at_the_failing_read() {
+    use vault_worker::data_kinds::{self, backups};
+    for encrypted in [false, true] {
+        let f = Fixture::new(encrypted);
+        let _corpus = Corpus::seed(&f);
+        let page: i64 = f
+            .vault()
+            .store()
+            .read(Db::AgentHistoryEvidence, |s| {
+                s.query_one(
+                    "SELECT rootpage FROM sqlite_schema WHERE name='ah_desktop_backups'",
+                    (),
+                    |r| Ok(r.get(0)?),
+                )
+            })
+            .unwrap();
+        f.session.close_vault().unwrap();
+        files::overwrite_page(
+            &f.root.join(vault_layout::database_path(Db::AgentHistoryEvidence)),
+            page as u64,
+            false,
+        );
+        let vault = f.reopen(encrypted);
+        vault.conversation_availability().unwrap();
+        let req = serde_json::from_value(
+            serde_json::json!({"space":"agent-history","includeArchiveWide":false,"limit":10}),
+        )
+        .unwrap();
+        assert!(backups::list_runs(&f.session, req).is_err());
+        let why = vault.conversation_availability().unwrap_err();
+        assert_eq!((why.role, why.stage), (Db::AgentHistoryEvidence, vault_store::OpenStage::Read));
+        let rows = serde_json::to_value(data_kinds::list(&f.session).unwrap()).unwrap();
+        assert_eq!(rows["kinds"][1]["availability"], "unavailable");
+        assert_eq!(rows["kinds"][1]["failure"]["stage"], "read");
+        let preview =
+            vault_core::maintenance::preview_conversation_repair(&vault, None, None).unwrap();
+        assert_eq!(preview.action, "startFresh");
+        assert!(vault.retry_conversations().is_err());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn same_mode_path_replacement_is_not_a_snapshot_of_the_writer() {
+    let f = Fixture::new(false);
+    let vault = f.vault();
+    let main = f.root.join(vault_layout::database_path(Db::AgentHistoryEvidence));
+    let older = f.sandbox.path().join("older");
+    fs::copy(&main, &older).unwrap();
+    let held = f.sandbox.path().join("held");
+    fs::rename(&main, &held).unwrap();
+    fs::rename(older, &main).unwrap();
+    let output = f.sandbox.path().join("misleading");
+    let failed = vault_core::maintenance::snapshot(&vault, &output).unwrap_err();
+    assert!(
+        matches!(failed.downcast_ref::<vault_store::Error>(), Some(vault_store::Error::Open(f)) if matches!(f.cause,vault_store::Error::ReplacedFile(_)))
+    );
+    assert!(!output.join("snapshot.json").exists());
+    fs::rename(held, &main).unwrap();
+}
+
+#[test]
+fn callback_panic_on_sound_pages_does_not_offer_repair() {
+    let f = Fixture::new(false);
+    let vault = f.vault();
+    let failed = vault.store().read::<()>(Db::AgentHistoryEvidence, |_| panic!("caller failed"));
+    assert!(matches!(failed, Err(vault_store::Error::JobPanicked { .. })));
+    vault.conversation_availability().unwrap();
+    let error =
+        vault_core::maintenance::preview_conversation_repair(&vault, None, None).unwrap_err();
+    assert!(error.to_string().contains("conversation-repair-healthy"));
+}
+
+#[test]
+fn failed_evidence_migration_can_be_repaired_from_a_copy_or_started_fresh() {
+    for encrypted in [false, true] {
+        let f = Fixture::new(encrypted);
+        let _corpus = Corpus::seed(&f);
+        let good = f
+            .vault()
+            .paths()
+            .artifact_path(vault_layout::ArtifactId::NativeSnapshots)
+            .join("before-failed-migration");
+        vault_core::maintenance::snapshot(&f.vault(), &good).unwrap();
+        spoil(&f, Db::AgentHistoryEvidence, Damage::Migration);
+        let vault = f.reopen(encrypted);
+        let from_copy = vault_core::maintenance::preview_conversation_repair(
+            &vault,
+            Some(&good),
+            encrypted.then_some(PASSWORD),
+        )
+        .unwrap();
+        assert_eq!(from_copy.action, "fromCopy");
+        assert_eq!(from_copy.conversations, "4");
+        let fresh =
+            vault_core::maintenance::preview_conversation_repair(&vault, None, None).unwrap();
+        assert_eq!(fresh.action, "startFresh");
     }
 }

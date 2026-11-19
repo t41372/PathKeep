@@ -43,7 +43,7 @@ pub use lifetime::ArchivePause;
 pub use observations::FolderObservation;
 pub use projection::ProjectionAttempt;
 pub use reader::RawReader;
-pub(crate) use reader::expired_read;
+pub(crate) use reader::{expired_read, verify_retained};
 pub use reports::BackupRun;
 pub(crate) use retained_input::RetainedInput;
 pub use retention::SLICE_BYTES;

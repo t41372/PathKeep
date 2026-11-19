@@ -12,7 +12,7 @@ use std::{
     thread,
 };
 
-fn conversation_role(db: Db) -> bool {
+pub(crate) fn conversation_role(db: Db) -> bool {
     vault_layout::spec(vault_layout::db_artifact(db)).scope == vault_layout::DataScope::AgentHistory
 }
 
@@ -106,6 +106,7 @@ impl Store {
             conversation_failure: RwLock::default(),
             closed: false.into(),
             paths: config.paths.clone(),
+            pair_seals: config.pair_seals,
             watch: crate::running::Watch::start(config.long_statement_after)?,
         })
     }
@@ -117,6 +118,26 @@ impl Store {
         Ok(())
     }
 
+    /// Read-only verification for a candidate pair before either worker can migrate it.
+    pub fn verify_conversation_pair(config: &Config) -> Result<()> {
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| crate::engine::verify_pair(config, true, false).map(drop))
+                .join()
+                .map_err(|_| Error::JobPanicked { message: "verifying conversation pair".into() })?
+        })
+    }
+
+    /// Legacy snapshots have file digests but no pairing ticket. Only their evidence
+    /// may seed an offline rebuild. A modern mismatched pair is always refused.
+    pub fn verify_copy_pair(config: &Config) -> Result<bool> {
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| crate::engine::verify_pair(config, true, true))
+                .join()
+                .map_err(|_| Error::JobPanicked { message: "verifying safety copy".into() })?
+        })
+    }
     /// Rechecks both conversation databases against the live paths, then migrates on
     /// private workers. Browsing reads continue until the short publication write lock.
     pub fn retry_conversations(&self, mut config: Config) -> Result<()> {
@@ -136,8 +157,18 @@ impl Store {
         config.validate_grouped()?;
         config.protect_existing_files()?;
         let config = &config;
-        let result =
-            preflight_conversations(config).and_then(|()| self.publish_conversations(config));
+        // A failed read or attachment may have left workers on displaced files.
+        // The service has drained producers. Remove both before inspecting either pathname.
+        {
+            let mut old = self.workers_mut();
+            for (_, w) in old.iter().filter(|(db, _)| conversation_role(*db)) {
+                w.quarantine.store(true, std::sync::atomic::Ordering::Release);
+            }
+            old.retain(|(db, _)| !conversation_role(*db));
+        }
+        let result = preflight_conversations(config)
+            .and_then(|()| Self::verify_conversation_pair(config))
+            .and_then(|()| self.publish_conversations(config));
         if let Err(Error::Open(reason)) = &result {
             *self.conversation_failure.write().unwrap() = Some(reason.clone());
         }
@@ -158,6 +189,22 @@ impl Store {
         published.extend(ready);
         *self.conversation_failure.write().unwrap() = None;
         Ok(())
+    }
+
+    /// Preserve the first failure across concurrent reads, including library attachment recovery.
+    pub fn remember_conversation_failure(&self, reason: Arc<StoreOpenFailure>) {
+        if !self.pair_seals {
+            return;
+        }
+        debug_assert!(conversation_role(reason.role));
+        self.quarantine(&self.workers(), reason);
+    }
+
+    pub(crate) fn quarantine(&self, workers: &[(Db, Workers)], reason: Arc<StoreOpenFailure>) {
+        for (_, w) in workers.iter().filter(|(db, _)| conversation_role(*db)) {
+            w.quarantine.store(true, std::sync::atomic::Ordering::Release);
+        }
+        self.conversation_failure.write().unwrap().get_or_insert(reason);
     }
 
     /// The role failure that keeps this owner from supplying its complete layout.

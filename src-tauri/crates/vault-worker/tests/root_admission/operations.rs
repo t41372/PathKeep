@@ -324,6 +324,10 @@ fn observe(operation: Operation, control: &str) -> Observation {
                 error(kinds::list(&f.session)),
                 error(kinds::settings()),
                 error(kinds::retry_agent_store(&f.session,|_|{})),
+                error(kinds::repair::preview_safety_copy(&f.session)),
+                error(kinds::repair::create_safety_copy(&f.session,from_value(json!({"previewToken":"old"})).unwrap())),
+                error(kinds::repair::preview(&f.session,from_value(json!({})).unwrap())),
+                error(kinds::repair::execute(&f.session,from_value(json!({"previewToken":"old"})).unwrap(),|_|{})),
                 error(kinds::dismiss_hint(from_value(json!({"hint":"intro"})).unwrap(),Arc::new(|_,_|{}))),
                 error(kinds::set_state(
                     &f.session,

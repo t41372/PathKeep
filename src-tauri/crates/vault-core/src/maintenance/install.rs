@@ -502,6 +502,7 @@ pub fn install(
 ) -> Result<Replaced> {
     let paths = gate.paths();
     let mut journal = prepare(paths, stage, files, keep)?;
+    crate::fault_inject::checkpoint("native-install-prepared")?;
     let moved = (|| {
         for step in 0..journal.entries.len() * 2 {
             install_step(paths, &mut journal, step)?;

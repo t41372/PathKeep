@@ -26,9 +26,10 @@ impl Store {
     pub fn check_database_files(&self, required: impl Iterator<Item = Db>) -> Result<()> {
         let workers = self.workers();
         for db in required {
-            let encrypted =
-                workers.iter().find(|(role, _)| *role == db).ok_or(Error::Closed)?.1.encrypted;
+            let worker = &workers.iter().find(|(role, _)| *role == db).ok_or(Error::Closed)?.1;
+            let encrypted = worker.encrypted;
             let path = self.paths.get(db);
+            check_identity(db, worker, path)?;
             let on_disk = crate::engine::header_encrypted(path).map_err(|e| {
                 let cause = if e.kind() == std::io::ErrorKind::NotFound {
                     Error::MissingStore(path.into())
@@ -55,6 +56,53 @@ impl Store {
         }
         Ok(Maintenance { store: self, workers })
     }
+    /// Drain requests already admitted at the time of damage. The long file copy
+    /// holds a shared worker guard so browsing reads and writes can continue.
+    pub fn copy_quarantined_conversations(&self, root: &Path) -> Result<()> {
+        drop(self.pause()?);
+        let workers = self.workers();
+        if !self.is_open() {
+            return Err(Error::Closed);
+        }
+        self.copy_opaque_conversations(&workers, root)
+    }
+
+    /// Capture the held generation as filesystem bytes, including its WAL, without
+    /// querying or checkpointing the suspect databases. The group is already quarantined.
+    fn copy_opaque_conversations(&self, workers: &[(Db, Workers)], root: &Path) -> Result<()> {
+        if self.conversation_availability().is_ok() {
+            return Err(Error::InvalidConfig(
+                "opaque copy requires an unavailable conversation group".into(),
+            ));
+        }
+        for (db, worker) in workers.iter().filter(|(db, _)| crate::opening::conversation_role(*db))
+        {
+            check_identity(*db, worker, self.paths.get(*db))?;
+            worker.quarantine.store(true, Ordering::Release);
+            worker.maintenance(|_| Ok(()))?;
+        }
+        for db in Db::ALL.into_iter().filter(|db| crate::opening::conversation_role(*db)) {
+            for suffix in vault_layout::database_spec(db)
+                .companions
+                .suffixes(vault_layout::CompanionUse::Install)
+            {
+                let relative = format!("{}{suffix}", vault_layout::database_path(db));
+                let mut source = self.paths.get(db).as_os_str().to_owned();
+                source.push(suffix);
+                let source = Path::new(&source);
+                match fs::symlink_metadata(source) {
+                    Ok(_) => copy_member(source, &root.join(relative))?,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        }
+        for (db, worker) in workers.iter().filter(|(db, _)| crate::opening::conversation_role(*db))
+        {
+            check_identity(*db, worker, self.paths.get(*db))?;
+        }
+        Ok(())
+    }
 }
 
 impl Maintenance<'_> {
@@ -65,9 +113,15 @@ impl Maintenance<'_> {
     /// A snapshot must include the WAL's committed rows before copying main files.
     pub fn checkpoint(&self) -> Result<()> {
         for (db, worker) in self.workers.iter() {
+            if crate::opening::conversation_role(*db)
+                && self.store.conversation_availability().is_err()
+            {
+                continue;
+            }
             if vault_layout::spec(vault_layout::db_artifact(*db)).lifecycle.snapshot
                 == vault_layout::SnapshotPolicy::CopyDatabase
             {
+                check_identity(*db, worker, self.store.paths.get(*db))?;
                 worker.maintenance(|engine| crate::copy::checkpoint(engine, "main"))?;
             }
         }
@@ -77,19 +131,28 @@ impl Maintenance<'_> {
     /// Copies every selected durable database with its on-disk encryption intact.
     /// The caller copies its envelope/config while retaining this same guard.
     pub fn snapshot(&self, root: &Path) -> Result<()> {
-        self.store.conversation_availability().map_err(Error::Open)?;
+        self.store.seal_if_available(&self.workers)?;
         self.checkpoint()?;
         let targets = Paths::under(root);
-        for (db, _) in self.workers.iter().filter(|(db, _)| {
-            vault_layout::spec(vault_layout::db_artifact(*db)).lifecycle.snapshot
-                == vault_layout::SnapshotPolicy::CopyDatabase
-        }) {
-            let target = targets.get(*db);
-            fs::create_dir_all(target.parent().unwrap())?;
-            fs::copy(self.store.paths.get(*db), target)?;
-            // Windows flushes only through a handle that may write: `FlushFileBuffers` requires
-            // `GENERIC_WRITE` and refuses a read-only handle.
-            fs::OpenOptions::new().read(true).write(cfg!(windows)).open(target)?.sync_all()?;
+        let damaged = self.store.conversation_availability().is_err();
+        for (db, worker) in self.workers.iter() {
+            if vault_layout::spec(vault_layout::db_artifact(*db)).lifecycle.snapshot
+                != vault_layout::SnapshotPolicy::CopyDatabase
+                || (damaged && crate::opening::conversation_role(*db))
+            {
+                continue;
+            }
+            let source = self.store.paths.get(*db);
+            check_identity(*db, worker, source)?;
+            copy_member(source, targets.get(*db))?;
+            check_identity(*db, worker, source)?;
+        }
+        if damaged {
+            self.store.copy_opaque_conversations(&self.workers, root)?;
+            let mut marker =
+                fs::File::create_new(root.join(vault_layout::UNREADABLE_CONVERSATIONS))?;
+            std::io::Write::write_all(&mut marker, b"1\n")?;
+            marker.sync_all()?;
         }
         Ok(())
     }
@@ -120,6 +183,7 @@ impl Maintenance<'_> {
     /// Retires an already paused service after the final checkpoint succeeds and before
     /// closing connections. The callback must neither submit store work nor wait for it.
     pub fn close_with(mut self, retire: impl FnOnce()) -> Result<()> {
+        self.store.seal_if_available(&self.workers)?;
         self.checkpoint()?;
         retire();
         self.store.closed.store(true, Ordering::Release);
@@ -129,4 +193,41 @@ impl Maintenance<'_> {
         self.store.ownership.lock().unwrap().take();
         Ok(())
     }
+}
+
+pub(crate) fn check_identity(db: Db, worker: &Workers, path: &Path) -> Result<()> {
+    let id = turso::core::io::get_file_id(path.to_str().expect("validated role path"))
+        .map_err(|e| Error::Io(e).at(db, crate::OpenStage::Preflight))?;
+    if worker.file_id != Some(id) {
+        return Err(Error::ReplacedFile(path.into()).at(db, crate::OpenStage::Preflight));
+    }
+    Ok(())
+}
+
+/// Opaque members may be a directory where the main database used to be. Preserve
+/// regular children and empty directories. Links and special files require attention.
+fn copy_member(source: &Path, target: &Path) -> Result<()> {
+    let mut pending = vec![(source.to_owned(), target.to_owned())];
+    while let Some((source, target)) = pending.pop() {
+        let meta = fs::symlink_metadata(&source)?;
+        if meta.is_file() {
+            fs::create_dir_all(target.parent().expect("snapshot member has a parent"))?;
+            let mut input = fs::File::open(source)?;
+            let mut output = fs::File::create_new(target)?;
+            std::io::copy(&mut input, &mut output)?;
+            output.sync_all()?;
+        } else if meta.is_dir() {
+            fs::create_dir_all(&target)?;
+            for entry in fs::read_dir(source)? {
+                let entry = entry?;
+                pending.push((entry.path(), target.join(entry.file_name())));
+            }
+        } else {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "unexpected snapshot member type",
+            )));
+        }
+    }
+    Ok(())
 }

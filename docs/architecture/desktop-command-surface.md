@@ -404,3 +404,24 @@ walk and `PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US` per capture root. Positive
 integer values are microseconds per entry or discovered file. Unset, invalid
 and zero values disable pacing. Waits check cancellation in slices of at most
 10 ms. Release builds ignore both variables.
+
+### Protect browsing and repair conversation storage
+
+All four commands run on the unlocked archive owner. A preview token binds its execute request.
+The repair preview verifies the selected source and counts its conversations before returning.
+
+| Command                        | Fields inside `request`                                | Result                                                                                                                                                                                               |
+| ------------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `preview_archive_safety_copy`  | Empty object                                           | `directory`, `conversationsUnreadable`, `previewToken`                                                                                                                                               |
+| `create_archive_safety_copy`   | `previewToken`                                         | Listed recovery snapshot, including `conversationsUnreadable`                                                                                                                                        |
+| `preview_agent_history_repair` | Optional `copyPath` and `copyPassword`                 | `action`, `copyPath`, `sourceOp`, `createdAt`, decimal-string `conversations`, `keptAs`, `reviewSourcesBeforeBackup`, `nextBackupRecapturesToolFiles`, `archiveOnlyConversationsUnreadable`, `token` |
+| `repair_agent_history`         | Same source fields and `previewToken` from the preview | `keptCopyPath` and `availability:"available"`. Publishes `pathkeep://data-kinds-changed` with the current policy token and `changedKinds:["agent-history"]`.                                         |
+
+An omitted source lets the owner choose `rebuild` when canonical evidence is intact or
+`startFresh` when it cannot be recovered locally. `fromCopy` takes both roles from one
+verified safety copy. A listed copy with `conversationsUnreadable:true` can restore browsing.
+Mode conversion and move-file conversion return `conversation-repair-required` with
+`actionHint:"preview_agent_history_repair"`. A failing live query can supply a `read` or
+`write` stage on the kind's failure. The desktop test `conversation_repair_screen_wire_contract`
+records the serialized requests, results, errors and events in
+`artifacts/vault-lifecycle/conversation-repair-wire.json`.

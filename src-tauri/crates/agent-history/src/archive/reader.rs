@@ -71,9 +71,17 @@ impl Archive {
 
 impl RawReader {
     pub(super) fn new(archive: &Archive, info: RevisionInfo) -> Self {
+        Self::from_evidence(archive.store.clone(), archive.jobs.clone(), info)
+    }
+
+    fn from_evidence(
+        store: Arc<Store>,
+        jobs: Arc<super::lifetime::Jobs>,
+        info: RevisionInfo,
+    ) -> Self {
         Self {
-            store: archive.store.clone(),
-            jobs: archive.jobs.clone(),
+            store,
+            jobs,
             info,
             chunk: Vec::new(),
             offset: 0,
@@ -210,7 +218,58 @@ impl Read for RawReader {
             ));
         }
         let result = self.read_checked(output);
+        if let Err(e) = &result
+            && e.kind() == io::ErrorKind::InvalidData
+        {
+            self.store.remember_conversation_failure(Arc::new(vault_store::StoreOpenFailure {
+                role: Db::AgentHistoryEvidence,
+                stage: vault_store::OpenStage::Read,
+                cause: vault_store::Error::Io(io::Error::new(e.kind(), e.to_string())),
+            }));
+        }
         self.failed = result.is_err();
         result
+    }
+}
+
+/// Read every complete retained revision using the export reader and a bounded
+/// page of identities. A concurrent retention expiry is an observed transition.
+pub(crate) fn verify_retained(
+    store: &Arc<Store>,
+    jobs: &Arc<super::lifetime::Jobs>,
+    cancel: &vault_store::CancelToken,
+) -> Result<(u64, u64)> {
+    let (mut after, mut bytes, mut revisions) = (0i64, 0u64, 0u64);
+    loop {
+        cancel.check()?;
+        let page=store.read(Db::AgentHistoryEvidence,move |s| s.query(
+            "SELECT id,source_id,digest,byte_len,captured_at,capture_format,bytes_retained FROM ah_revisions
+             WHERE state='complete' AND bytes_retained=1 AND id>?1 ORDER BY id LIMIT 128",[after],super::revisions::map_revision))?;
+        if page.is_empty() {
+            return Ok((bytes, revisions));
+        }
+        for info in page {
+            cancel.check()?;
+            after = info.id;
+            let mut reader = RawReader::from_evidence(store.clone(), jobs.clone(), info);
+            match io::copy(&mut reader, &mut io::sink()) {
+                Ok(n) => {
+                    bytes += n;
+                    revisions += 1;
+                }
+                Err(e) if expired_read(&e) => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+}
+
+impl Archive {
+    /// Verify canonical bytes on a private evidence worker even if its model cannot open.
+    pub fn verify_retained_evidence(
+        store: &Arc<Store>,
+        cancel: &vault_store::CancelToken,
+    ) -> Result<()> {
+        verify_retained(store, &Default::default(), cancel).map(drop)
     }
 }

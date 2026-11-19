@@ -52,6 +52,8 @@ impl From<&vault_store::StoreOpenFailure> for RoleFailure {
                 OpenStage::KeyCheck => "key-check",
                 OpenStage::Migrate => "migrate",
                 OpenStage::Recover => "recover",
+                OpenStage::Read => "read",
+                OpenStage::Write => "write",
             },
             reason: match &failure.cause {
                 Error::MissingStore(_) => "archive-store-missing",
@@ -215,13 +217,6 @@ pub fn retry_agent_store(
     let vault = session.vault().map_err(anyhow::Error::msg)?;
     let before = vault.conversation_availability().is_ok();
     match vault.retry_conversations() {
-        Ok(()) if !before => {
-            if let Err(error) = vault.agent_history()
-                && vault.conversation_availability().is_ok()
-            {
-                return Err(error.into());
-            }
-        }
         Ok(()) => {}
         Err(vault_store::Error::Cancelled { .. } | vault_store::Error::Busy { .. }) => {
             return Err(Refusal::Busy.into());

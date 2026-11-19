@@ -27,24 +27,23 @@ fn attach_requires_both_roles() {
 
 #[test]
 fn failed_attach_leaves_browsing_available_and_can_retry() {
-    use vault_store::{Db, Priority};
     let fixture = Fixture::new(false);
-    let rename = |vault: &Vault, sql: &'static str| {
-        vault
-            .store()
-            .write(Db::AgentHistoryEvidence, Priority::Interactive, move |s| {
-                s.execute(sql, ())?;
-                Ok(())
-            })
-            .unwrap()
-    };
-    rename(&fixture.vault(), "ALTER TABLE ah_backup_runs RENAME TO saved_runs");
     fixture.session.close_vault().unwrap();
+    let file =
+        fixture.root.join(vault_layout::database_path(vault_store::Db::AgentHistoryEvidence));
+    let saved = fixture.sandbox.path().join("healthy");
+    fs::copy(&file, &saved).unwrap();
+    rusqlite::Connection::open(&file)
+        .unwrap()
+        .execute("ALTER TABLE ah_backup_runs RENAME TO saved_runs", ())
+        .unwrap();
     let vault = fixture.reopen(false);
     assert!(vault.agent_history().is_err());
     fixture.create_browser();
     assert_eq!(fixture.backup().run.unwrap().new_visits, 1);
-    rename(&vault, "ALTER TABLE saved_runs RENAME TO ah_backup_runs");
+    fs::rename(saved, file).unwrap();
+    vault.retry_conversations().unwrap();
+    vault.conversation_availability().unwrap();
     assert!(vault.agent_history().is_ok());
 }
 

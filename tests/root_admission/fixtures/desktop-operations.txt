@@ -47,3 +47,5 @@ detect_data_sources preview_agent_sources cancel_agent_read
 enable_agent_history start_backup list_archive_runs get_archive_run
 get_agent_overview list_agent_sources list_background_tasks get_task_summary control_background_task
 retry_agent_store dismiss_agent_hint
+# Unlocked owner, admitted control, preview followed by explicit execute
+preview_archive_safety_copy create_archive_safety_copy preview_agent_history_repair repair_agent_history

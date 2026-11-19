@@ -36,7 +36,10 @@ pub(crate) fn check_caller() -> Result<()> {
 }
 
 pub(crate) struct Workers {
+    pub quarantine: Arc<std::sync::atomic::AtomicBool>,
+    pub inspect_seal: Arc<std::sync::atomic::AtomicBool>,
     pub encrypted: bool,
+    pub file_id: Option<turso::core::io::FileId>,
     pub plans: Arc<crate::query_plans::PlanCapture>,
     writer: Arc<Queue<Job>>,
     readers: Arc<Queue<Job>>,
@@ -65,8 +68,12 @@ impl Workers {
         }));
         let metrics = Arc::new(Mutex::new(Metrics::default()));
         let compiled = Arc::new(AtomicU64::new(0));
+        let quarantine = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let mut owners = Self {
+            quarantine: quarantine.clone(),
             encrypted: settings.key.is_some(),
+            inspect_seal: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            file_id: None,
             plans: Arc::default(),
             writer: writer.clone(),
             readers: readers.clone(),
@@ -86,7 +93,17 @@ impl Workers {
             move || {
                 IN_OWNER.with(|v| v.set(true));
                 let opened = crate::session::catch_job(|| {
+                    let file = write_settings.path.to_str().expect("validated database path");
+                    let before = match turso::core::io::get_file_id(file) {
+                        Ok(id) => Some(id),
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                        Err(e) => return Err(e.into()),
+                    };
                     let engine = Engine::open(&write_settings, write_compiled)?;
+                    let id = turso::core::io::get_file_id(file)?;
+                    if before.is_some_and(|original| original != id) {
+                        return Err(Error::ReplacedFile(write_settings.path.clone()));
+                    }
                     crate::migration::apply(
                         &engine
                             .session(false)
@@ -116,16 +133,18 @@ impl Workers {
                         },
                     )
                     .map_err(|e| e.at(db, crate::OpenStage::Migrate))?;
-                    Ok(engine)
+                    let stamped = crate::opening::conversation_role(db)
+                        && crate::pair::ticket(&engine.session(true))?.is_some();
+                    Ok((engine, id, stamped))
                 });
-                let engine = match opened {
+                let (engine, id, stamped) = match opened {
                     Ok(engine) => engine,
                     Err(error) => {
                         let _ = ready_tx.send(Err(error));
                         return;
                     }
                 };
-                if ready_tx.send(Ok(engine.database.clone())).is_err() {
+                if ready_tx.send(Ok((engine.database.clone(), id, stamped))).is_err() {
                     return;
                 }
                 let mut dirty = true;
@@ -136,7 +155,7 @@ impl Workers {
                             let reply =
                                 job(&engine, write_scratch.as_deref(), write_archive.as_deref());
                             dirty = true;
-                            if priority == Priority::Batch {
+                            if priority == Priority::Batch && !quarantine.load(Ordering::Acquire) {
                                 crate::checkpoint::run(&engine, false, &metrics);
                             }
                             completion = Some(reply);
@@ -145,7 +164,9 @@ impl Workers {
                         // with others inside since: the gate knows, and is asked below.
                         Next::Maintenance => {}
                         Next::Closed => {
-                            if let Some(_guard) = gate.try_truncate() {
+                            if !quarantine.load(Ordering::Acquire)
+                                && let Some(_guard) = gate.try_truncate()
+                            {
                                 crate::checkpoint::run(&engine, true, &metrics);
                             }
                             break;
@@ -154,6 +175,7 @@ impl Workers {
                     // No guard while a read the writer already waited for is still running:
                     // once per long read is enough.
                     if dirty
+                        && !quarantine.load(Ordering::Acquire)
                         && writer.pending() == (0, 0)
                         && let Some(guard) = gate.reserve_truncate()
                     {
@@ -178,7 +200,9 @@ impl Workers {
                 }
             },
         )?);
-        let database = ready_rx.recv().map_err(|_| Error::Closed)??;
+        let (database, id, stamped) = ready_rx.recv().map_err(|_| Error::Closed)??;
+        owners.file_id = Some(id);
+        owners.inspect_seal.store(stamped, Ordering::Release);
         for index in 0..reader_count {
             let database = database.clone();
             let settings = settings.clone();
@@ -224,6 +248,16 @@ impl Workers {
         }
         Ok(owners)
     }
+    /// Turso can panic while stepping a corrupt b-tree. Independently read the
+    /// file before attributing an application callback's panic to its database.
+    pub(crate) fn integrity_check_failed(&self) -> bool {
+        match self.request(true, Priority::Interactive, |s| s.integrity_check()) {
+            Ok(messages) => messages != ["ok"],
+            Err(Error::WrongKey { .. } | Error::Corrupt { .. } | Error::JobPanicked { .. }) => true,
+            Err(_) => false,
+        }
+    }
+
     pub fn request<T: Send + 'static>(
         &self,
         read: bool,
@@ -233,15 +267,31 @@ impl Workers {
         check_caller()?;
         let (tx, rx) = mpsc::sync_channel(1);
         let plans = self.plans.clone();
+        let inspect_seal = self.inspect_seal.clone();
         let job: Job = Box::new(move |engine, scratch, archive| {
+            let mut changed = false;
             let result = crate::session::transaction(
                 &engine
                     .session(read)
                     .with_scratch(scratch)
                     .with_archive(archive)
                     .with_plans(&plans),
-                work,
+                |s| {
+                    if read || !inspect_seal.load(Ordering::Acquire) {
+                        return work(s);
+                    }
+                    let before = crate::pair::changes(s)?;
+                    let value = work(s)?;
+                    if before != crate::pair::changes(s)? {
+                        s.execute("DELETE FROM ah_pair_seal", ())?;
+                        changed = true;
+                    }
+                    Ok(value)
+                },
             );
+            if changed && result.is_ok() {
+                inspect_seal.store(false, Ordering::Release);
+            }
             Box::new(move || {
                 let _ = tx.send(result);
             })

@@ -164,6 +164,9 @@ pub(crate) fn apply(
                     "CREATE TABLE IF NOT EXISTS __pk_migrations(version INTEGER PRIMARY KEY)",
                     (),
                 ))?;
+                if crate::opening::conversation_role(db) && crate::pair::ticket(tx)?.is_some() {
+                    tx.execute("DELETE FROM ah_pair_seal", ())?;
+                }
                 (step.apply)(tx)?;
                 tx.runtime.block_on(
                     tx.conn.execute(
@@ -184,7 +187,16 @@ pub(crate) fn apply(
                 tell(&mut told);
             }
             loop {
-                let progress = crate::session::transaction(s, |tx| batch(tx))?;
+                let progress = crate::session::transaction(s, |tx| {
+                    let result = batch(tx)?;
+                    if result.is_some()
+                        && crate::opening::conversation_role(db)
+                        && crate::pair::ticket(tx)?.is_some()
+                    {
+                        tx.execute("DELETE FROM ah_pair_seal", ())?;
+                    }
+                    Ok(result)
+                })?;
                 let Some(progress) = progress else { break };
                 after_batch()?;
                 let complete = progress.complete;

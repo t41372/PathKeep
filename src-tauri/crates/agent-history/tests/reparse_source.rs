@@ -97,10 +97,11 @@ fn larger_parser_budget_recovers_deleted_source_without_new_raw_revision() {
         message("large", format!("{} recoverabletailneedle", "x".repeat(4096))),
     ]);
     let initial = BackupOptions { max_record_bytes: 512, ..BackupOptions::default() };
-    assert_eq!(
-        fixture.archive.backup(std::slice::from_ref(&fixture.root), &initial).unwrap().status,
-        "partial"
-    );
+    let captured = fixture.archive.backup(std::slice::from_ref(&fixture.root), &initial).unwrap();
+    assert_eq!(captured.status, "complete");
+    let outcome = captured.capture_outcome.unwrap();
+    assert_eq!(outcome.warning_count, 0, "all native bytes were retained");
+    assert!(outcome.note_count > 0, "the parser limit must remain visible");
     let source_id = fixture.source_id();
     let before = fixture.archive.session(&conversation(&fixture.archive, &source_id)).unwrap();
     assert!(!before.complete);

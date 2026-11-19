@@ -150,6 +150,29 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "get_agent_overview" => {
             worker_bridge::get_agent_overview_impl(&state.session, surface_request(payload)?)
         }
+        "preview_archive_safety_copy" => {
+            json_value!(worker_bridge::preview_archive_safety_copy_impl(
+                &state.session,
+                surface_request(payload)?
+            )?)
+        }
+        "create_archive_safety_copy" => {
+            json_value!(worker_bridge::create_archive_safety_copy_impl(
+                &state.session,
+                surface_request(payload)?
+            )?)
+        }
+        "preview_agent_history_repair" => {
+            json_value!(worker_bridge::preview_agent_history_repair_impl(
+                &state.session,
+                surface_request(payload)?
+            )?)
+        }
+        "repair_agent_history" => json_value!(worker_bridge::repair_agent_history_impl(
+            &state.session,
+            surface_request(payload)?,
+            changed
+        )?),
         "retry_agent_store" => json_value!(worker_bridge::retry_agent_store_impl(
             &state.session,
             surface_request(payload)?,

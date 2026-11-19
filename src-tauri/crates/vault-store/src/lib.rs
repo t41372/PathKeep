@@ -13,6 +13,8 @@ mod existing_files;
 mod maintenance;
 mod migration;
 mod opening;
+mod pair;
+pub use pair::SCHEMA as PAIR_SCHEMA;
 mod owner_lock;
 mod query_plans;
 mod queue;
@@ -52,6 +54,7 @@ pub struct Store {
     ownership: Mutex<Option<Arc<owner_lock::OwnerLock>>>,
     closed: AtomicBool,
     paths: Paths,
+    pair_seals: bool,
     /// After `workers`, whose connections it watches: it stops when the store is dropped.
     watch: running::Watch,
 }
@@ -125,18 +128,44 @@ impl Store {
         }
         let workers = self.workers();
         let worker = &workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1;
-        worker.request(read, priority, work)
+        if !self.pair_seals || !opening::conversation_role(db) {
+            return worker.request(read, priority, work);
+        }
+        self.conversation_availability().map_err(Error::Open)?;
+        match worker.request(read, priority, work) {
+            Err(cause)
+                if matches!(cause, Error::Corrupt { .. } | Error::WrongKey { .. })
+                    || (matches!(cause, Error::JobPanicked { .. })
+                        && worker.integrity_check_failed()) =>
+            {
+                let stage = if read { OpenStage::Read } else { OpenStage::Write };
+                let failure = Arc::new(StoreOpenFailure { role: db, stage, cause });
+                self.quarantine(&workers, failure.clone());
+                Err(Error::Open(failure))
+            }
+            result => result,
+        }
     }
     /// Revoke retained handles on explicit session clear or shutdown, finish admitted
     /// jobs, then release connections and ownership. App Lock leaves this Store open.
     pub fn close(&self) -> Result<()> {
         worker::check_caller()?;
-        self.closed.store(true, Ordering::Release);
         let mut workers = self.workers_mut();
+        let sealed = self.seal_if_available(&workers);
+        self.closed.store(true, Ordering::Release);
         while let Some((_, worker)) = workers.pop() {
             drop(worker);
         }
         self.ownership.lock().unwrap().take();
+        sealed
+    }
+    fn seal_if_available(&self, workers: &[(Db, worker::Workers)]) -> Result<()> {
+        if self.pair_seals && self.conversation_availability().is_ok() {
+            for (db, w) in workers.iter().filter(|(db, _)| opening::conversation_role(*db)) {
+                maintenance::check_identity(*db, w, self.paths.get(*db))?;
+            }
+            pair::seal(workers)?;
+        }
         Ok(())
     }
     /// The workers, also after a panic poisoned their lock. The maintenance pause holds them

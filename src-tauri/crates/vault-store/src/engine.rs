@@ -83,9 +83,15 @@ pub(crate) fn runtime() -> Result<Runtime> {
 // creation or read/write database open. This also refuses newer schemas early.
 pub(crate) fn preflight(config: &Config, roles: &[Db]) -> Result<()> {
     let rt = runtime()?;
+    let mut tickets = Vec::new();
     for &db in roles {
         let settings = Settings::new(config, db);
-        let checked = preflight_role(&rt, config, db, &settings);
+        let checked = preflight_role(&rt, config, db, &settings, |s| {
+            if config.pair_seals && crate::opening::conversation_role(db) {
+                tickets.push(crate::pair::ticket(s)?);
+            }
+            Ok(())
+        });
         if let Err(error) = checked {
             let cause = open_error(&settings.path, error);
             let stage = if matches!(cause, Error::WrongKey { .. }) {
@@ -96,9 +102,18 @@ pub(crate) fn preflight(config: &Config, roles: &[Db]) -> Result<()> {
             return Err(cause.at(db, stage));
         }
     }
+    if tickets.len() == 2 && tickets.iter().all(Option::is_some) && tickets[0] != tickets[1] {
+        return Err(Error::PairUnverified.at(Db::AgentHistoryReadModel, OpenStage::Preflight));
+    }
     Ok(())
 }
-fn preflight_role(rt: &Runtime, config: &Config, db: Db, settings: &Settings) -> Result<()> {
+fn preflight_role(
+    rt: &Runtime,
+    config: &Config,
+    db: Db,
+    settings: &Settings,
+    inspect: impl FnOnce(&Session<'_>) -> Result<()>,
+) -> Result<()> {
     let required = config.required_existing.contains(&db);
     match fs::metadata(&settings.path) {
         Ok(meta) if !meta.is_file() => {
@@ -140,8 +155,39 @@ fn preflight_role(rt: &Runtime, config: &Config, db: Db, settings: &Settings) ->
     };
     session.query_one("SELECT count(*) FROM sqlite_schema", (), |r| Ok(r.get::<i64>(0)?))?;
     crate::migration::check_version(&session, db, &config.migrations.get(db))?;
-    Ok(())
+    inspect(&session)
 }
+/// Explicit retry can afford full integrity verification. No writer or migration
+/// sees either candidate until the read-only pair check has completed.
+pub(crate) fn verify_pair(config: &Config, full: bool, legacy_copy: bool) -> Result<bool> {
+    let rt = runtime()?;
+    let mut tickets = Vec::new();
+    let mut legacy_roles = 0;
+    for db in [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel] {
+        let settings = Settings::new(config, db);
+        crate::session::catch_job(|| preflight_role(&rt,config,db,&settings,|s| {
+            if full {
+                let result = s.integrity_check()?;
+                if result != ["ok"] { return Err(Error::InvalidConfig(format!("integrity check: {result:?}"))); }
+            }
+            let has_table = s.query_one("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='ah_pair_seal' AND type='table')",(),|r| Ok(r.get::<i64>(0)?!=0))?;
+            if !has_table { legacy_roles += 1; }
+            tickets.push(if has_table { crate::pair::ticket(s)? } else {None});
+            Ok(())
+        })).map_err(|e| e.at(db,OpenStage::Recover))?;
+    }
+    if legacy_copy && legacy_roles == 2 {
+        return Ok(false);
+    }
+    if tickets.len() != 2
+        || (tickets[0] != tickets[1] && tickets.iter().all(Option::is_some))
+        || (full && tickets.iter().any(Option::is_none))
+    {
+        return Err(Error::PairUnverified.at(Db::AgentHistoryReadModel, OpenStage::Recover));
+    }
+    Ok(true)
+}
+
 /// Read just the native header. A short, unreadable or unknown file has no established mode.
 pub(crate) fn header_encrypted(path: &Path) -> std::io::Result<bool> {
     use std::io::{ErrorKind, Read};

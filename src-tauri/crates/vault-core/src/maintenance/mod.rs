@@ -9,9 +9,14 @@ pub use retention::{preview_retention, prune};
 pub(crate) mod creation;
 pub mod install;
 pub use audit::{record_mode_change, record_restore};
+mod conversation_repair;
 pub(crate) mod snapshot;
+pub use conversation_repair::{
+    ConversationRepairPreview, preview_conversation_repair, repair_conversations,
+};
 pub use snapshot::{
-    list_snapshots, recover_native_maintenance, restore_snapshot, restore_snapshot_to, snapshot,
+    list_snapshots, manual_snapshot, recover_native_maintenance, restore_snapshot,
+    restore_snapshot_to, snapshot,
 };
 #[cfg(test)]
 mod install_tests;
@@ -81,7 +86,8 @@ pub fn reconcile(vault: &Vault) -> Result<crate::ReconcileReport> {
     // A mode change replaces the files whose header this reads.
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     vault.recheck_root()?;
-    vault.require_complete()?;
+    vault.check_available_files()?;
+    let conversations_unreadable = vault.conversation_availability().is_err();
     let mode =
         if vault.data_key().is_some() { ArchiveMode::Encrypted } else { ArchiveMode::Plaintext };
     // The control as it is now, not the vault's copy from when it was opened: a setting saved
@@ -94,7 +100,12 @@ pub fn reconcile(vault: &Vault) -> Result<crate::ReconcileReport> {
         config.archive_mode = mode.clone();
         crate::save_config(&gate, &config)?;
     }
-    Ok(crate::ReconcileReport { repaired, from_mode: repaired.then_some(previous), to_mode: mode })
+    Ok(crate::ReconcileReport {
+        conversations_unreadable,
+        repaired,
+        from_mode: repaired.then_some(previous),
+        to_mode: mode,
+    })
 }
 
 /// Every database is copied and verified before the live owner is closed. A

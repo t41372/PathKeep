@@ -490,3 +490,119 @@ fn followup_preferences_survive_restart_and_hints_preserve_the_preview_token() {
         assert_eq!(later["dismissedHints"], json!(["intro", "auto-delete"]));
     });
 }
+
+/// Captures actual transport JSON for the repair screen, including legacy commands whose
+/// success or refusal changes during damage. The only credentials are synthetic test inputs.
+#[test]
+fn conversation_repair_screen_wire_contract() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, root.path().join("keyring"));
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, root.path().join("chrome"));
+    }
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(async {
+        dispatch_command(&state, "initialize_archive", json!({"config":test_config()}))
+            .await
+            .unwrap();
+        let mut records = Vec::new();
+        macro_rules! invoke { ($cmd:expr,$args:expr,$ok:expr) => {{
+            let request=$args;
+            let events=state.events.observe();
+            let result=dispatch_command(&state,$cmd,request.clone()).await;
+            assert_eq!(result.is_ok(),$ok,"{} {:?}",$cmd,result);
+            let frames=events().into_iter().map(|(name,payload)|json!({"name":name,"payload":payload})).collect::<Vec<_>>();
+            match result {
+                Ok(response)=>{records.push(json!({"command":$cmd,"invoke":request,"response":response,"events":frames}));response}
+                Err(e)=>{let error=serde_json::to_value(e).unwrap();records.push(json!({"command":$cmd,"invoke":request,"error":error,"events":frames}));error}
+            }
+        }} }
+        let empty = json!({"request":{}});
+        let healthy = invoke!("preview_archive_safety_copy", empty.clone(), true);
+        let good = invoke!(
+            "create_archive_safety_copy",
+            json!({"request":{"previewToken":healthy["previewToken"]}}),
+            true
+        );
+        let bundle = root.path().join("exports/demo.pathkeep");
+        dispatch_command(
+            &state,
+            "export_app_data",
+            json!({"targetPath":bundle,"exportPassword":"fixture"}),
+        )
+        .await
+        .unwrap();
+        state.session.close_vault().unwrap();
+        std::fs::write(root.path().join("archive/agent-history.db"), b"bad").unwrap();
+        let kinds = invoke!("list_data_kinds", empty.clone(), true);
+        assert_eq!(kinds["kinds"][1]["availability"], "unavailable");
+        invoke!("retry_agent_store", empty.clone(), true);
+        let plan = invoke!("preview_archive_safety_copy", empty.clone(), true);
+        let marked = invoke!(
+            "create_archive_safety_copy",
+            json!({"request":{"previewToken":plan["previewToken"]}}),
+            true
+        );
+        invoke!("list_recovery_snapshots", json!({}), true);
+        invoke!("preview_retention_prune", json!({}), true);
+        let check = invoke!("reconcile_archive_encryption", json!({}), true);
+        assert_eq!(check["conversationsUnreadable"], true);
+        for (name, request) in [
+            ("rekey_archive", json!({"request":{"newMode":"Encrypted","newKey":"fixture"}})),
+            (
+                "export_app_data",
+                json!({"targetPath":root.path().join("exports/refused.pathkeep"),"exportPassword":"fixture"}),
+            ),
+            (
+                "apply_app_data_import",
+                json!({"bundlePath":bundle,"options":{"confirmOverwrite":true,"sourceArchiveKey":"fixture"}}),
+            ),
+        ] {
+            let e = invoke!(name, request, false);
+            assert_eq!(e["code"], "conversation-repair-required");
+            assert_eq!(e["actionHint"], "preview_agent_history_repair");
+        }
+        invoke!(
+            "run_full_archive_restore",
+            json!({"request":{"snapshotPath":marked["path"]}}),
+            true
+        );
+        let refused = invoke!(
+            "preview_agent_history_repair",
+            json!({"request":{"copyPath":marked["path"]}}),
+            false
+        );
+        assert_eq!(refused["code"], "conversation-copy-unreadable-at-creation");
+        let copy = invoke!(
+            "preview_agent_history_repair",
+            json!({"request":{"copyPath":good["path"]}}),
+            true
+        );
+        invoke!("preview_agent_history_repair", empty.clone(), true);
+        invoke!(
+            "repair_agent_history",
+            json!({"request":{"copyPath":good["path"],"previewToken":copy["token"]}}),
+            true
+        );
+        state.session.close_vault().unwrap();
+        std::fs::write(root.path().join("derived/agent-history-read-model.db"), b"bad").unwrap();
+        let rebuild = invoke!("preview_agent_history_repair", empty.clone(), true);
+        invoke!("repair_agent_history", json!({"request":{"previewToken":rebuild["token"]}}), true);
+        state.session.close_vault().unwrap();
+        std::fs::write(root.path().join("archive/agent-history.db"), b"bad again").unwrap();
+        let fresh = invoke!("preview_agent_history_repair", empty, true);
+        invoke!("repair_agent_history", json!({"request":{"previewToken":fresh["token"]}}), true);
+        let output =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../artifacts/vault-lifecycle");
+        std::fs::create_dir_all(&output).unwrap();
+        std::fs::write(
+            output.join("conversation-repair-wire.json"),
+            serde_json::to_vec_pretty(&records).unwrap(),
+        )
+        .unwrap();
+        state.session.close_vault().unwrap();
+    });
+}

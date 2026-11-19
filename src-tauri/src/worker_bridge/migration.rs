@@ -28,7 +28,11 @@ pub(crate) fn export_app_data_impl(
     target_path: PathBuf,
     export_password: String,
 ) -> Result<vault_core::ExportedBundle, CommandError> {
-    worker_result(vault_worker::export_app_data(&state.vault()?, target_path, &export_password))
+    super::conversion_result(vault_worker::export_app_data(
+        &state.vault()?,
+        target_path,
+        &export_password,
+    ))
 }
 
 pub(crate) fn preview_app_data_import_impl(
@@ -51,7 +55,7 @@ pub(crate) fn apply_app_data_import_impl(
     let _running = vault_worker::begin_foreground_work(vault_worker::ForegroundWork::MoveImport);
     // Nothing opens the archive while it is replaced, until the imported one is published.
     let lease = worker_result(state.begin_maintenance())?;
-    let (report, archive) = worker_result(vault_worker::apply_import(
+    let (report, archive) = super::conversion_result(vault_worker::apply_import(
         &paths,
         current.as_ref(),
         state.owner(),

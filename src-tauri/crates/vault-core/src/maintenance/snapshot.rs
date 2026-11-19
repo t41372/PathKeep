@@ -20,18 +20,25 @@ pub(super) const SEAL: &str = "snapshot.json";
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 pub(crate) struct FileProof {
-    path: PathBuf,
-    sha256: String,
+    pub(super) path: PathBuf,
+    pub(super) sha256: String,
 }
 
 /// A safety snapshot lands at a committed batch boundary across all databases.
 pub fn snapshot(vault: &Vault, target: &Path) -> Result<()> {
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     vault.recheck_root()?;
-    vault.require_complete()?;
     let pause = vault.pause_store()?;
+    snapshot_paused(vault, &pause, target)
+}
+
+pub(super) fn snapshot_paused(
+    vault: &Vault,
+    pause: &vault_store::Maintenance<'_>,
+    target: &Path,
+) -> Result<()> {
     pause.snapshot(target)?;
-    let mut config = vault.config().clone();
+    let mut config = crate::load_config(vault.paths())?;
     config.capture_policy = Default::default();
     config.dismissed_agent_hints.clear();
     crate::config::save_copy_config(vault.paths(), target, &config)?;
@@ -47,6 +54,7 @@ pub(crate) fn seal(root: &Path) -> Result<()> {
     let layout = crate::admission::root_layout(root)?;
     let files = database_files(layout, false)
         .into_iter()
+        .chain([PathBuf::from(vault_layout::UNREADABLE_CONVERSATIONS)])
         .filter(|p| root.join(p).is_file())
         .map(|path| {
             crate::durable_io::fsync_file_durably(&root.join(&path))?;
@@ -144,7 +152,12 @@ pub(crate) fn verify(root: &Path) -> Result<()> {
             "snapshot is missing keys.envelope"
         );
     }
-    for file in proof {
+    let browsing_files = vault_layout::installation_files_except(
+        layout,
+        false,
+        &[vault_layout::DataScope::AgentHistory],
+    );
+    for file in proof.into_iter().filter(|p| browsing_files.contains(&p.path)) {
         anyhow::ensure!(
             hash_file(&root.join(&file.path))? == file.sha256,
             "snapshot-digest-mismatch: {}",
@@ -207,7 +220,7 @@ pub fn restore_snapshot_to(
     // is not damage: replacing it would put an older archive over a newer one.
     crate::admission::refuse_newer(&paths.app_root)?;
     if let Some(vault) = current {
-        vault.require_complete()?;
+        vault.check_browsing_files()?;
     }
     // A delete-all-data the user confirmed has not finished. Installing an archive now would put
     // it where that wipe, once finished, deletes it.
@@ -240,9 +253,13 @@ pub fn restore_snapshot_to(
     // archive's key and has none stops here, with nothing changed.
     let target = Encryption::of_archive(paths, current.and_then(Vault::data_key).or(live_key))?
         .unwrap_or_else(|| Encryption::of_copy(source, copy_key.as_ref().map(owned)));
-    let conversations_here = agent_history_databases()
-        .into_iter()
-        .any(|db| vault_layout::path(&paths.app_root, vault_layout::db_artifact(db)).exists());
+    let conversations_here =
+        crate::admission::guard(&paths.app_root).ok().flatten().is_some_and(|control| {
+            crate::admission::layout_of(Some(&control))
+                == vault_layout::ArchiveLayout::AgentHistoryV2
+        }) || agent_history_databases()
+            .into_iter()
+            .any(|db| vault_layout::path(&paths.app_root, vault_layout::db_artifact(db)).exists());
     cancel.check()?;
     let stage = staging_root(paths)?;
     copy_snapshot(source, stage.path())?;
@@ -279,7 +296,7 @@ pub fn restore_snapshot_to(
         (_, Some(owner)) => owner,
         _ => std::sync::Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)?),
     };
-    let files = if conversations_here {
+    let mut files = if conversations_here {
         // Left where they are, out of the installation and its journal.
         vault_layout::installation_files_except(
             layout,
@@ -301,21 +318,39 @@ pub fn restore_snapshot_to(
         &crate::migration::native::settings_here(paths)?,
     );
     crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
+    let mut opaque_copy = None;
     if let Some(vault) = current {
-        vault.pause_store()?.close()?;
+        let pause = vault.pause_store()?;
+        if vault.conversation_availability().is_err() {
+            let relative = Path::new(
+                vault_layout::spec(vault_layout::ArtifactId::NativeSnapshots).path.relative(),
+            )
+            .join(format!(
+                "before-restore-{}",
+                stage.path().file_name().context("restore stage has no name")?.to_string_lossy()
+            ));
+            anyhow::ensure!(
+                !install::exists(&paths.app_root.join(&relative))?,
+                "safety copy destination already exists"
+            );
+            snapshot_paused(vault, &pause, &stage.path().join(&relative))?;
+            opaque_copy = Some(paths.app_root.join(&relative));
+            files.push(relative);
+        }
+        pause.close()?;
     }
-    let replaced = install::install(
-        &control,
-        stage.path(),
-        files,
-        install::Keep::SafetyCopy(install::Before::Restore),
-    )?;
+    let keep = if opaque_copy.is_some() {
+        install::Keep::Nothing
+    } else {
+        install::Keep::SafetyCopy(install::Before::Restore)
+    };
+    let replaced = install::install(&control, stage.path(), files, keep)?;
     drop(control);
     let opened = Vault::open_owned(paths.clone(), config, target.key.as_ref(), Some(owner))?;
     Ok(InstalledArchive {
         vault: opened,
         data_key: target.key,
-        previous_files: replaced.kept,
+        previous_files: opaque_copy.unwrap_or(replaced.kept),
         previous_unsealed: replaced.unsealed,
     })
 }
@@ -530,7 +565,13 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
             .modified()
             .ok()
             .map(|time| chrono::DateTime::<chrono::Utc>::from(time).to_rfc3339());
-        let source_op = before.map_or("maintenance", install::Before::op);
+        let source_op = if entry.file_name().to_string_lossy().starts_with("before-agent-repair-") {
+            "agentRepair"
+        } else if entry.file_name().to_string_lossy().starts_with("manual-") {
+            "manual"
+        } else {
+            before.map_or("maintenance", install::Before::op)
+        };
         let restorable = sealed || crate::admission::root_layout(&path).is_ok();
         let name = path.display().to_string();
         result.push(crate::RecoverySnapshot {
@@ -541,10 +582,42 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
             size_bytes: super::retention::measure(&path).map_or(size, |(bytes, _)| bytes),
             verified_openable: restorable && size >= 4096,
             unchecked: !sealed,
+            conversations_unreadable: path
+                .join(vault_layout::UNREADABLE_CONVERSATIONS)
+                .try_exists()?,
             encrypted,
             source_op: source_op.into(),
             label: label.into(),
         });
     }
     Ok(result)
+}
+
+/// Publish a user-requested copy only after its files and seal are durable.
+pub fn manual_snapshot(
+    vault: &Vault,
+    expected_unreadable: bool,
+) -> Result<crate::RecoverySnapshot> {
+    let _op = crate::archive::ArchiveOpGate::acquire(vault.paths());
+    vault.recheck_root()?;
+    let stage = staging_root(vault.paths())?;
+    let target =
+        vault.paths().artifact_path(vault_layout::ArtifactId::NativeSnapshots).join(format!(
+            "manual-{}",
+            stage.path().file_name().context("copy stage has no name")?.to_string_lossy()
+        ));
+    let copy = stage.path().join("snapshot");
+    let pause = vault.pause_store()?;
+    anyhow::ensure!(
+        expected_unreadable == vault.conversation_availability().is_err(),
+        "conversation-repair-preview-stale"
+    );
+    snapshot_paused(vault, &pause, &copy)?;
+    install::sync_tree(&copy)?;
+    install::rename(&copy, &target)?;
+    drop(pause);
+    list_snapshots(vault.paths())?
+        .into_iter()
+        .find(|c| Path::new(&c.path) == target)
+        .context("could not list the new safety copy")
 }

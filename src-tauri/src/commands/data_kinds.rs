@@ -246,3 +246,53 @@ pub(crate) async fn dismiss_agent_hint(
     })
     .await
 }
+
+#[tauri::command]
+pub(crate) async fn preview_agent_history_repair(
+    state: State<'_, SessionState>,
+    request: Request<kinds::repair::Preview>,
+) -> Result<vault_core::maintenance::ConversationRepairPreview, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("preview_agent_history_repair", move || {
+        worker_bridge::preview_agent_history_repair_impl(&session, request.0)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn repair_agent_history(
+    state: State<'_, SessionState>,
+    app: AppHandle,
+    request: Request<kinds::repair::Execute>,
+) -> Result<kinds::repair::Repaired, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("repair_agent_history", move || {
+        worker_bridge::repair_agent_history_impl(&session, request.0, |event| {
+            let _ = app.emit(kinds::POLICY_EVENT, event);
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn preview_archive_safety_copy(
+    state: State<'_, SessionState>,
+    request: Request<kinds::Empty>,
+) -> Result<kinds::repair::SafetyCopyPreview, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("preview_archive_safety_copy", move || {
+        worker_bridge::preview_archive_safety_copy_impl(&session, request.0)
+    })
+    .await
+}
+#[tauri::command]
+pub(crate) async fn create_archive_safety_copy(
+    state: State<'_, SessionState>,
+    request: Request<kinds::repair::SaveCopy>,
+) -> Result<vault_core::RecoverySnapshot, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("create_archive_safety_copy", move || {
+        worker_bridge::create_archive_safety_copy_impl(&session, request.0)
+    })
+    .await
+}

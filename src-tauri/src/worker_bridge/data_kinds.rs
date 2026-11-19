@@ -160,3 +160,31 @@ pub(crate) fn dismiss_agent_hint_impl(
 ) -> Result<kinds::HintAcknowledgement, CommandError> {
     surface_result(kinds::delivery::read(|| kinds::dismiss_hint(req, events)))
 }
+
+pub(crate) fn preview_agent_history_repair_impl(
+    session: &SessionState,
+    req: kinds::repair::Preview,
+) -> Result<vault_core::maintenance::ConversationRepairPreview, CommandError> {
+    surface_result(kinds::delivery::read(|| kinds::repair::preview(session, req)))
+}
+
+pub(crate) fn repair_agent_history_impl(
+    session: &SessionState,
+    req: kinds::repair::Execute,
+    emit: impl FnOnce(kinds::PolicyChange),
+) -> Result<kinds::repair::Repaired, CommandError> {
+    surface_result(kinds::repair::execute(session, req, emit))
+}
+
+pub(crate) fn preview_archive_safety_copy_impl(
+    s: &SessionState,
+    _: kinds::Empty,
+) -> Result<kinds::repair::SafetyCopyPreview, CommandError> {
+    surface_result(kinds::delivery::read(|| kinds::repair::preview_safety_copy(s)))
+}
+pub(crate) fn create_archive_safety_copy_impl(
+    s: &SessionState,
+    r: kinds::repair::SaveCopy,
+) -> Result<vault_core::RecoverySnapshot, CommandError> {
+    surface_result(kinds::repair::create_safety_copy(s, r))
+}

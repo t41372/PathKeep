@@ -624,6 +624,8 @@ pub struct RecoverySnapshot {
     /// it): nothing has checked it yet. A restore from it checks it first and refuses it when that
     /// fails, so the screens say so instead of offering it as checked.
     pub unchecked: bool,
+    #[serde(default)]
+    pub conversations_unreadable: bool,
     /// KEYLESS at-rest signal: the snapshot file is SQLCipher-encrypted on disk (header is a random
     /// salt, not the SQLite plaintext magic). When true the recovery UI must ask for the archive key
     /// before it can verify + restore — `verified_openable` is only a size heuristic for these.
@@ -683,6 +685,8 @@ pub struct RetentionCopy {
     pub restorable: bool,
     /// Whether nothing has checked it yet ([`RecoverySnapshot::unchecked`]).
     pub unchecked: bool,
+    #[serde(default)]
+    pub conversations_unreadable: bool,
 }
 
 /// Preview payload for retention pruning.

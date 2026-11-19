@@ -188,6 +188,7 @@ const EVIDENCE: &[&str] = &[
         SELECT d.run_id FROM ah_desktop_backups d JOIN ah_backup_runs r ON r.id=d.run_id
         WHERE r.status IN ('failed','partial') AND d.acknowledged=0
         UNION SELECT run_id FROM ah_format_notices WHERE dismissed=0",
+    vault_store::PAIR_SCHEMA,
 ];
 
 const USER_STATE: &str = "CREATE TABLE ah_user_state (
@@ -341,4 +342,5 @@ const PROJECTION: &[&str] = &[
     "CREATE INDEX ah_sessions_project_created ON ah_sessions(conversation_current,
         project_path, created_at DESC, conversation_id DESC)",
     "CREATE INDEX ah_sessions_root_project ON ah_sessions(harness, source_root, project_path)",
+    vault_store::PAIR_SCHEMA,
 ];

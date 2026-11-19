@@ -346,7 +346,7 @@ impl Archive {
     }
 }
 
-fn map_revision(row: &vault_store::Row) -> vault_store::Result<RevisionInfo> {
+pub(super) fn map_revision(row: &vault_store::Row) -> vault_store::Result<RevisionInfo> {
     let length: i64 = row.get(3)?;
     if length < 0 {
         return Err(integrity("revision byte length is negative"));

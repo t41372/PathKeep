@@ -52,6 +52,7 @@ pub fn preview_retention(
                 bytes,
                 restorable: copy.verified_openable,
                 unchecked: copy.unchecked,
+                conversations_unreadable: copy.conversations_unreadable,
             })
         })
         .collect::<Result<Vec<_>>>()?;

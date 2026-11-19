@@ -12,6 +12,8 @@ pub enum OpenStage {
     KeyCheck,
     Migrate,
     Recover,
+    Read,
+    Write,
 }
 
 /// Shared by availability queries and refusals so callers retain the original engine cause.
@@ -24,6 +26,18 @@ pub struct StoreOpenFailure {
     pub cause: Error,
 }
 
+impl StoreOpenFailure {
+    /// A rejected SQL migration can be reproduced on a private copy. Storage
+    /// exhaustion, permission errors and newer formats require a different remedy.
+    pub fn rejected_migration(&self) -> bool {
+        self.stage == OpenStage::Migrate
+            && matches!(
+                self.cause,
+                Error::Engine(turso::Error::Error(_) | turso::Error::Constraint(_))
+            )
+    }
+}
+
 /// One classification boundary lets callers recover without matching engine text.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -31,6 +45,12 @@ pub enum Error {
     Open(#[from] std::sync::Arc<StoreOpenFailure>),
     #[error("archive-store-missing: {0} is missing and nothing says it is being created")]
     MissingStore(PathBuf),
+    #[error("open database has been replaced at {0}")]
+    ReplacedFile(PathBuf),
+    #[error("conversation-pair-unverified: the databases have no matching clean pair seal")]
+    PairUnverified,
+    #[error("conversation-repair-required: {0}")]
+    RepairRequired(#[source] std::sync::Arc<StoreOpenFailure>),
     #[error("this archive is owned by another process: {path}")]
     OwnedElsewhere {
         path: PathBuf,

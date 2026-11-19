@@ -31,6 +31,7 @@ mod projection;
 mod readiness;
 #[cfg(test)]
 mod readiness_tests;
+mod rebuild;
 mod reference_capture;
 mod references;
 mod reparse;

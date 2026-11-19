@@ -69,6 +69,8 @@ pub struct Config {
     pub databases: Vec<Db>,
     /// Existing durable files that the owner forbids the engine to initialize.
     pub required_existing: Vec<Db>,
+    /// Track writes to the paired desktop conversation stores.
+    pub pair_seals: bool,
     pub paths: Paths,
     pub keys: [Option<[u8; 32]>; Db::COUNT],
     pub owner: Option<Arc<crate::OwnerLock>>,
@@ -89,6 +91,7 @@ impl Config {
             databases: Db::ALL.to_vec(),
             paths,
             required_existing: Vec::new(),
+            pair_seals: false,
             keys: [None; Db::COUNT],
             owner: None,
             io: None,
