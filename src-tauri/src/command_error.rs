@@ -100,6 +100,11 @@ impl CommandError {
         Self { message: message.into(), code: None, action_hint: None, retry_hint: None }
     }
 
+    #[cfg(any(not(test), feature = "devtools-bridge"))]
+    pub(crate) fn invalid_request(error: impl std::fmt::Display) -> Self {
+        Self { code: Some("invalid-request".into()), ..Self::internal(error.to_string()) }
+    }
+
     /// Builds the envelope for a worker/core failure, classifying the message
     /// against the backend's canonical marker strings.
     pub fn classified(message: String) -> Self {

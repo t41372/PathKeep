@@ -241,3 +241,62 @@ all three languages; the frontend reads codes, never English text (Safari's Full
 guidance reads the outcome). Scheduled attempts record a partial run as `partial` with reason
 `backup-incomplete`, and tell `write-lock` and `disk-full` failures apart. Request fields and
 command names are unchanged.
+
+## Conversation sources and data kinds
+
+Every command below takes a JSON object with a required `request` member.
+The [wire fixture](../../src-tauri/tests/fixtures/data-kinds-preview.json) gives
+complete example requests, responses, event payloads and private frames. A
+snapshot read is the reconnect path after a missed event.
+
+| Command                 | Consumer                                             | Request and result                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_data_kinds`       | Shell, Manage Kinds, OFF screen, Settings navigation | Empty request. Returns `kinds` and `policyToken`. Browsing counts visits. Conversations count source files with a committed head. `firstBackup` is the status of the first conversation run, or `not-started`.                                                                                                                                           |
+| `set_data_kind_state`   | Manage Kinds                                         | `kind`, `state`, `expectedPolicyToken`. Returns the fresh list plus `affectedTasks` (empty in step 1). Off to paused or on for conversations requires the enable flow.                                                                                                                                                                                   |
+| `get_agent_settings`    | Enable and Backup                                    | Empty request. Returns `policy` and `policyToken`. `enabledTools` is ordered Claude Code, Codex, Pi, DeepSeek with disabled tools omitted.                                                                                                                                                                                                               |
+| `update_agent_sources`  | Enable and Backup                                    | `expectedToken`, optional `readGit`, optional `toolChanges` mapping public tool IDs to booleans. Returns updated settings. While off, switches express preferences for the enable dialog. An active kind needs a reviewed selection to widen its grants.                                                                                                 |
+| `detect_data_sources`   | Intro and onboarding                                 | `kinds` array. Returns `sources`, eligible browsing `profiles`, and optional `browserDiscoveryIssue`. A tool row has `kind,tool,rootIds,path,found,readable,reason?`. A browser row uses `profileId` in place of tool and path. Blocked Safari counts as found.                                                                                          |
+| `preview_agent_sources` | Onboarding sources, enable dialog and rescan         | `purpose` is `onboarding`, `enable` or `rescan`. Optional `tools` and `rootIds` filter known roots. `pickedFolder:{tool,path}` selects an absolute native picker result. Returns `streamId,viewToken`. Pass `onEvent` alongside `request` on Tauri. On the dev bridge open `GET /previews/{streamId}/events` once and parse each SSE data field as JSON. |
+| `cancel_agent_read`     | Close or cancel preview                              | `requestIdOrStreamId` takes the returned stream ID. Returns `{"state":"cancelled"}`, including an already absent stream.                                                                                                                                                                                                                                 |
+
+Each private frame has `streamId,sequence,type,payload`, beginning at sequence
+`"0"`. Progress uses `phase:"discovery",unit:"entries",done`. A `root` frame
+contains one inventory row. `finished` encloses the complete report in the
+fixture. `cancelled` or `error` ends the stream with `{code}`. A stalled preview or unused ticket expires after five minutes. The owner keeps
+at most 32 live streams and 32 tickets, evicting the oldest ticket at capacity.
+Dropping the private reader cancels production. Counts, bytes and sequence numbers are
+decimal strings except for the bounded number of roots per tool. Dates are
+UTC epoch milliseconds. Earliest/latest are null when no filesystem
+modification time was observed.
+
+A root reports `known-layout` for Claude's recognized positions,
+`file-candidates` for the other tools, or `unavailable` for an inaccessible
+root. The mutually exclusive file counts cover top-level candidates,
+recognizable child files, ambiguous candidates, ancillary files, and unknown
+files within the inspected trees. Source bytes include all five categories.
+Directory counts exclude the selected root. A row can be readable with a
+reason if a descendant was inaccessible. Totals then cover observed metadata.
+The estimate budgets the observed byte length of native-compressed and ordinary
+inputs, one additional byte per observed input byte for derived storage, and
+4 KiB per file for overhead. Free bytes come from the volume containing the
+conversation evidence database, or its nearest existing ancestor during setup.
+
+After a committed policy edit, `pathkeep://data-kinds-changed` carries
+`{policyToken,changedKinds}`. A no-op produces no event. Content and paths
+travel on the private request stream. A mismatched policy token returns
+`policy-changed`; a last-on transition returns `last-active-kind`.
+Other domain refusals include `invalid-request`, `lock-required`,
+`enable-preview-required`, `scope-denied`, `source-selection-empty`,
+`root-changed`, `preview-expired`, `archive-replaced`, `archive-busy`,
+`archive-uninitialized`, `destination-unavailable`, and `cancelled`.
+Existing archive admission and key errors keep their codes. A missing source
+reports `root-missing`; denial or an unreadable entry reports
+`root-unreadable`. The scan depth limit reports `source-depth-limit`.
+
+An unavailable conversation store leaves the browsing row readable.
+`availability` is `available`, `not-initialized`, or `unavailable`.
+An unavailable row has null `hasSavedData`, absent `archiveCount` and
+`firstBackup`, and unavailable coverage. Role-local damage also carries
+`failure:{role,stage,reason}` from the open owner. Roles are `evidence`,
+`read-model`, or `shared`. Stages are `preflight,open,key-check,migrate,recover`.
+Reasons are `archive-store-missing,wrong-key,integrity-failed,schema-too-new,archive-busy,kind-unavailable`.

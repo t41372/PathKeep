@@ -58,6 +58,7 @@ fn layout_of(format: u32) -> Result<vault_layout::ArchiveLayout> {
 /// machine starts without one) and whether the password is remembered in this keychain (export
 /// always writes it off, which would otherwise clear the keychain on every move).
 pub fn keep_machine_settings(config: &mut AppConfig, here: &AppConfig) {
+    config.capture_policy = here.capture_policy.clone();
     config.app_lock = here.app_lock.clone();
     config.remember_database_key_in_keyring = here.remember_database_key_in_keyring;
 }
@@ -79,6 +80,7 @@ pub fn export(
     let mut config = vault.config().clone();
     config.archive_mode = ArchiveMode::Encrypted;
     config.remember_database_key_in_keyring = false;
+    config.capture_policy = Default::default();
     config.app_lock = Default::default();
     let key = maintenance::create_envelope(stage.path(), &config, Some(password))?.unwrap();
     let pause = vault.pause_store()?;
@@ -454,7 +456,7 @@ pub fn adopt_moved_paths(
 }
 
 /// The bundle's `config.json`, decrypted in the system temporary folder and returned in memory.
-fn source_control(bundle: &Path, key: &vault_crypto::DataKey) -> Result<Vec<u8>> {
+pub(super) fn source_control(bundle: &Path, key: &vault_crypto::DataKey) -> Result<Vec<u8>> {
     let entry = vault_layout::portable_entry(A::Config);
     let scratch = tempfile::tempdir()?;
     let sealed = scratch.path().join(entry);
@@ -466,7 +468,7 @@ fn source_control(bundle: &Path, key: &vault_crypto::DataKey) -> Result<Vec<u8>>
     Ok(control)
 }
 
-fn bundle_key(bundle: &Path, password: &str) -> Result<vault_crypto::DataKey> {
+pub(super) fn bundle_key(bundle: &Path, password: &str) -> Result<vault_crypto::DataKey> {
     use std::io::Read;
     let mut zip = zip::ZipArchive::new(fs::File::open(bundle)?)?;
     let entry = zip.by_name(vault_layout::portable_entry(A::Envelope))?;

@@ -28,6 +28,7 @@ use tauri::Listener;
 /// updater, the menu bar's search, the question asked when someone quits while work runs),
 /// forwarded to the browser as they are.
 const APP_EVENTS: &[&str] = &[
+    vault_worker::data_kinds::POLICY_EVENT,
     "pathkeep://backup-progress",
     "pathkeep://backup-finished",
     vault_core::AI_INDEX_JOB_ENDED_EVENT,
@@ -98,13 +99,22 @@ pub(super) struct Browser {
 impl futures_core::Stream for Browser {
     type Item = Result<Event, Infallible>;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut queue = self.queue.lock().expect("bridge event queue");
-        match queue.events.pop_front() {
-            Some((name, json)) => Poll::Ready(Some(Ok(Event::default().event(name).data(json)))),
-            None => {
-                queue.waker = Some(cx.waker().clone());
-                Poll::Pending
+        loop {
+            let next = {
+                let mut queue = self.queue.lock().expect("bridge event queue");
+                let Some(event) = queue.events.pop_front() else {
+                    queue.waker = Some(cx.waker().clone());
+                    return Poll::Pending;
+                };
+                event
+            };
+            let (name, json) = next;
+            if name == vault_worker::data_kinds::POLICY_EVENT
+                && vault_worker::data_kinds::settings().is_err()
+            {
+                continue;
             }
+            return Poll::Ready(Some(Ok(Event::default().event(name).data(json))));
         }
     }
 }
@@ -114,4 +124,22 @@ pub(super) async fn events(
     State(state): State<DevIpcBridgeState>,
 ) -> Sse<KeepAliveStream<Browser>> {
     Sse::new(state.events.connect()).keep_alive(KeepAlive::default())
+}
+
+#[cfg(test)]
+impl Hub {
+    /// Observe the same queue an SSE subscriber drains, including event name and serialized payload.
+    pub(super) fn observe(&self) -> impl Fn() -> Vec<(&'static str, serde_json::Value)> {
+        let browser = self.connect();
+        move || {
+            browser
+                .queue
+                .lock()
+                .unwrap()
+                .events
+                .drain(..)
+                .map(|(name, data)| (name, serde_json::from_str(&data).unwrap()))
+                .collect()
+        }
+    }
 }

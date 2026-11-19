@@ -53,6 +53,7 @@ enum Operation {
     CheckpointPreview,
     CheckpointReplay,
     CoreBackup,
+    SurfacePolicy,
 }
 
 #[derive(Debug)]
@@ -305,6 +306,34 @@ fn observe(operation: Operation, control: &str) -> Observation {
                 snapshot_path: source.unwrap().display().to_string(),
             },
         )),
+        SurfacePolicy => {
+            use serde_json::{from_value, json};
+            use vault_worker::data_kinds::{self as kinds, preview};
+            let failures = [
+                error(kinds::list(&f.session)),
+                error(kinds::settings()),
+                error(kinds::set_state(
+                    &f.session,
+                    from_value(json!({"kind":"browsing","state":"on","expectedPolicyToken":"old"}))
+                        .unwrap(),
+                    |_| {},
+                )),
+                error(kinds::update_sources(
+                    from_value(json!({"readGit":false,"expectedToken":"old"})).unwrap(),
+                    |_| {},
+                )),
+                error(preview::detect(from_value(json!({"kinds":["agent-history"]})).unwrap())),
+                error(
+                    preview::start(&f.session, from_value(json!({"purpose":"rescan"})).unwrap())
+                        .map(drop),
+                ),
+                error(preview::cancel(
+                    from_value(json!({"requestIdOrStreamId":"unknown"})).unwrap(),
+                )),
+            ];
+            assert!(failures.iter().all(|result| result == &failures[0]), "{failures:?}");
+            failures[0].clone()
+        }
         CoreBackup => error(vault_core::run_backup(f.vault(), None)),
     };
     let after = f.observe();
@@ -391,6 +420,7 @@ refuses!(remembered_key_store_refuses_before_machine_effects, KeyringStore);
 refuses!(keyring_status_refuses_before_reading_machine_state, KeyringStatus);
 refuses!(checkpoint_preview_refuses_before_reading_source_data, CheckpointPreview);
 refuses!(checkpoint_replay_refuses_before_writing_runs, CheckpointReplay);
+refuses!(app_surface_refuses_before_touching_sources_or_policy, SurfacePolicy);
 refuses!(core_backup_reinspects_the_owner_root, CoreBackup);
 
 #[test]

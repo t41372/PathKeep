@@ -51,8 +51,23 @@ Spawned processes have null stdin/stdout; stderr goes to
 `<root>/logs/owner-startup.log`, including failures before the regular logger starts.
 They cannot keep an MCP transport open or interleave text into its JSON-RPC output. Startup failures name the app or
 missing installation; readiness timeout asks the user to start PathKeep and
-inspect its startup log. Debug tests set `CHB_PROJECT_ROOT`, browser fixture roots,
-`CHB_TEST_KEYRING_DIR` and `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR` on child processes.
+inspect its startup log. Debug tests set `CHB_PROJECT_ROOT`, `CHB_TEST_KEYRING_DIR`
+and `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR` on child processes.
+
+Dev and E2E launchers select browser fixture roots with `CHB_CHROME_USER_DATA_DIR`,
+`CHB_FIREFOX_PROFILES_DIR` and `CHB_SAFARI_ROOT`. Set `CHB_AGENT_TOOLS_HOME` to
+the agent fixture directory in the same launch environment. Both debug and release
+builds honor these discovery overrides. The background launcher forwards them
+explicitly through macOS Launch Services.
+
+With `CHB_AGENT_TOOLS_HOME` set, tool discovery uses that directory as both the
+home and the application-data base. It looks for `.claude`, `.codex`,
+`.pi/agent`, `.dsh` and `Claude` directly beneath it. All six native tool
+environment variables are ignored, including the supplemental Codex SQLite and
+Pi sessions directories. Presence and preview can report missing roots.
+Automatic capture discovery omits them. An empty override yields no default
+roots. With the variable unset, native home, application-data and tool
+environment resolution apply as usual.
 
 ## Endpoint and security
 

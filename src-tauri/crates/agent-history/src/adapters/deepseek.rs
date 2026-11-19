@@ -7,6 +7,7 @@
 //! older formats are retained with explicitly limited interpretation.
 
 mod discovery;
+pub(crate) use discovery::generation_number;
 mod records;
 use records::*;
 

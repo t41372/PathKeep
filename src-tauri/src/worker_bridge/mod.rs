@@ -13,6 +13,9 @@ use crate::command_error::CommandError;
 #[cfg(test)]
 use crate::command_error::{ACTION_HINT_UNLOCK, ERROR_CODE_LOCK_REQUIRED, RETRY_HINT_AFTER_ACTION};
 
+mod data_kinds;
+#[cfg_attr(test, allow(unused_imports))]
+pub(crate) use data_kinds::*;
 mod annotations;
 mod app;
 mod archive;

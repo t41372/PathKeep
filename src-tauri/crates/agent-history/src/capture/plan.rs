@@ -158,7 +158,7 @@ pub fn source_identity(source: &SourceRoot, artifact: &Artifact) -> Result<Strin
 }
 
 /// Coverage for an unreadable root has an identity even when no artifacts can be listed.
-pub(crate) fn root_identity(source: &SourceRoot) -> Result<String> {
+pub fn root_identity(source: &SourceRoot) -> Result<String> {
     let root = normalized_root(&source.root)?;
     Ok(identity(
         b"pathkeep-agent-root-v1",
@@ -182,7 +182,7 @@ fn path_text(path: &Path) -> Result<&str> {
 }
 
 /// Resolve ambient aliases (such as macOS `/tmp`) even when a source disappeared.
-fn normalized_root(root: &Path) -> Result<PathBuf> {
+pub fn normalized_root(root: &Path) -> Result<PathBuf> {
     path_text(root)?;
     if let Ok(canonical) = fs::canonicalize(root) {
         path_text(&canonical)?;

@@ -4,6 +4,9 @@
 //! Capture can succeed while interpretation is partial. Destination failures abort
 //! the operation; source limitations retain earlier evidence and produce diagnostics.
 mod defaults;
+mod inventory;
+pub use inventory::{InventoryCounts, RootInventory, inventory_root, root_status};
+pub use plan::{normalized_root, root_identity};
 mod raw;
 use raw::capture_raw;
 #[cfg(test)]
@@ -24,7 +27,7 @@ mod reparse;
 mod unreadable;
 mod writer;
 
-pub use defaults::default_sources;
+pub use defaults::{default_sources, known_sources};
 pub use plan::{BackupPlan, PlannedArtifact, preview, source_identity};
 
 use crate::{

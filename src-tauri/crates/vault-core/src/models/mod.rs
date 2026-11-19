@@ -10,6 +10,8 @@ pub mod app;
 pub mod archive;
 pub mod audit;
 pub mod core_intelligence;
+mod data_kinds;
+pub use data_kinds::*;
 pub mod import;
 pub mod intelligence;
 pub mod progress;

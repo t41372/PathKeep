@@ -6,6 +6,11 @@ publish = false
 license.workspace = true
 
 [dependencies]
+agent-history = { path = "../agent-history" }
+fs4 = "0.13.1"
+same-file = "1.0.6"
+libc.workspace = true
+uuid = { version = "1.23.1", features = ["v4"] }
 vault-build = { path = "../vault-build" }
 vault-layout = { path = "../vault-layout" }
 vault-convert-sqlcipher = { path = "../vault-convert-sqlcipher" }
@@ -24,10 +29,8 @@ vault-core = { version = "0.1.0", path = "../vault-core" }
 vault-platform = { version = "0.1.0", path = "../vault-platform" }
 
 [dev-dependencies]
-agent-history = { path = "../agent-history" }
 tantivy = "0.27.0"
 zstd = "0.14.3"
-libc.workspace = true
 vault-core = { path = "../vault-core", features = ["test-fixtures"] }
 vault-convert-sqlcipher = { path = "../vault-convert-sqlcipher", features = ["test-fixtures"] }
 rusqlite.workspace = true

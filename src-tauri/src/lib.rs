@@ -226,6 +226,13 @@ fn run_app() -> Result<()> {
         .manage(session_state)
         .on_window_event(desktop_integration::on_window_event)
         .invoke_handler(tauri::generate_handler![
+            list_data_kinds,
+            set_data_kind_state,
+            get_agent_settings,
+            update_agent_sources,
+            detect_data_sources,
+            preview_agent_sources,
+            cancel_agent_read,
             app_build_info,
             app_snapshot,
             app_lock_status,

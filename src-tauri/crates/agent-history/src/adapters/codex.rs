@@ -161,13 +161,13 @@ impl Adapter for CodexAdapter {
     }
 }
 
-fn is_database_name(name: &str) -> bool {
+pub(crate) fn is_database_name(name: &str) -> bool {
     name.strip_prefix("state_").and_then(|suffix| suffix.strip_suffix(".sqlite")).is_some_and(
         |version| !version.is_empty() && version.bytes().all(|byte| byte.is_ascii_digit()),
     )
 }
 
-fn is_rollout(path: &Path) -> bool {
+pub(crate) fn is_rollout(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.ends_with(".jsonl") || name.ends_with(".jsonl.zst"))

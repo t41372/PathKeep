@@ -6,6 +6,15 @@
       "title": "AppConfig",
       "type": "object",
       "properties": {
+        "capturePolicy": {
+          "$ref": "#/$defs/CapturePolicy",
+          "default": {
+            "browsing": "on",
+            "agentHistory": "off",
+            "enabledTools": [],
+            "readGit": true
+          }
+        },
         "initialized": {
           "type": "boolean",
           "default": false
@@ -218,6 +227,51 @@
         }
       },
       "$defs": {
+        "CapturePolicy": {
+          "type": "object",
+          "properties": {
+            "browsing": {
+              "$ref": "#/$defs/KindState"
+            },
+            "agentHistory": {
+              "$ref": "#/$defs/KindState"
+            },
+            "enabledTools": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/AgentTool"
+              }
+            },
+            "readGit": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "browsing",
+            "agentHistory",
+            "enabledTools",
+            "readGit"
+          ]
+        },
+        "KindState": {
+          "type": "string",
+          "enum": [
+            "on",
+            "paused",
+            "off"
+          ]
+        },
+        "AgentTool": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "pi",
+            "deepseek"
+          ]
+        },
         "ArchiveMode": {
           "type": "string",
           "enum": [

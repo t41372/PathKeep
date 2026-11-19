@@ -279,6 +279,7 @@ fn decode_settings(bytes: &[u8], control: &Control) -> Result<ConfigDocument, (R
             serde_json::from_value(value).map_err(invalid)?
         }
     };
+    config.capture_policy.validate().map_err(|e| (Reason::ControlInvalid, e.to_string()))?;
     normalize_app_config(&mut config);
     Ok(ConfigDocument { config, compatibility: control.compatibility.clone() })
 }
@@ -341,6 +342,7 @@ fn reject_duplicate_keys(bytes: &[u8]) -> Result<(), serde_json::Error> {
 /// Encodes settings for disk. Without a stamp this is byte for byte what v0.5.0 writes and
 /// reads. With one, the stamp's bytes are written exactly as they were read.
 pub fn encode_config(config: &AppConfig, compatibility: Option<&Compatibility>) -> Result<String> {
+    config.capture_policy.validate()?;
     let Some(compatibility) = compatibility else {
         return Ok(serde_json::to_string_pretty(config)?);
     };
@@ -501,5 +503,19 @@ mod tests {
         fs::write(&paths.config_path, "{not-json").expect("write invalid config");
         let error = load_config(&paths).expect_err("invalid config should fail");
         assert!(error.to_string().contains("parsing config json"));
+    }
+
+    #[test]
+    fn writing_a_control_cannot_publish_an_all_paused_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = project_paths_with_root(dir.path());
+        let gate = ControlGate::acquire(&paths);
+        let mut config = AppConfig::default();
+        save_config(&gate, &config).unwrap();
+        let before = fs::read(&paths.config_path).unwrap();
+        config.capture_policy.browsing = crate::KindState::Paused;
+        config.capture_policy.agent_history = crate::KindState::Paused;
+        assert_eq!(save_config(&gate, &config).unwrap_err().to_string(), "last-active-kind");
+        assert_eq!(fs::read(&paths.config_path).unwrap(), before);
     }
 }

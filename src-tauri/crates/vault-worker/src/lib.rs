@@ -22,6 +22,7 @@ mod archive_flows;
 mod cli;
 mod context;
 mod current_password;
+pub mod data_kinds;
 mod data_wipe;
 mod foreground_work;
 mod intelligence;

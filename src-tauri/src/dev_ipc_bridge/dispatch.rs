@@ -108,7 +108,46 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         worker_bridge::debug_set_search_indexer_paused_impl(&state.session, paused)?;
         return Ok(Value::Null);
     }
+    use vault_worker::data_kinds as kinds;
+    let changed = |event: kinds::PolicyChange| {
+        if let Ok(app) = require_app_handle(state) {
+            let _ = tauri::Emitter::emit(&app, kinds::POLICY_EVENT, &event);
+        } else {
+            state.events.emit(kinds::POLICY_EVENT, &event)
+        }
+    };
     match command {
+        "list_data_kinds" => {
+            json_value!(worker_bridge::list_data_kinds_impl(
+                &state.session,
+                surface_request(payload)?
+            )?)
+        }
+        "set_data_kind_state" => {
+            json_value!(worker_bridge::set_data_kind_state_impl(
+                &state.session,
+                surface_request(payload)?,
+                changed
+            )?)
+        }
+        "get_agent_settings" => {
+            json_value!(worker_bridge::get_agent_settings_impl(surface_request(payload)?)?)
+        }
+        "update_agent_sources" => {
+            json_value!(worker_bridge::update_agent_sources_impl(
+                surface_request(payload)?,
+                changed
+            )?)
+        }
+        "detect_data_sources" => worker_bridge::detect_data_sources_impl(surface_request(payload)?),
+        "preview_agent_sources" => {
+            let frames = worker_bridge::preview_agent_sources_impl(
+                &state.session,
+                surface_request(payload)?,
+            )?;
+            json_value!(super::preview::register(state, frames))
+        }
+        "cancel_agent_read" => worker_bridge::cancel_agent_read_impl(surface_request(payload)?),
         "app_build_info" => json_value!(worker_bridge::app_build_info_impl()),
         "app_snapshot" => {
             json_value!(worker_bridge::app_snapshot_impl(&state.session)?)
@@ -1156,6 +1195,12 @@ fn require_app_handle(state: &DevIpcBridgeState) -> Result<DevIpcAppHandle, Stri
     guard.clone().ok_or_else(|| {
         "PathKeep dev IPC bridge needs a live AppHandle for updater commands.".to_string()
     })
+}
+
+fn surface_request<T: DeserializeOwned>(payload: Value) -> Result<T, CommandError> {
+    serde_json::from_value::<WrappedRequest<T>>(payload)
+        .map(|p| p.request)
+        .map_err(CommandError::invalid_request)
 }
 
 fn parse_payload<T: DeserializeOwned>(payload: Value) -> Result<T, String> {

@@ -103,9 +103,9 @@ fn runtime_diagnostics_fallback(
 /// from a permission wall: the profile list ALONE cannot, because a Full Disk Access
 /// denial yields the SAME empty list a fresh machine does. `issue` carries the stable
 /// marker the onboarding UI keys on (see [`resolve_browser_discovery_issue_core`]).
-struct BrowserDiscovery {
-    profiles: Vec<vault_core::BrowserProfile>,
-    issue: Option<String>,
+pub(crate) struct BrowserDiscovery {
+    pub(crate) profiles: Vec<vault_core::BrowserProfile>,
+    pub(crate) issue: Option<String>,
 }
 
 /// Discovers browser profiles and classifies WHY the result is what it is, combining the
@@ -114,7 +114,7 @@ struct BrowserDiscovery {
 /// The probe matters even when discovery does not error: on some macOS setups a TCC wall
 /// makes discovery silently skip a browser (its path "does not exist") instead of
 /// surfacing an error, so an empty list with no error can still be a permission problem.
-fn snapshot_browser_profiles() -> BrowserDiscovery {
+pub(crate) fn snapshot_browser_profiles() -> BrowserDiscovery {
     let probe = probe_full_disk_access();
     match discover_browser_profiles() {
         Ok(profiles) => {
@@ -286,6 +286,7 @@ pub fn save_user_config_with_vault(
     // out from under itself without the passcode. Enabling the lock from an
     // unlocked session, and all initial setup, still pass this no-op check.
     ensure_app_lock_unlocked(&paths, &previous_config)?;
+    crate::data_kinds::validate_config_input(config)?;
     // Whether there is an archive is not a setting: setup creates one and "delete all data"
     // removes it. Settings read before a wipe are not written into the folder it emptied.
     if base_config.is_some_and(|base| base.initialized) && !previous_config.initialized {
@@ -297,6 +298,7 @@ pub fn save_user_config_with_vault(
         Some(base_config) => merge_config_change(&previous_config, base_config, config)?,
         None => config.clone(),
     };
+    next_config.capture_policy = previous_config.capture_policy.clone();
     if next_config.initialized && !previous_config.initialized {
         anyhow::bail!(
             "archive-uninitialized: settings cannot set up an archive; nothing was saved"
@@ -534,10 +536,10 @@ where
     session.recover_pending_archive(&paths).map_err(anyhow::Error::msg)?;
     // Initialization writes a control. It never does that over one this build may not use, or
     // next to an archive whose control is missing.
-    load_config(&paths)?;
-    // Only to tell whether Touch ID is being turned on; a first run has no config yet.
-    let previous_config = load_hydrated_config(&paths).unwrap_or_default();
+    let previous_config = load_unlocked_config(&paths)?;
+    crate::data_kinds::validate_config_input(config)?;
     let mut next_config = config.clone();
+    next_config.capture_policy = previous_config.capture_policy.clone();
     if previous_config.initialized && previous_config.archive_mode != next_config.archive_mode {
         anyhow::bail!(
             "encryption-mode-change-requires-rekey: use rekey_archive to change encryption"
@@ -603,8 +605,12 @@ where
     }
     vault_core::config::ensure_paths(&paths)?;
     next_config.initialized = true;
-    // Setup writes every setting it was given.
-    save_config(&vault_core::ControlGate::acquire(&paths), &next_config)?;
+    // Re-read device policy under the gate in case another window just updated it.
+    {
+        let control = vault_core::ControlGate::acquire(&paths);
+        next_config.capture_policy = load_config(&paths)?.capture_policy;
+        save_config(&control, &next_config)?;
+    }
     // Opening the session's store creates the archive in the native format, with
     // its key envelope when encrypted. Nothing here may create the old SQLCipher
     // files: they would be taken for an archive to convert.

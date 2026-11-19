@@ -31,7 +31,9 @@ pub fn snapshot(vault: &Vault, target: &Path) -> Result<()> {
     vault.require_complete()?;
     let pause = vault.pause_store()?;
     pause.snapshot(target)?;
-    crate::config::save_copy_config(vault.paths(), target, vault.config())?;
+    let mut config = vault.config().clone();
+    config.capture_policy = Default::default();
+    crate::config::save_copy_config(vault.paths(), target, &config)?;
     let envelope = vault_layout::path(&vault.paths().app_root, vault_layout::ArtifactId::Envelope);
     if envelope.exists() {
         fs::copy(envelope, vault_layout::path(target, vault_layout::ArtifactId::Envelope))?;
@@ -78,6 +80,14 @@ pub(super) fn seal_replaced(copy: &Path) -> Result<()> {
         before.map_or("maintenance", install::Before::op)
     ))?;
     let layout = crate::admission::root_layout(copy)?;
+    let paths = crate::project_paths_with_root(copy);
+    let mut document = crate::config::load_document(&paths)?;
+    if document.config.capture_policy != Default::default() {
+        document.config.capture_policy = Default::default();
+        let bytes =
+            crate::config::encode_config(&document.config, document.compatibility.as_ref())?;
+        crate::durable_io::atomic_durable_write(&paths.config_path, bytes.as_bytes())?;
+    }
     let sealed = database_files(layout, false);
     for rebuilt in database_files(layout, true).into_iter().filter(|file| !sealed.contains(file)) {
         install::remove(&copy.join(rebuilt))?;

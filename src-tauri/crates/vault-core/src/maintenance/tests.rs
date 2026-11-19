@@ -302,3 +302,37 @@ fn a_setting_saved_while_a_mode_change_copies_is_kept() {
     assert_eq!(on_disk.archive_mode, ArchiveMode::Encrypted);
     assert!(is_chinese(&on_disk), "the setting saved during the copy is kept");
 }
+
+#[test]
+fn device_policy_survives_rewrap_switch_and_restore_only_on_the_live_archive() {
+    // A safety copy must not acquire the ability to inspect any of these tools.
+    let (_root, vault, _key) = encrypted();
+    let mut config = vault.config().clone();
+    config.capture_policy.enabled_tools.insert(crate::AgentTool::Codex);
+    config.capture_policy.read_git = false;
+    crate::save_config(&crate::ControlGate::acquire(vault.paths()), &config).unwrap();
+    let vault = vault.with_config(config.clone());
+    let snap = vault.paths().raw_snapshots_dir.join("maintenance/policy");
+    snapshot(&vault, &snap).unwrap();
+    let copy_policy = |path: &std::path::Path| {
+        crate::load_config(&crate::project_paths_with_root(path)).unwrap().capture_policy
+    };
+    assert_eq!(copy_policy(&snap), Default::default());
+    rewrap_password(&vault, "old password", "new password").unwrap();
+    assert_eq!(copy_policy(&vault.paths().app_root), config.capture_policy);
+    let restored =
+        restore_snapshot(&vault, &snap, Some("old password"), Default::default()).unwrap();
+    assert_eq!(restored.vault.config().capture_policy, config.capture_policy);
+    assert_eq!(copy_policy(&restored.previous_files), Default::default());
+    let plain = switch_mode(
+        &restored.vault,
+        Some("new password"),
+        ArchiveMode::Plaintext,
+        None,
+        Default::default(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(plain.vault.config().capture_policy, config.capture_policy);
+    assert_eq!(copy_policy(&plain.previous_files), Default::default());
+}

@@ -209,7 +209,7 @@ fn discover_sessions(
     Ok(())
 }
 
-pub(super) fn generation_number(name: &str) -> Option<u64> {
+pub(crate) fn generation_number(name: &str) -> Option<u64> {
     let name = name.strip_suffix(".zstd").unwrap_or(name);
     if name == "session.jsonl" {
         return Some(0);

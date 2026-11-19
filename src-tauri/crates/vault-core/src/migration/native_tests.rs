@@ -224,3 +224,40 @@ fn portable_provenance_is_encrypted_relocated_and_replayable_on_an_empty_root() 
         assert_eq!(restored.run.unwrap().new_visits, 1);
     }
 }
+
+#[test]
+fn device_policy_is_removed_from_a_move_file_and_kept_at_its_destination() {
+    let vault = crate::Vault::open_temp().unwrap();
+    let mut config = vault.config().clone();
+    config.capture_policy.read_git = false;
+    config.capture_policy.enabled_tools.insert(crate::AgentTool::Codex);
+    let source = vault.with_config(config);
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let bundle = bundle_dir.path().join("policy.pathkeep");
+    native::export(&source, &bundle, "export", Default::default(), |_| {}).unwrap();
+    let (_root, target, _) = crate::maintenance::tests::encrypted();
+    let mut config = target.config().clone();
+    config.capture_policy.browsing = crate::KindState::Paused;
+    config.capture_policy.agent_history = crate::KindState::On;
+    crate::save_config(&crate::ControlGate::acquire(target.paths()), &config).unwrap();
+    let options =
+        ApplyImportOptions { confirm_overwrite: true, source_archive_key: Some("export".into()) };
+    let (_, installed) =
+        native::import(target.paths(), Some(&target), None, &bundle, &options, Default::default())
+            .unwrap();
+    assert_eq!(installed.vault.config().capture_policy, config.capture_policy);
+    assert_eq!(
+        crate::load_config(&crate::project_paths_with_root(&installed.previous_files))
+            .unwrap()
+            .capture_policy,
+        Default::default()
+    );
+    // Inspect the control inside the bundle as well: preserving the destination by
+    // itself would hide a leak of the source choices in the portable file.
+    let key = native::bundle_key(&bundle, "export").unwrap();
+    let copied = native::source_control(&bundle, &key).unwrap();
+    assert_eq!(
+        crate::config::decode_config(&bundle, &copied).unwrap().config.capture_policy,
+        Default::default()
+    );
+}
