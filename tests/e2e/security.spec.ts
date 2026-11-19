@@ -186,7 +186,10 @@ test('a missing Agent conversation database does not keep browsing closed', asyn
   const unlock = async () => {
     await backend('keyring_clear_database_key')
     await backend('clear_session_database_key')
+    // The key was taken away behind the window's back; a change of address
+    // alone would leave it showing what it had. Load it again.
     await page.goto('/#/')
+    await page.reload()
     await unlockAppIfLocked(page)
     await expect(asked).toBeVisible()
     await page.getByPlaceholder('Password').fill(NEW)
