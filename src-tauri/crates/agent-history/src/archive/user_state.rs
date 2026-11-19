@@ -138,70 +138,90 @@ impl Archive {
     }
 
     fn replay_pending_state(&self) -> Result<()> {
-        let target = self.store.read(Db::AgentHistoryEvidence, |tx| {
-            tx.query_one("SELECT generation FROM ah_state_generation WHERE id=1", (), |row| {
-                Ok(row.get::<i64>(0)?)
+        let target = self
+            .store
+            .read(Db::AgentHistoryEvidence, |tx| {
+                tx.query_one("SELECT generation FROM ah_state_generation WHERE id=1", (), |row| {
+                    Ok(row.get::<i64>(0)?)
+                })
             })
-        })?;
-        let applied = self.store.read(Db::AgentHistoryReadModel, |tx| {
-            tx.query_one("SELECT generation FROM ah_state_generation WHERE id=1", (), |row| {
-                Ok(row.get::<i64>(0)?)
+            .map_err(|e| e.at(Db::AgentHistoryEvidence, vault_store::OpenStage::Recover))?;
+        let applied = self
+            .store
+            .read(Db::AgentHistoryReadModel, |tx| {
+                tx.query_one("SELECT generation FROM ah_state_generation WHERE id=1", (), |row| {
+                    Ok(row.get::<i64>(0)?)
+                })
             })
-        })?;
+            .map_err(|e| e.at(Db::AgentHistoryReadModel, vault_store::OpenStage::Recover))?;
         if applied != target {
             let mut after = String::new();
             loop {
                 let cursor = after.clone();
-                let rows = self.store.read(Db::AgentHistoryEvidence, move |tx| {
-                    tx.query(
-                        "SELECT u.conversation_id, u.starred, u.put_away, u.trashed_at, u.title
+                let rows = self
+                    .store
+                    .read(Db::AgentHistoryEvidence, move |tx| {
+                        tx.query(
+                            "SELECT u.conversation_id, u.starred, u.put_away, u.trashed_at, u.title
                             FROM ah_user_state_pending p JOIN ah_user_state u ON
                             u.conversation_id=p.conversation_id WHERE p.conversation_id>?1 AND
                             p.generation<=?2 ORDER BY p.conversation_id LIMIT 128",
-                        params![cursor, target],
-                        |row| {
-                            Ok((
-                                row.get::<String>(0)?,
-                                row.get::<i64>(1)?,
-                                row.get::<i64>(2)?,
-                                row.get::<Option<i64>>(3)?,
-                                row.get::<Option<String>>(4)?,
-                            ))
-                        },
-                    )
-                })?;
+                            params![cursor, target],
+                            |row| {
+                                Ok((
+                                    row.get::<String>(0)?,
+                                    row.get::<i64>(1)?,
+                                    row.get::<i64>(2)?,
+                                    row.get::<Option<i64>>(3)?,
+                                    row.get::<Option<String>>(4)?,
+                                ))
+                            },
+                        )
+                    })
+                    .map_err(|e| e.at(Db::AgentHistoryEvidence, vault_store::OpenStage::Recover))?;
                 if rows.is_empty() {
                     break;
                 }
                 after = rows.last().unwrap().0.clone();
-                self.store.write(Db::AgentHistoryReadModel, Priority::Interactive, move |tx| {
-                    for (id, star, away, trash, title) in rows {
-                        tx.execute(
-                            "INSERT INTO ah_user_state VALUES(?1, ?2, ?3, ?4, ?5) ON
+                self.store
+                    .write(Db::AgentHistoryReadModel, Priority::Interactive, move |tx| {
+                        for (id, star, away, trash, title) in rows {
+                            tx.execute(
+                                "INSERT INTO ah_user_state VALUES(?1, ?2, ?3, ?4, ?5) ON
                                 CONFLICT(conversation_id) DO UPDATE SET starred=excluded.starred,
                                 put_away=excluded.put_away, trashed_at=excluded.trashed_at,
                                 title=excluded.title",
-                            params![id, star, away, trash, title],
+                                params![id, star, away, trash, title],
+                            )?;
+                        }
+                        tx.execute(
+                            "UPDATE ah_state_generation SET visibility=visibility+1 WHERE id=1",
+                            (),
                         )?;
-                    }
+                        Ok(())
+                    })
+                    .map_err(|e| {
+                        e.at(Db::AgentHistoryReadModel, vault_store::OpenStage::Recover)
+                    })?;
+            }
+            self.store
+                .write(Db::AgentHistoryReadModel, Priority::Interactive, move |tx| {
                     tx.execute(
-                        "UPDATE ah_state_generation SET visibility=visibility+1 WHERE id=1",
-                        (),
+                        "UPDATE ah_state_generation SET generation=?1 WHERE id=1",
+                        [target],
                     )?;
                     Ok(())
-                })?;
-            }
-            self.store.write(Db::AgentHistoryReadModel, Priority::Interactive, move |tx| {
-                tx.execute("UPDATE ah_state_generation SET generation=?1 WHERE id=1", [target])?;
-                Ok(())
-            })?;
+                })
+                .map_err(|e| e.at(Db::AgentHistoryReadModel, vault_store::OpenStage::Recover))?;
         }
         // A crash before cleanup replays harmlessly. Never acknowledge changes
         // before their hot rows are committed, or skip a previously failed mirror.
-        self.store.write(Db::AgentHistoryEvidence, Priority::Interactive, move |tx| {
-            tx.execute("DELETE FROM ah_user_state_pending WHERE generation<=?1", [target])?;
-            Ok(())
-        })?;
+        self.store
+            .write(Db::AgentHistoryEvidence, Priority::Interactive, move |tx| {
+                tx.execute("DELETE FROM ah_user_state_pending WHERE generation<=?1", [target])?;
+                Ok(())
+            })
+            .map_err(|e| e.at(Db::AgentHistoryEvidence, vault_store::OpenStage::Recover))?;
         Ok(())
     }
 }

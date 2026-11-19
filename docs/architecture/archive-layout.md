@@ -33,6 +33,10 @@ the open store. Its search directory comes from `ProjectPaths::artifact_path`
 and its subkey from the layout row. Standalone initialization markers and keys
 belong solely to the standalone archive.
 
+On an already stamped live archive, the owner preflights the browsing stores and the two conversation stores before migration. It starts Scratch once. Conversation workers become visible together after both migrations succeed. A role-local failure leaves browsing, browser backup and the assistant available. A retry uses the same owner and Scratch. Availability and the failing role, stage and cause live only in memory. Standalone opens, layout promotion and staged verification require their entire selection to open.
+
+A snapshot, whole restore, move export or import, encryption switch and explicit at-rest check require the complete live layout. Each returns the conversation failure before staging or replacing files. On a complete owner these operations inspect the persistent database headers from the layout. A missing file, a short or unknown header, or a protection mode that disagrees with its worker stops the operation. Ordinary history reads skip this inventory. Changing a password only rewraps the envelope. Wipe still inventories the data folder and deletes the conversation files along with the rest of the archive.
+
 ## What the compiler enforces
 
 - A new `ArtifactId` without an arm in `spec` does not compile.

@@ -64,6 +64,8 @@ impl Vault {
         key: Option<&vault_crypto::DataKey>,
         owner: Option<Arc<vault_store::OwnerLock>>,
     ) -> Result<Self> {
+        crate::admission::require_control(&paths.app_root)
+            .map_err(|refusal| vault_store::Error::Operation(Box::new(refusal)))?;
         Self::open_database(paths, config, key, owner, true)
     }
 
@@ -73,6 +75,8 @@ impl Vault {
         config: AppConfig,
         key: Option<&vault_crypto::DataKey>,
     ) -> Result<Self> {
+        crate::admission::guard(&paths.app_root)
+            .map_err(|refusal| vault_store::Error::Operation(Box::new(refusal)))?;
         Self::open_database(paths, config, key, None, false)
     }
 
@@ -83,10 +87,6 @@ impl Vault {
         owner: Option<Arc<vault_store::OwnerLock>>,
         live_archive: bool,
     ) -> Result<Self> {
-        // Whatever config the caller holds, the control on disk decides whether this build may
-        // open the root. Before the owner lock: a refused root is left exactly as it was.
-        crate::admission::guard(&paths.app_root)
-            .map_err(|refusal| vault_store::Error::Operation(Box::new(refusal)))?;
         let owner = match owner {
             Some(owner) => owner,
             None => Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)?),
@@ -109,17 +109,24 @@ impl Vault {
         // After recovery: a replayed install can have replaced the control.
         let layout = crate::admission::root_layout(&paths.app_root)
             .map_err(|refusal| vault_store::Error::Operation(Box::new(refusal)))?;
-        if live_archive {
-            // The store would create a missing database file. In a stamped archive that is only
-            // right for a store the creation record names; anything else missing is damage.
-            crate::maintenance::creation::check_required_stores(&paths, layout)
-                .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
-        }
         let mut storage = storage_config(&paths, layout, key, Some(owner))?;
+        if live_archive {
+            storage.required_existing =
+                crate::maintenance::creation::check_required_stores(&paths, layout)
+                    .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
+        }
         // A restore or import owns its staged migration. Only the live archive resumes its
         // schema update at the next launch, as the quit prompt promises.
         let update = live_archive.then(|| upgrade::UpdateScope::track(&mut storage.migrations));
-        let opened = Store::open(storage);
+        let opened =
+            if live_archive && !recovered && layout != vault_layout::ArchiveLayout::BrowsingV1 {
+                Store::open_grouped(storage, || {
+                    crate::fault_inject::checkpoint("browsing-group-open")
+                        .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))
+                })
+            } else {
+                Store::open_detailed(storage)
+            };
         drop(update);
         let store = match opened {
             Ok(store) => Arc::new(store),
@@ -132,6 +139,11 @@ impl Vault {
                 return Err(error);
             }
         };
+        if store.conversation_availability().is_err() {
+            // The browsing workers have verified their keys. Check the shared control
+            // and envelope before attributing the remaining failure to conversations.
+            password::check_partial_root(&paths, key.is_some())?;
+        }
         if live_archive {
             store.write(Db::Archive, Priority::Interactive, |s| {
             s.execute(
@@ -142,9 +154,10 @@ impl Vault {
             )?;
             s.execute("UPDATE import_batches SET status='interrupted',previous_status='interrupted' WHERE status='running'", ())?;
             Ok(())
-        })?;
-            crate::ai_queue::recover_owner_claims(&store, config.ai.job_queue_paused)?;
-            crate::intelligence_runtime::recover_owner_claims(&store)?;
+        }).map_err(|e| e.at(Db::Archive, vault_store::OpenStage::Recover))?;
+            crate::ai_queue::recover_owner_claims(&store, config.ai.job_queue_paused)
+                .and_then(|()| crate::intelligence_runtime::recover_owner_claims(&store))
+                .map_err(|e| e.at(Db::Intelligence, vault_store::OpenStage::Recover))?;
         }
         let search = Arc::new(
             crate::search::Indexer::open(

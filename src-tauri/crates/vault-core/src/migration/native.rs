@@ -72,6 +72,7 @@ pub fn export(
 ) -> Result<ExportedBundle> {
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     vault.recheck_root()?;
+    vault.require_complete()?;
     validate_target(vault.paths(), target)?;
     cancel.check()?;
     let stage = maintenance::staging_root(vault.paths())?;
@@ -283,6 +284,9 @@ pub fn import(
     let password =
         options.source_archive_key.as_deref().context(super::IMPORT_SOURCE_KEY_REQUIRED_PREFIX)?;
     crate::admission::refuse_newer(&paths.app_root)?;
+    if let Some(vault) = current {
+        vault.require_complete()?;
+    }
     // A delete-all-data the user confirmed has not finished. Installing an archive now would put
     // it where that wipe, once finished, deletes it.
     anyhow::ensure!(

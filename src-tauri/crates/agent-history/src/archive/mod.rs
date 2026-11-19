@@ -111,11 +111,14 @@ impl Archive {
             state_gate: Mutex::new(()),
             publication_gate: Mutex::new(()),
         };
-        archive.recover_unfinished_revisions()?;
-        archive.reclaim_slices()?;
-        archive.recover_projection_work()?;
-        archive.recover_attachment_counts()?;
-        archive.recover_backup_runs()?;
+        let evidence = |e| recovery_error(Db::AgentHistoryEvidence, e);
+        let model = |e| recovery_error(Db::AgentHistoryReadModel, e);
+        archive.recover_unfinished_revisions().map_err(evidence)?;
+        archive.reclaim_slices().map_err(evidence)?;
+        archive.recover_projection_work().map_err(model)?;
+        archive.recover_attachment_counts().map_err(model)?;
+        archive.recover_backup_runs().map_err(evidence)?;
+        // Replay touches both databases and marks failures at the individual request.
         archive.synchronize_user_state()?;
         Ok(archive)
     }
@@ -124,4 +127,12 @@ impl Archive {
     pub fn root(&self) -> &Path {
         &self.root
     }
+}
+
+fn recovery_error(role: Db, error: Error) -> Error {
+    let cause = match error {
+        Error::Store(cause) => cause,
+        other => vault_store::Error::Operation(Box::new(other)),
+    };
+    cause.at(role, vault_store::OpenStage::Recover).into()
 }

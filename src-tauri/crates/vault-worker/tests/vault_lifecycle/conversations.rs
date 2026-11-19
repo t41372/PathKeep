@@ -223,3 +223,6 @@ fn move_to_empty_and_populated_destinations() {
 
 #[path = "conversations/ownership.rs"]
 mod ownership;
+
+#[path = "conversations/damage.rs"]
+mod damage;

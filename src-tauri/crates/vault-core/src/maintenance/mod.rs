@@ -78,20 +78,12 @@ pub fn rewrap_password(vault: &Vault, current: &str, new: &str) -> Result<()> {
 
 /// Store preflight authenticates all files; this repairs only a stale mode setting.
 pub fn reconcile(vault: &Vault) -> Result<crate::ReconcileReport> {
-    use std::io::Read;
     // A mode change replaces the files whose header this reads.
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     vault.recheck_root()?;
-    let mut header = [0u8; 16];
-    fs::File::open(
-        vault.paths().artifact_path(vault_layout::db_artifact(vault_layout::primary_database())),
-    )?
-    .read_exact(&mut header)?;
-    let mode = if &header == b"SQLite format 3\0" {
-        ArchiveMode::Plaintext
-    } else {
-        ArchiveMode::Encrypted
-    };
+    vault.require_complete()?;
+    let mode =
+        if vault.data_key().is_some() { ArchiveMode::Encrypted } else { ArchiveMode::Plaintext };
     // The control as it is now, not the vault's copy from when it was opened: a setting saved
     // since would otherwise be written back over.
     let gate = crate::ControlGate::acquire(vault.paths());
@@ -117,6 +109,7 @@ pub fn switch_mode(
 ) -> Result<InstalledArchive> {
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     vault.recheck_root()?;
+    vault.require_complete()?;
     cancel.check()?;
     if vault.config().archive_mode == ArchiveMode::Encrypted {
         Vault::unlock_data_key(

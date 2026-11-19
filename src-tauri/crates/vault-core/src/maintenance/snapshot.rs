@@ -28,6 +28,7 @@ pub(crate) struct FileProof {
 pub fn snapshot(vault: &Vault, target: &Path) -> Result<()> {
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     vault.recheck_root()?;
+    vault.require_complete()?;
     let pause = vault.pause_store()?;
     pause.snapshot(target)?;
     crate::config::save_copy_config(vault.paths(), target, vault.config())?;
@@ -191,6 +192,9 @@ pub fn restore_snapshot_to(
     // A damaged or missing control is what a restore repairs. One that needs a newer PathKeep
     // is not damage: replacing it would put an older archive over a newer one.
     crate::admission::refuse_newer(&paths.app_root)?;
+    if let Some(vault) = current {
+        vault.require_complete()?;
+    }
     // A delete-all-data the user confirmed has not finished. Installing an archive now would put
     // it where that wipe, once finished, deletes it.
     anyhow::ensure!(

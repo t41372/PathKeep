@@ -21,6 +21,30 @@ pub struct Maintenance<'a> {
 }
 
 impl Store {
+    /// Before choosing maintenance members, verify that every required live file still
+    /// exists under its own path and has the protection its worker opened.
+    pub fn check_database_files(&self, required: impl Iterator<Item = Db>) -> Result<()> {
+        let workers = self.workers();
+        for db in required {
+            let encrypted =
+                workers.iter().find(|(role, _)| *role == db).ok_or(Error::Closed)?.1.encrypted;
+            let path = self.paths.get(db);
+            let on_disk = crate::engine::header_encrypted(path).map_err(|e| {
+                let cause = if e.kind() == std::io::ErrorKind::NotFound {
+                    Error::MissingStore(path.into())
+                } else {
+                    Error::Io(e)
+                };
+                cause.at(db, crate::OpenStage::Preflight)
+            })?;
+            if on_disk != encrypted {
+                return Err(Error::InvalidConfig("database protection changed since open".into())
+                    .at(db, crate::OpenStage::Preflight));
+            }
+        }
+        Ok(())
+    }
+
     /// Wait for admitted requests to finish, then pause between producer batches.
     /// Callers must not call Store again while holding the returned guard.
     pub fn pause(&self) -> Result<Maintenance<'_>> {
@@ -53,6 +77,7 @@ impl Maintenance<'_> {
     /// Copies every selected durable database with its on-disk encryption intact.
     /// The caller copies its envelope/config while retaining this same guard.
     pub fn snapshot(&self, root: &Path) -> Result<()> {
+        self.store.conversation_availability().map_err(Error::Open)?;
         self.checkpoint()?;
         let targets = Paths::under(root);
         for (db, _) in self.workers.iter().filter(|(db, _)| {

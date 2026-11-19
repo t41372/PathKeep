@@ -7,7 +7,7 @@
 //! carries a value written into the statement; every statement pays for the watch; one long
 //! statement fills the log; the watcher outlives the store. Tests: tests/long_statement.rs.
 use std::{
-    sync::{Arc, Condvar, Mutex},
+    sync::{Arc, Condvar, Mutex, Weak},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
@@ -73,14 +73,14 @@ impl Drop for Running<'_> {
 }
 
 struct Shared {
-    slots: Mutex<Vec<Arc<Slot>>>,
+    slots: Mutex<Vec<Weak<Slot>>>,
     stopped: Mutex<bool>,
     wake: Condvar,
     after: Duration,
 }
 impl Shared {
     fn name_long_statements(&self) {
-        for slot in self.slots.lock().unwrap().iter() {
+        for slot in self.slots.lock().unwrap().iter().filter_map(Weak::upgrade) {
             let mut now = slot.now.lock().unwrap();
             let Now { statement: Some(statement), sql, cut } = &mut *now else { continue };
             let age = statement.since.elapsed();
@@ -130,7 +130,9 @@ impl Watch {
     /// A place for one more connection to say what it is running.
     pub fn slot(&self, label: String) -> Arc<Slot> {
         let slot = Arc::new(Slot { label, after: self.shared.after, now: Mutex::default() });
-        self.shared.slots.lock().unwrap().push(slot.clone());
+        let mut slots = self.shared.slots.lock().unwrap();
+        slots.retain(|slot| slot.strong_count() > 0);
+        slots.push(Arc::downgrade(&slot));
         slot
     }
 }

@@ -114,7 +114,8 @@ impl Workers {
                             }
                             Ok(())
                         },
-                    )?;
+                    )
+                    .map_err(|e| e.at(db, crate::OpenStage::Migrate))?;
                     Ok(engine)
                 });
                 let engine = match opened {

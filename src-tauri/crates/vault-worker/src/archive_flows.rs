@@ -102,6 +102,10 @@ pub fn run_full_archive_restore(
     if let Ok(config) = vault_core::load_config(&paths) {
         vault_core::ensure_app_lock_unlocked(&paths, &config)?;
     }
+    let current = session.current_vault();
+    if let Some(vault) = &current {
+        vault.require_complete()?;
+    }
     let source = std::path::Path::new(&request.snapshot_path);
     // A restore replaces the archive with whatever it is given, so it takes only a snapshot
     // PathKeep made and listed; any other file is refused before anything changes.
@@ -112,7 +116,6 @@ pub fn run_full_archive_restore(
         listed && source.exists(),
         "snapshot-not-listed: restore only from a safety snapshot PathKeep lists"
     );
-    let current = session.current_vault();
     let live_key = session.data_key();
     // The archive keeps its password (`restore_snapshot_to`); `password` opens only the copy.
     let archive_password = session.get_key().map_err(anyhow::Error::msg)?;
