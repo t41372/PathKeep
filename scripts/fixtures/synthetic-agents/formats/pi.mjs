@@ -1,7 +1,8 @@
 /**
  * Responsibilities: pi sessions as SessionManager writes them (format v3):
  * `sessions/--<cwd>--/<time>_<id>.jsonl`, entries chained by `parentId`,
- * usage and cost on every reply.
+ * usage and cost on every reply. A newer pi's session differs here only in
+ * the header's `version`.
  * Not responsible for: branches (scenes/pi.mjs).
  */
 
@@ -138,11 +139,14 @@ export function piTurns(base, turns, state) {
   return out
 }
 
-export function piHeader(c, base) {
+/** The session format SessionManager writes today. */
+export const PI_FORMAT = 3
+
+export function piHeader(c, base, version = PI_FORMAT) {
   return [
     {
       type: 'session',
-      version: 3,
+      version,
       id: base.id,
       timestamp: iso(c.start),
       cwd: c.cwd,
@@ -164,12 +168,12 @@ export function piFile(ctx, cwd, start, id) {
   )
 }
 
-export function writePi(c, turns, { model } = {}) {
+export function writePi(c, turns, { model, version } = {}) {
   const base = {
     id: uuid7(c.random, c.start),
     model: model ?? pick(c.random, PI_MODELS),
   }
-  const rows = piHeader(c, base)
+  const rows = piHeader(c, base, version)
   const out = piTurns(base, turns, c.state)
   count(c, out)
   rows.push(...out.rows)

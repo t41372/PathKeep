@@ -131,6 +131,12 @@ export interface AgentConversation {
   usage: AgentUsage
   /** How many turns `appendAgentTurns` has added. */
   appendedTurns: number
+  /**
+   * The session format version in its header, when a newer version of the
+   * tool wrote it (`addAgentConversation`'s `formatVersion`); absent for the
+   * format the tool writes today.
+   */
+  formatVersion?: number
 }
 
 export interface AgentProject {
@@ -313,12 +319,15 @@ export function appendAgentTurns(
 /**
  * Writes a new conversation for `tool`, newer than every other one, in
  * `project` (a key of a project with conversations in the bank) or a project
- * that tool already uses.
+ * that tool already uses. With `formatVersion` (pi only), its header names
+ * that session format version, as a newer pi would write it; its words are
+ * then in `unreadWords`, since a reader that does not know the format may
+ * not show them.
  */
 export function addAgentConversation(
   agents: SyntheticAgents,
   tool: AgentTool,
-  options?: { project?: string },
+  options?: { project?: string; formatVersion?: number },
 ): SyntheticAgents
 
 /** Deletes a conversation's files; its facts move to `removed`. */

@@ -1,9 +1,10 @@
 /**
  * One tool on the backup page's sources card: its switch (the one control a
  * source has), its icon and name, the auto-delete badge, how many
- * conversations of it the archive holds, its last backup and its state;
- * expanded, the folders it reads, what is kept of it, and why it was not
- * read in full. Its ⋯ menu shows a folder in the file manager and rescans.
+ * conversations of it the archive holds, its last backup, its state and
+ * how many notes its last backup left; expanded, the folders it reads, what
+ * is kept of it, why it was not read in full, and its notes by kind (the
+ * files are saved; a note is about reading them). Its ⋯ menu shows a folder in the file manager and rescans.
  *
  * Not responsible for: what a switch does (`use-source-changes.ts`) or the
  * rescan itself (`source-preview-dialog.tsx`).
@@ -15,7 +16,7 @@ import {
   FolderOpen,
   RefreshCw,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -41,7 +42,7 @@ import { isMacOsHost } from '@/lib/runtime'
 import { ToolBadge } from '@/features/data-kinds/tool-badge'
 import { toolName } from '@/features/data-kinds/tools'
 import type { ToolRow } from './source-rows'
-import { availabilityText, isProblem } from './words'
+import { availabilityText, isProblem, noteText } from './words'
 
 const PARTS: { part: SourcePart; label: MessageKey }[] = [
   { part: 'conversations', label: 'agentBackup.sources.parts.conversations' },
@@ -74,16 +75,47 @@ function stateOf(row: ToolRow): State {
       label: 'agentBackup.sources.state.off',
       dot: 'bg-muted-foreground/50',
     }
-  if (row.availability === 'available')
+  // Files being written are read next time; what was there is saved.
+  if (row.availability === 'available' || row.availability === 'changing')
     return { label: 'agentBackup.sources.state.ok', dot: 'bg-green' }
   if (row.availability === 'stale')
     return {
       label: 'agentBackup.sources.state.notRead',
       dot: 'bg-muted-foreground/50',
     }
+  // Saved as they are: a note, not a problem.
   if (row.availability === 'unknown-format')
-    return { label: 'agentBackup.sources.state.format', dot: 'bg-brand' }
+    return { label: 'agentBackup.sources.state.format', dot: 'bg-green' }
   return { label: 'agentBackup.sources.state.problem', dot: 'bg-brand' }
+}
+
+/** The notes a tool's last backup left, by kind; its files are saved. */
+function SourceNotes({ row }: { row: ToolRow }) {
+  const { t } = useI18n()
+  const titleId = useId()
+  return (
+    <section aria-labelledby={titleId} className="flex flex-col gap-1">
+      <span id={titleId} className="font-medium text-foreground">
+        {t('agentBackup.sources.notesTitle')}
+      </span>
+      <span>{t('agentBackup.sources.notesBody')}</span>
+      <ul className="flex flex-col gap-0.5">
+        {row.notes.map((note) => (
+          <li key={note.code} data-note-code={note.code} className="tabular">
+            {t('agentBackup.sources.noteGroup', {
+              count: note.count,
+              text: noteText(t, { code: note.code }),
+            })}
+            {note.newCount > 0 && (
+              <span className="ml-1.5 rounded bg-muted px-1 text-[10.5px]">
+                {t('agentBackup.sources.noteNew', { count: note.newCount })}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
 }
 
 function LastBackup({ runRef }: { runRef: string | undefined }) {
@@ -152,6 +184,11 @@ export function SourceRow({
                 >
                   {t('agentBackup.sources.autoDeletes')}
                 </Badge>
+              )}
+              {row.enabled && row.noteCount > 0 && (
+                <span className="text-xs text-muted-foreground tabular">
+                  {t('agentBackup.sources.notes', { count: row.noteCount })}
+                </span>
               )}
             </span>
             <span className="hidden w-28 shrink-0 text-right text-[13px] text-muted-foreground tabular sm:block">
@@ -243,11 +280,14 @@ export function SourceRow({
                     {availabilityText(t, root.availability)}
                   </span>
                 )}
-                {row.enabled && root.availability === 'unknown-format' && (
-                  <span>{availabilityText(t, root.availability)}</span>
-                )}
+                {row.enabled &&
+                  (root.availability === 'unknown-format' ||
+                    root.availability === 'changing') && (
+                    <span>{availabilityText(t, root.availability)}</span>
+                  )}
               </span>
             ))}
+            {row.notes.length > 0 && <SourceNotes row={row} />}
             {parts.size > 0 && (
               <span
                 aria-label={t('agentBackup.sources.parts.label')}

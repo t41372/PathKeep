@@ -4,9 +4,10 @@ import { defineMessages } from '../define'
  * A backup of Agent conversations as it runs and once it ended, wherever it
  * shows: the enable dialog's save step, the backup page's header, the
  * rail's task list and Settings › Background work. Its progress in the
- * units it has at each moment, how each tool's folder fared, what a run's
- * notes mean, the task's name, states and buttons, and the notice when it
- * ends.
+ * units it has at each moment, how each tool's folder fared, what was not
+ * saved (`warnings`) and what a saved file's notes mean (`notes`), a
+ * format notice, the task's name, states and buttons, and the notice when
+ * it ends.
  */
 export const agentTasks = defineMessages({
   en: {
@@ -68,12 +69,47 @@ export const agentTasks = defineMessages({
       omitted_other: '{count} more notes like these aren’t listed.',
       other: 'A note from the backup.',
       tool: '{tool}: {text}',
+      writeFailed:
+        'Writing to the archive failed. What was saved before it stays.',
+      layout:
+        'Its folder is laid out in a way PathKeep doesn’t recognise, so it wasn’t read.',
+      tooDeep: 'Folders nested too deep weren’t read.',
+      badName: 'A file name PathKeep can’t handle; that file wasn’t read.',
+      git: 'The project’s .git couldn’t be read.',
+      attachment: 'An attachment it points to couldn’t be read.',
+      unsaved: 'Something PathKeep was asked to save wasn’t saved.',
     },
+    notes: {
+      empty: 'An empty file: it holds no conversation yet.',
+      damaged:
+        'Part of it couldn’t be read, such as a damaged or cut-off line; the rest was read.',
+      details:
+        'Its session details are missing or damaged; what could be read was read.',
+      format:
+        'In a form PathKeep can’t read yet; it will be readable after an update.',
+      formatVersion:
+        'In format version {version}, which PathKeep can’t read yet; it will be readable after an update.',
+      unknownRecords:
+        'Some of its records are of a kind PathKeep doesn’t know yet.',
+      compressed: 'A compressed file PathKeep couldn’t unpack.',
+      writing:
+        'It was being written while the backup read it; the rest is read next time.',
+      skipped:
+        'A link or a special file, which PathKeep doesn’t copy; the conversations themselves are saved.',
+      attachment:
+        'An attachment it points to wasn’t copied (outside the folder, on the network, or past the size limit).',
+      lineage:
+        'Which conversation it continues isn’t clear yet; it will be put in place once it is.',
+      other: 'Saved with a note from the backup.',
+      isNew: 'New',
+    },
+    formatNotice:
+      'PathKeep can’t read {tool} format {version} yet. Its files are saved as they are and will be readable after an update.',
     states: {
       running: 'Running',
       cancelling: 'Stopping',
       succeeded: 'Done',
-      partial: 'Didn’t read everything',
+      partial: 'Didn’t save everything',
       interrupted: 'Stopped before the end',
       failed: 'Failed',
     },
@@ -118,10 +154,14 @@ export const agentTasks = defineMessages({
     },
     finished: {
       done: 'Agent conversations backed up',
-      partial: 'Agent conversations backed up, but not everything was read',
+      partial: 'Agent conversations backed up, but not everything was saved',
       failed: 'Backing up Agent conversations failed',
       interrupted: 'Backing up Agent conversations stopped before the end',
       interruptedBody: 'What it saved stays. Back up again to save the rest.',
+      notes_one:
+        'Everything was saved, with {count} new note about reading it.',
+      notes_other:
+        'Everything was saved, with {count} new notes about reading it.',
       nothingNew: 'Nothing new.',
       newConversations_one: '{count} new conversation',
       newConversations_other: '{count} new conversations',
@@ -130,6 +170,8 @@ export const agentTasks = defineMessages({
       newSubagents_one: '{count} new subagent',
       newSubagents_other: '{count} new subagents',
       list: '{items}.',
+      // Between two sentences of one notice.
+      sentenceJoin: ' ',
       details: 'Details',
     },
   },
@@ -186,12 +228,38 @@ export const agentTasks = defineMessages({
       omitted_other: '还有 {count} 条类似的说明没有列出来。',
       other: '备份留下的说明。',
       tool: '{tool}：{text}',
+      writeFailed: '写入存档失败。之前存好的都还在。',
+      layout: '它的文件夹结构 PathKeep 认不出来，所以没有读。',
+      tooDeep: '嵌套太深的文件夹没有读。',
+      badName: '有个文件名 PathKeep 处理不了，那个文件没有读。',
+      git: '项目的 .git 读不到。',
+      attachment: '它指向的附件读不到。',
+      unsaved: '有要保存的东西没存下来。',
     },
+    notes: {
+      empty: '空文件：里面还没有对话。',
+      damaged: '有一部分读不了，例如坏掉或被截断的一行；其余的都读了。',
+      details: '会话信息缺了或坏了；读得到的都读了。',
+      format: '格式 PathKeep 还读不懂；更新之后就能读。',
+      formatVersion:
+        '用的是格式版本 {version}，PathKeep 还读不懂；更新之后就能读。',
+      unknownRecords: '有些记录的类型 PathKeep 还不认识。',
+      compressed: '压缩文件，PathKeep 解不开。',
+      writing: '备份读它的时候它正在写入；剩下的下次再读。',
+      skipped: '链接或特殊文件，PathKeep 不复制这些；对话本身都存下了。',
+      attachment:
+        '它指向的附件没有复制（在文件夹外面、在网络上，或者超过大小上限）。',
+      lineage: '还不清楚它接着哪一段对话；弄清楚后会放到对的位置。',
+      other: '存下了，备份留下一条备注。',
+      isNew: '新',
+    },
+    formatNotice:
+      'PathKeep 还读不懂 {tool} 的格式 {version}。它的文件照原样存下了，更新 PathKeep 之后就能读。',
     states: {
       running: '正在跑',
       cancelling: '正在停下',
       succeeded: '完成',
-      partial: '没有全部读到',
+      partial: '没有全部存下',
       interrupted: '中途停下了',
       failed: '失败',
     },
@@ -235,10 +303,12 @@ export const agentTasks = defineMessages({
     },
     finished: {
       done: 'Agent 对话备份好了',
-      partial: 'Agent 对话备份好了，但没有全部读到',
+      partial: 'Agent 对话备份好了，但没有全部存下',
       failed: 'Agent 对话备份失败',
       interrupted: 'Agent 对话的备份中途停下了',
       interruptedBody: '已经存下的留着。再备份一次就会存完剩下的。',
+      notes_one: '全部都存下了，读取时留下 {count} 条新备注。',
+      notes_other: '全部都存下了，读取时留下 {count} 条新备注。',
       nothingNew: '没有新增。',
       newConversations_one: '新增 {count} 段对话',
       newConversations_other: '新增 {count} 段对话',
@@ -247,6 +317,7 @@ export const agentTasks = defineMessages({
       newSubagents_one: '新增 {count} 个 subagent',
       newSubagents_other: '新增 {count} 个 subagent',
       list: '{items}。',
+      sentenceJoin: '',
       details: '详情',
     },
   },
@@ -303,12 +374,38 @@ export const agentTasks = defineMessages({
       omitted_other: '還有 {count} 則類似的說明沒有列出來。',
       other: '備份留下的說明。',
       tool: '{tool}：{text}',
+      writeFailed: '寫入存檔失敗。之前存好的都還在。',
+      layout: '它的資料夾結構 PathKeep 認不出來，所以沒有讀。',
+      tooDeep: '巢狀太深的資料夾沒有讀。',
+      badName: '有個檔名 PathKeep 處理不了，那個檔案沒有讀。',
+      git: '專案的 .git 讀不到。',
+      attachment: '它指向的附件讀不到。',
+      unsaved: '有要保存的東西沒存下來。',
     },
+    notes: {
+      empty: '空檔案：裡面還沒有對話。',
+      damaged: '有一部分讀不了，例如壞掉或被截斷的一行；其餘的都讀了。',
+      details: '工作階段的資訊缺了或壞了；讀得到的都讀了。',
+      format: '格式 PathKeep 還讀不懂；更新之後就能讀。',
+      formatVersion:
+        '用的是格式版本 {version}，PathKeep 還讀不懂；更新之後就能讀。',
+      unknownRecords: '有些紀錄的類型 PathKeep 還不認識。',
+      compressed: '壓縮檔，PathKeep 解不開。',
+      writing: '備份讀它的時候它正在寫入；剩下的下次再讀。',
+      skipped: '連結或特殊檔案，PathKeep 不複製這些；對話本身都存下了。',
+      attachment:
+        '它指向的附件沒有複製（在資料夾外面、在網路上，或超過大小上限）。',
+      lineage: '還不清楚它接著哪一段對話；弄清楚後會放到對的位置。',
+      other: '存下了，備份留下一則備註。',
+      isNew: '新',
+    },
+    formatNotice:
+      'PathKeep 還讀不懂 {tool} 的格式 {version}。它的檔案照原樣存下了，更新 PathKeep 之後就能讀。',
     states: {
       running: '正在跑',
       cancelling: '正在停下',
       succeeded: '完成',
-      partial: '沒有全部讀到',
+      partial: '沒有全部存下',
       interrupted: '中途停下了',
       failed: '失敗',
     },
@@ -352,10 +449,12 @@ export const agentTasks = defineMessages({
     },
     finished: {
       done: 'Agent 對話備份好了',
-      partial: 'Agent 對話備份好了，但沒有全部讀到',
+      partial: 'Agent 對話備份好了，但沒有全部存下',
       failed: 'Agent 對話備份失敗',
       interrupted: 'Agent 對話的備份中途停下了',
       interruptedBody: '已經存下的留著。再備份一次就會存完剩下的。',
+      notes_one: '全部都存下了，讀取時留下 {count} 則新備註。',
+      notes_other: '全部都存下了，讀取時留下 {count} 則新備註。',
       nothingNew: '沒有新增。',
       newConversations_one: '新增 {count} 段對話',
       newConversations_other: '新增 {count} 段對話',
@@ -364,6 +463,7 @@ export const agentTasks = defineMessages({
       newSubagents_one: '新增 {count} 個 subagent',
       newSubagents_other: '新增 {count} 個 subagent',
       list: '{items}。',
+      sentenceJoin: '',
       details: '詳情',
     },
   },

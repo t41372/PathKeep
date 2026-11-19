@@ -1,8 +1,9 @@
 /**
  * Backing up Agent conversations, for the agent-backup specs: the backup
  * page, the rail's task list, Settings › Background work, and what the
- * backend says about the same runs (`list_archive_runs`, `get_archive_run`,
- * `get_agent_overview`), to check the screens against.
+ * backend says about the same runs (`list_archive_runs`, `get_archive_run`
+ * with every page of its warnings and notes, `get_agent_overview`,
+ * `list_agent_sources`), to check the screens against.
  *
  * Expected numbers come from the fixture's facts (`fixture().agents`):
  * what a tool holds is its conversations and their subagents as the
@@ -26,7 +27,27 @@ export interface WireRun {
   startedAt: number | null
   finishedAt?: number
   summary: Record<string, string | null>
+  /** Things the run could not save. */
   warningCount: string
+  /** Conditions of files it saved; never a reason for attention. */
+  noteCount?: string | null
+  newNoteCount?: string | null
+  /** Format versions met first by this run and not dismissed yet. */
+  formatNotices?: WireFormatNotice[]
+}
+
+export interface WireFormatNotice {
+  tool: AgentTool
+  version: string
+}
+
+export interface WireNote {
+  code: string
+  path: string | null
+  detail: string | null
+  rootId: string
+  tool: AgentTool | null
+  isNew: boolean
 }
 
 export interface WireRunDetail extends WireRun {
@@ -39,6 +60,8 @@ export interface WireRunDetail extends WireRun {
     availability: string
   }[]
   warnings?: { code: string; tool?: AgentTool; path?: string }[]
+  notes?: WireNote[]
+  nextCursor?: string
 }
 
 interface WireOverview {
@@ -59,7 +82,20 @@ interface WireTask {
   trigger: string
   state: string
   attention: boolean
+  actions: string[]
+  formatNotices?: WireFormatNotice[]
   reason?: string
+}
+
+export interface WireSource {
+  rootId: string | null
+  tool: AgentTool
+  path: string | null
+  enabled: boolean
+  availability: string
+  noteCount?: string
+  newNoteCount?: string
+  notes?: { code: string; count: string; newCount: string }[]
 }
 
 /** The newest conversation runs, newest first (this space only). */
@@ -72,6 +108,58 @@ export async function agentRuns(limit = 50) {
 
 export function agentRun(runRef: string) {
   return backend<WireRunDetail>('get_archive_run', { request: { runRef } })
+}
+
+/** A run with every page of its warnings and notes (50 a page). */
+export async function agentRunWhole(runRef: string) {
+  const first = await agentRun(runRef)
+  const warnings = [...(first.warnings ?? [])]
+  const notes = [...(first.notes ?? [])]
+  let cursor = first.nextCursor
+  while (cursor) {
+    const next = await backend<WireRunDetail>('get_archive_run', {
+      request: { runRef, detailCursor: cursor },
+    })
+    warnings.push(...(next.warnings ?? []))
+    notes.push(...(next.notes ?? []))
+    cursor = next.nextCursor
+  }
+  return { ...first, warnings, notes }
+}
+
+/** Every source row of the backup page (a tool's folders, or the tool). */
+export async function agentSources() {
+  const page = await backend<{ items: WireSource[] }>('list_agent_sources', {
+    request: { limit: 100 },
+  })
+  return page.items
+}
+
+/** The notes a tool's folders carry from their last backup, added up. */
+export function sourceNotes(sources: readonly WireSource[], tool: AgentTool) {
+  const mine = sources.filter((source) => source.tool === tool)
+  return {
+    count: mine.reduce((sum, source) => sum + count(source.noteCount), 0),
+    fresh: mine.reduce((sum, source) => sum + count(source.newNoteCount), 0),
+    codes: [
+      ...new Set(mine.flatMap((s) => (s.notes ?? []).map((n) => n.code))),
+    ],
+  }
+}
+
+/**
+ * Whether a note is about `file`: the backend names a file by its path
+ * under the tool's folder, the fixture by its full path.
+ */
+export function noteIsAbout(note: WireNote, file: string) {
+  if (!note.path) return false
+  const normal = (value: string) => value.replaceAll('\\', '/')
+  return normal(file).endsWith(`/${normal(note.path).replace(/^\//, '')}`)
+}
+
+/** "3 notes", the way the app counts them in English. */
+export function notesText(n: number) {
+  return `${n.toLocaleString('en-US')} note${n === 1 ? '' : 's'}`
 }
 
 export function agentOverview() {

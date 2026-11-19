@@ -16,7 +16,7 @@ export const agentBackup = defineMessages({
     countLoading: 'Counting what the archive holds',
     last: {
       success: 'Last backup: {time}',
-      partial: 'Last backup didn’t read everything: {time}',
+      partial: 'Last backup didn’t save everything: {time}',
       failed: 'Last backup failed: {time}',
       interrupted: 'Last backup stopped before the end: {time}',
       never: 'Not backed up yet',
@@ -48,7 +48,7 @@ export const agentBackup = defineMessages({
     },
     problem: {
       failed: 'The last backup failed.',
-      partial: 'The last backup couldn’t read everything.',
+      partial: 'The last backup didn’t save everything.',
       see: 'See what happened',
     },
     reminder: {
@@ -102,6 +102,13 @@ export const agentBackup = defineMessages({
         'Not backed up from this computer yet. Turning it on looks at its folder first, and only counts files.',
       notHereNote:
         'Its folder isn’t on this computer. What was saved from it stays in the archive, and you can still read and search it.',
+      notes_one: '{count} note',
+      notes_other: '{count} notes',
+      notesTitle: 'Notes from its last backup',
+      notesBody: 'These files are saved as they are.',
+      noteGroup: '{count} × {text}',
+      noteNew_one: '{count} new',
+      noteNew_other: '{count} new',
       autoDeletes: 'Deletes old conversations',
       reveal: {
         mac: 'Show in Finder',
@@ -157,8 +164,8 @@ export const agentBackup = defineMessages({
     runs: {
       title: 'Recent backups',
       allFine: '{time} · all fine',
-      warned_one: '{time} · {count} backup left warnings',
-      warned_other: '{time} · {count} backups left warnings',
+      warned_one: '{time} · {count} backup didn’t save everything',
+      warned_other: '{time} · {count} backups didn’t save everything',
       none: 'No backups yet.',
       took: 'took {duration}',
       open: 'Details of the backup at {time}',
@@ -168,8 +175,12 @@ export const agentBackup = defineMessages({
         interrupted: 'Stopped before the end',
         failed: 'Failed',
       },
-      warnings_one: '{count} warning',
-      warnings_other: '{count} warnings',
+      warnings_one: '{count} thing wasn’t saved',
+      warnings_other: '{count} things weren’t saved',
+      notes_one: '{count} note',
+      notes_other: '{count} notes',
+      newNotes_one: '{count} new',
+      newNotes_other: '{count} new',
       archive: {
         doctor: 'Health check of the whole archive',
         retention_prune: 'Clean-up of the whole archive',
@@ -182,7 +193,7 @@ export const agentBackup = defineMessages({
       result: {
         running: 'Running',
         success: 'Done',
-        partial: 'Done, but not everything was read',
+        partial: 'Done, but not everything was saved',
         interrupted: 'Stopped before the end',
         failed: 'Failed',
       },
@@ -201,8 +212,13 @@ export const agentBackup = defineMessages({
       no: 'No',
       tools: 'By tool',
       folders: 'Folders',
-      warnings: 'Notes',
-      noWarnings: 'No notes.',
+      warnings: 'Not saved',
+      noWarnings: 'Everything it read was saved.',
+      notes: 'Notes',
+      noNotes: 'No notes.',
+      notesBody:
+        'These files are saved as they are. The notes say what PathKeep couldn’t make sense of while reading them; nothing is missing because of them.',
+      formats: 'Formats PathKeep can’t read yet',
       moreDetail: 'Show more',
       counts: {
         filesVisited: 'Files looked at',
@@ -233,7 +249,7 @@ export const agentBackup = defineMessages({
     countLoading: '正在数存档里有多少',
     last: {
       success: '上次备份：{time}',
-      partial: '上次备份没有全部读到：{time}',
+      partial: '上次备份没有全部存下：{time}',
       failed: '上次备份失败：{time}',
       interrupted: '上次备份中途停下了：{time}',
       never: '还没备份过',
@@ -264,7 +280,7 @@ export const agentBackup = defineMessages({
     },
     problem: {
       failed: '上一次备份失败了。',
-      partial: '上一次备份没有全部读到。',
+      partial: '上一次备份没有全部存下。',
       see: '看看发生了什么',
     },
     reminder: {
@@ -316,6 +332,13 @@ export const agentBackup = defineMessages({
         '还没从这台电脑备份过它。打开时会先看它的文件夹，只数文件。',
       notHereNote:
         '这台电脑上没有它的文件夹。从它存下的留在存档里，照样能看、能搜。',
+      notes_one: '{count} 条备注',
+      notes_other: '{count} 条备注',
+      notesTitle: '上次备份留下的备注',
+      notesBody: '这些文件都照原样存下了。',
+      noteGroup: '{count} × {text}',
+      noteNew_one: '{count} 条新的',
+      noteNew_other: '{count} 条新的',
       autoDeletes: '会自动删旧对话',
       reveal: {
         mac: '在 Finder 中显示',
@@ -369,8 +392,8 @@ export const agentBackup = defineMessages({
     runs: {
       title: '最近的备份',
       allFine: '{time} · 都正常',
-      warned_one: '{time} · 有 {count} 次留了警告',
-      warned_other: '{time} · 有 {count} 次留了警告',
+      warned_one: '{time} · 有 {count} 次没有全部存下',
+      warned_other: '{time} · 有 {count} 次没有全部存下',
       none: '还没有备份。',
       took: '花了 {duration}',
       open: '{time} 那次备份的详情',
@@ -380,8 +403,12 @@ export const agentBackup = defineMessages({
         interrupted: '中途停下了',
         failed: '失败',
       },
-      warnings_one: '{count} 个警告',
-      warnings_other: '{count} 个警告',
+      warnings_one: '有 {count} 项没存下来',
+      warnings_other: '有 {count} 项没存下来',
+      notes_one: '{count} 条备注',
+      notes_other: '{count} 条备注',
+      newNotes_one: '{count} 条新的',
+      newNotes_other: '{count} 条新的',
       archive: {
         doctor: '检查整个存档',
         retention_prune: '清理整个存档',
@@ -394,7 +421,7 @@ export const agentBackup = defineMessages({
       result: {
         running: '正在跑',
         success: '完成',
-        partial: '完成，但没有全部读到',
+        partial: '完成，但没有全部存下',
         interrupted: '中途停下了',
         failed: '失败',
       },
@@ -413,8 +440,13 @@ export const agentBackup = defineMessages({
       no: '否',
       tools: '每个工具',
       folders: '文件夹',
-      warnings: '说明',
-      noWarnings: '没有说明。',
+      warnings: '没存下来的',
+      noWarnings: '读到的都存下了。',
+      notes: '备注',
+      noNotes: '没有备注。',
+      notesBody:
+        '这些文件都照原样存下了。备注说的是 PathKeep 读它们时还看不懂的地方，并没有因此少存什么。',
+      formats: 'PathKeep 还读不懂的格式',
       moreDetail: '显示更多',
       counts: {
         filesVisited: '看过的文件',
@@ -445,7 +477,7 @@ export const agentBackup = defineMessages({
     countLoading: '正在數存檔裡有多少',
     last: {
       success: '上次備份：{time}',
-      partial: '上次備份沒有全部讀到：{time}',
+      partial: '上次備份沒有全部存下：{time}',
       failed: '上次備份失敗：{time}',
       interrupted: '上次備份中途停下了：{time}',
       never: '還沒備份過',
@@ -476,7 +508,7 @@ export const agentBackup = defineMessages({
     },
     problem: {
       failed: '上一次備份失敗了。',
-      partial: '上一次備份沒有全部讀到。',
+      partial: '上一次備份沒有全部存下。',
       see: '看看發生了什麼',
     },
     reminder: {
@@ -528,6 +560,13 @@ export const agentBackup = defineMessages({
         '還沒從這台電腦備份過它。打開時會先看它的資料夾，只數檔案。',
       notHereNote:
         '這台電腦上沒有它的資料夾。從它存下的留在存檔裡，照樣能看、能搜。',
+      notes_one: '{count} 則備註',
+      notes_other: '{count} 則備註',
+      notesTitle: '上次備份留下的備註',
+      notesBody: '這些檔案都照原樣存下了。',
+      noteGroup: '{count} × {text}',
+      noteNew_one: '{count} 則新的',
+      noteNew_other: '{count} 則新的',
       autoDeletes: '會自動刪舊對話',
       reveal: {
         mac: '在 Finder 中顯示',
@@ -581,8 +620,8 @@ export const agentBackup = defineMessages({
     runs: {
       title: '最近的備份',
       allFine: '{time} · 都正常',
-      warned_one: '{time} · 有 {count} 次留了警告',
-      warned_other: '{time} · 有 {count} 次留了警告',
+      warned_one: '{time} · 有 {count} 次沒有全部存下',
+      warned_other: '{time} · 有 {count} 次沒有全部存下',
       none: '還沒有備份。',
       took: '花了 {duration}',
       open: '{time} 那次備份的詳情',
@@ -592,8 +631,12 @@ export const agentBackup = defineMessages({
         interrupted: '中途停下了',
         failed: '失敗',
       },
-      warnings_one: '{count} 個警告',
-      warnings_other: '{count} 個警告',
+      warnings_one: '有 {count} 項沒存下來',
+      warnings_other: '有 {count} 項沒存下來',
+      notes_one: '{count} 則備註',
+      notes_other: '{count} 則備註',
+      newNotes_one: '{count} 則新的',
+      newNotes_other: '{count} 則新的',
       archive: {
         doctor: '檢查整個存檔',
         retention_prune: '清理整個存檔',
@@ -606,7 +649,7 @@ export const agentBackup = defineMessages({
       result: {
         running: '正在跑',
         success: '完成',
-        partial: '完成，但沒有全部讀到',
+        partial: '完成，但沒有全部存下',
         interrupted: '中途停下了',
         failed: '失敗',
       },
@@ -625,8 +668,13 @@ export const agentBackup = defineMessages({
       no: '否',
       tools: '每個工具',
       folders: '資料夾',
-      warnings: '說明',
-      noWarnings: '沒有說明。',
+      warnings: '沒存下來的',
+      noWarnings: '讀到的都存下了。',
+      notes: '備註',
+      noNotes: '沒有備註。',
+      notesBody:
+        '這些檔案都照原樣存下了。備註說的是 PathKeep 讀它們時還看不懂的地方，並沒有因此少存什麼。',
+      formats: 'PathKeep 還讀不懂的格式',
       moreDetail: '顯示更多',
       counts: {
         filesVisited: '看過的檔案',

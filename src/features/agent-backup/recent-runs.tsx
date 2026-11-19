@@ -1,8 +1,10 @@
 /**
  * "Recent backups" on the Agent backup page, folded by default: folded, one
- * line with the newest backup's time and how many of those listed left
- * warnings; unfolded, a row per backup with how it ended, when, how long it
- * took, what it did for Agent conversations and its warnings. Work done to
+ * line with the newest backup's time and how many of those listed did not
+ * save everything; unfolded, a row per backup with how it ended, when, how
+ * long it took, what it did for Agent conversations, what it could not save,
+ * and its notes (conditions of files it did save: a backup with only notes
+ * succeeded, and reads that way). Work done to
  * the whole archive (health checks, clean-ups) is listed too, as on every
  * space's backup page. A row opens its details (`?run=`).
  *
@@ -83,6 +85,8 @@ function RunRow({ run }: { run: ArchiveRun }) {
   const time = format.dayAndTime(run.startedAt ?? 0)
   const took = runTook(t, run.durationMs)
   const warnings = wireNumber(run.warningCount)
+  const notes = wireNumber(run.noteCount)
+  const fresh = wireNumber(run.newNoteCount)
   return (
     <li className="border-t" data-run-ref={run.runRef}>
       <button
@@ -109,6 +113,14 @@ function RunRow({ run }: { run: ArchiveRun }) {
           {warnings > 0 && (
             <span className="text-xs text-brand">
               {t('agentBackup.runs.warnings', { count: warnings })}
+            </span>
+          )}
+          {notes > 0 && (
+            // Notes are about files that are saved: quiet, never a warning.
+            <span className="text-xs text-muted-foreground tabular">
+              {t('agentBackup.runs.notes', { count: notes })}
+              {fresh > 0 &&
+                `${t('agentTasks.progress.join')}${t('agentBackup.runs.newNotes', { count: fresh })}`}
             </span>
           )}
         </span>

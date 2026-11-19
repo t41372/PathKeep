@@ -7,18 +7,25 @@
  * - the card names exactly the tools whose folder is on this computer, in
  *   the app's order, as the backend's presence check reports them, and
  *   follows the folders: with Pi's folder gone it no longer names Pi;
- * - putting it away (`Not now`, or ×) holds across a reload on this device;
  * - its `Preview what would be saved` opens the enable dialog over Home;
+ * - putting it away is kept by the backend with this computer's settings
+ *   (`dismiss_agent_hint`): when the backend refuses (×'s request cut off
+ *   on its way), the card comes back and says it couldn't be hidden;
+ *   `Not now` then puts it away for good: the settings list it, and
+ *   neither a reload nor a new window (no browser storage) shows it or even
+ *   looks for the tools' folders;
  * - `#/agent/…` shows that the kind is off, with both ways to turn it on,
  *   while the rail stays on browsing (no Agent hue, no Agent rail);
  *   `Preview and turn on` opens the dialog over that page and closing it
  *   leaves the person there; `Manage data types` opens Settings.
  *
- * Each test starts in a fresh browser context, so the card was never put
- * away when it starts.
+ * Putting the card away cannot be undone, so the test that does it runs
+ * last, and no spec after this one uses the card: they open the dialog
+ * from the Agent space's off page or by its address.
  */
 import { existsSync, renameSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { resolveDesktopBridgeEnv } from '../../scripts/pathkeep-dev-desktop-bridge.mjs'
 import { unlockIfLocked } from './support/app'
 import {
   enableDialog,
@@ -56,13 +63,22 @@ async function foundByBackend() {
     .map((tool) => TOOL_NAMES[tool])
 }
 
+/** The hints put away on this computer, as the backend keeps them. */
+async function dismissedHints() {
+  const settings = await backend<{ dismissedHints?: string[] }>(
+    'get_agent_settings',
+    { request: {} },
+  )
+  return settings.dismissedHints ?? []
+}
+
 /**
- * Reloads Home and proves the card stays away for the right reason: the
- * app knows Agent conversations are off (its kinds answer arrived), the
- * putting-away is stored on this device, and the card did not even look
- * for the tools' folders.
+ * Opens Home in `page` (a reload, or a new window) and proves the card
+ * stays away for the right reason: the app knows Agent conversations are
+ * off (its kinds answer arrived), the backend's settings say the card was
+ * put away, and the card did not even look for the tools' folders.
  */
-async function expectPutAwayAfterReload(page: Page) {
+async function expectPutAway(page: Page, open: () => Promise<unknown>) {
   const looked: string[] = []
   const onRequest = (request: { url: () => string }) => {
     if (request.url().endsWith('/commands/detect_data_sources'))
@@ -73,11 +89,15 @@ async function expectPutAwayAfterReload(page: Page) {
     const kindsAnswered = page.waitForResponse((response) =>
       response.url().endsWith('/commands/list_data_kinds'),
     )
-    await page.reload()
+    const settingsAnswered = page.waitForResponse((response) =>
+      response.url().endsWith('/commands/get_agent_settings'),
+    )
+    await open()
     await unlockIfLocked(page)
     await kindsAnswered
+    await settingsAnswered
     await expect(page.getByRole('link', { name: /Saved visits/ })).toBeVisible()
-    // Two frames: the answer has been drawn, and a card that was not put
+    // Two frames: the answers have been drawn, and a card that was not put
     // away would have asked for the tools' folders by now.
     await page.evaluate(
       () =>
@@ -86,24 +106,19 @@ async function expectPutAwayAfterReload(page: Page) {
         ),
     )
     await expect(card(page)).toHaveCount(0)
-    expect(
-      await page.evaluate(() =>
-        localStorage.getItem('pathkeep-agent-intro-dismissed'),
-      ),
-    ).toBe('1')
-    // A card that had not been put away asks right after the kinds answer.
     expect(looked).toEqual([])
   } finally {
     page.off('request', onRequest)
   }
 }
 
-test('the Home card names exactly the tools found, follows them, and stays put away after a reload', async ({
+test('the Home card names exactly the tools found, follows them, and opens the preview', async ({
   page,
 }, testInfo) => {
   const expected = expectedToolNames()
   expect(expected.length, 'the fixture writes every tool').toBe(4)
   expect(await foundByBackend()).toEqual(expected)
+  expect(await dismissedHints()).not.toContain('intro')
 
   await page.goto('/#/browsing/home')
   await unlockIfLocked(page)
@@ -151,30 +166,6 @@ test('the Home card names exactly the tools found, follows them, and stays put a
   await expect(enableDialog(page)).toBeHidden()
   await expect(page).toHaveURL(/#\/browsing\/home\??$/)
   await expect(card(page)).toBeVisible()
-
-  // "Not now" puts it away, and a reload does not bring it back.
-  await card(page).getByRole('button', { name: 'Not now' }).click()
-  await expect(card(page)).toBeHidden()
-  await expectPutAwayAfterReload(page)
-  await testInfo.attach('Home after the card was put away and reloaded', {
-    body: await page.screenshot(),
-    contentType: 'image/png',
-  })
-})
-
-test('the card’s × puts it away for good as well', async ({
-  page,
-}, testInfo) => {
-  await page.goto('/#/browsing/home')
-  await unlockIfLocked(page)
-  await expect(card(page)).toBeVisible()
-  await card(page).getByRole('button', { name: 'Hide this card' }).click()
-  await expect(card(page)).toBeHidden()
-  await expectPutAwayAfterReload(page)
-  await testInfo.attach('Home after × and a reload', {
-    body: await page.screenshot(),
-    contentType: 'image/png',
-  })
 })
 
 test('an Agent address says the kind is off, and both ways to turn it on work', async ({
@@ -231,4 +222,64 @@ test('an Agent address says the kind is off, and both ways to turn it on work', 
   await expect(
     page.getByRole('heading', { name: 'Manage data types', level: 2 }),
   ).toBeVisible()
+})
+
+// Last: putting the card away cannot be undone.
+test('the card comes back when the backend refuses to put it away, and “Not now” puts it away for good', async ({
+  page,
+  browser,
+}, testInfo) => {
+  await page.goto('/#/browsing/home')
+  await unlockIfLocked(page)
+  await expect(card(page)).toBeVisible()
+
+  // × with its request cut off on the way: the card hides, comes back, and
+  // says it couldn't be hidden.
+  const { devIpcUrl } = resolveDesktopBridgeEnv(process.env)
+  const command = `${devIpcUrl}/commands/dismiss_agent_hint`
+  let refused = 0
+  await page.route(command, async (route) => {
+    refused += 1
+    await route.abort()
+  })
+  await card(page).getByRole('button', { name: 'Hide this card' }).click()
+  await expect(page.getByText('Couldn’t hide this card')).toBeVisible()
+  await expect(card(page)).toBeVisible()
+  // (A CORS preflight may be what was cut off; either way nothing arrived.)
+  expect(refused).toBeGreaterThan(0)
+  expect(await dismissedHints()).not.toContain('intro')
+  await testInfo.attach('the card after a refused ×', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  })
+  await page.unroute(command)
+
+  // "Not now" reaches the backend, which keeps it with this computer's
+  // settings.
+  await card(page).getByRole('button', { name: 'Not now' }).click()
+  await expect(card(page)).toBeHidden()
+  await expect.poll(dismissedHints).toContain('intro')
+  await expectPutAway(page, () => page.reload())
+  await testInfo.attach('Home after the card was put away and reloaded', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  })
+
+  // A new window has none of this one's browser storage: only the backend
+  // can keep the card away there.
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    viewport: { width: 1440, height: 900 },
+    locale: 'en-US',
+  })
+  try {
+    const other = await context.newPage()
+    await expectPutAway(other, () => other.goto('/#/browsing/home'))
+    await testInfo.attach('Home in a new window', {
+      body: await other.screenshot(),
+      contentType: 'image/png',
+    })
+  } finally {
+    await context.close()
+  }
 })

@@ -146,7 +146,7 @@ export const enableAgent = defineMessages({
       body: 'Saved {conversations} and {subagents}, {size} in all.',
       nothingNew:
         'Nothing new to save: what these tools hold was already in the archive.',
-      notes: 'Not everything could be read. What could be read is saved:',
+      notes: 'Not everything was saved. What could be read is saved:',
       failedTitle: 'Saving didn’t finish',
       failedBody:
         'Saving stopped at the problem below. What was saved before it stays in the archive.',
@@ -156,6 +156,10 @@ export const enableAgent = defineMessages({
       inTasks:
         'Until it is saved in full, it is listed in Background tasks under Needs a look.',
       view: 'View conversations',
+      withNotes_one:
+        'Everything was saved, with {count} note about reading it; the backup page lists it.',
+      withNotes_other:
+        'Everything was saved, with {count} notes about reading it; the backup page lists them.',
     },
     actions: {
       noThanks: 'No thanks',
@@ -260,7 +264,7 @@ export const enableAgent = defineMessages({
       switcherNoKeys:
         '开启后，左上角的切换菜单会多一个「{name}」，切过去有洞察、记录、项目和它自己的备份页。',
       later:
-        '之后可以在{name}的备份页改这些选择；要整个关掉，在「设置 › 管理数据类型」。关掉不会删掉已经存下的对话。',
+        '之后可以在「{name}」的备份页改这些选择；要整个关掉，在「设置 › 管理数据类型」。关掉不会删掉已经存下的对话。',
       saveFailed: '无法保存你的选择',
       needOne: '至少勾一个工具。',
       starting: '正在开始…',
@@ -289,13 +293,17 @@ export const enableAgent = defineMessages({
       title: '存好了',
       body: '保存了 {conversations}和 {subagents}，共 {size}。',
       nothingNew: '没有新的要保存：这些工具里的内容已经在存档里了。',
-      notes: '没有全部读到。读得到的都存下了：',
+      notes: '没有全部存下。读得到的都存下了：',
       failedTitle: '保存没有完成',
       failedBody: '保存停在下面这个问题。在那之前存下的留在存档里。',
       interruptedTitle: '保存中途停下了',
       interruptedBody: '已经存下的留在存档里。再试一次就会存完剩下的。',
       inTasks: '在全部存好之前，它会列在后台任务的「需要你看一下」里。',
       view: '看对话',
+      withNotes_one:
+        '全部都存下了，读取时留下 {count} 条备注；备份页上有列出来。',
+      withNotes_other:
+        '全部都存下了，读取时留下 {count} 条备注；备份页上有列出来。',
     },
     actions: {
       noThanks: '不用了',
@@ -400,7 +408,7 @@ export const enableAgent = defineMessages({
       switcherNoKeys:
         '開啟後，左上角的切換選單會多一個「{name}」，切過去有洞察、紀錄、專案和它自己的備份頁。',
       later:
-        '之後可以在{name}的備份頁改這些選擇；要整個關掉，在「設定 › 管理資料類型」。關掉不會刪掉已經存下的對話。',
+        '之後可以在「{name}」的備份頁改這些選擇；要整個關掉，在「設定 › 管理資料類型」。關掉不會刪掉已經存下的對話。',
       saveFailed: '無法儲存你的選擇',
       needOne: '至少勾一個工具。',
       starting: '正在開始…',
@@ -429,13 +437,17 @@ export const enableAgent = defineMessages({
       title: '存好了',
       body: '保存了 {conversations}和 {subagents}，共 {size}。',
       nothingNew: '沒有新的要保存：這些工具裡的內容已經在存檔裡了。',
-      notes: '沒有全部讀到。讀得到的都存下了：',
+      notes: '沒有全部存下。讀得到的都存下了：',
       failedTitle: '保存沒有完成',
       failedBody: '保存停在下面這個問題。在那之前存下的留在存檔裡。',
       interruptedTitle: '保存中途停下了',
       interruptedBody: '已經存下的留在存檔裡。再試一次就會存完剩下的。',
       inTasks: '在全部存好之前，它會列在背景任務的「需要你看一下」裡。',
       view: '看對話',
+      withNotes_one:
+        '全部都存下了，讀取時留下 {count} 則備註；備份頁上有列出來。',
+      withNotes_other:
+        '全部都存下了，讀取時留下 {count} 則備註；備份頁上有列出來。',
     },
     actions: {
       noThanks: '不用了',

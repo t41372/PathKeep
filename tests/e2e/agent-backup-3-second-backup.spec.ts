@@ -11,7 +11,11 @@
  *   (`get_archive_run`), and its row in Recent backups says the same;
  * - the deleted conversation is still in the archive: the count went up by
  *   one, not down, and it is counted as only in PathKeep, in the backend's
- *   overview and in the switcher's line.
+ *   overview and in the switcher's line;
+ * - it adds no new notes: the empty Claude Code file and the cut-off Codex
+ *   line the first save noted are listed again but not as new, the run
+ *   succeeded with nothing unsaved and nothing asks for a look; its row,
+ *   its notice and the source rows say nothing is new.
  */
 import { expect, test } from '@playwright/test'
 import {
@@ -22,12 +26,18 @@ import {
 } from '../../scripts/fixtures/synthetic-agents.mjs'
 import {
   agentOverview,
-  agentRun,
+  agentRunWhole,
   agentRuns,
+  agentSources,
+  agentTasks,
   conversationsText,
   count,
+  noteIsAbout,
+  notesText,
   openBackupPage,
   newestRunRef,
+  sourceNotes,
+  sourceRow,
   waitForRunAfter,
 } from './support/agent-backup'
 import { fixture, replaceAgents } from './support/fixture'
@@ -46,7 +56,7 @@ function sceneConversations(agents: SyntheticAgents) {
   return keys
 }
 
-test('a second backup counts what changed and keeps what a tool deleted', async ({
+test('a second backup counts what changed, keeps what a tool deleted, and adds no new notes', async ({
   page,
 }, testInfo) => {
   let agents = fixture().agents
@@ -84,12 +94,45 @@ test('a second backup counts what changed and keeps what a tool deleted', async 
   const run = await waitForRunAfter(previous)
   expect(run.trigger).toBe('manual')
   expect(await agentRuns()).toHaveLength(runsBefore + 1)
-  const detail = await agentRun(run.runRef)
+  const detail = await agentRunWhole(run.runRef)
   expect(count(detail.summary.newRoots)).toBe(1)
   expect(count(detail.summary.updatedRoots)).toBe(1)
   await expect(
     page.getByText(/^Agent conversations backed up/).first(),
   ).toBeVisible()
+
+  // The same files in the same condition: listed again, nothing new.
+  expect(detail.warnings).toEqual([])
+  expect(run.result).toBe('success')
+  const { emptyFile, malformed } = agents.scenes
+  const notes = count(detail.noteCount)
+  expect(notes).toBe(detail.notes.length)
+  expect(count(detail.newNoteCount)).toBe(0)
+  expect(detail.notes.some((note) => note.isNew)).toBe(false)
+  expect(
+    detail.notes.find((note) => noteIsAbout(note, emptyFile.file))?.code,
+  ).toBe('empty_transcript')
+  expect(
+    detail.notes
+      .filter((note) => noteIsAbout(note, malformed.file))
+      .map((note) => note.code),
+  ).toContain('malformed_record')
+  expect(
+    (await agentTasks('attention')).filter((t) => t.runRef === run.runRef),
+  ).toEqual([])
+  // Its notice says nothing about notes that are not new.
+  await expect(page.getByText(/new notes? about reading it/)).toHaveCount(0)
+  const sources = await agentSources()
+  for (const tool of ['claude-code', 'codex'] as const) {
+    expect(sourceNotes(sources, tool).fresh, `${tool}: new notes`).toBe(0)
+    await sourceRow(page, tool)
+      .getByRole('button', { name: /: see what is kept$/ })
+      .click()
+    const kinds = sourceRow(page, tool).locator('li[data-note-code]')
+    await expect(kinds.first()).toBeVisible()
+    for (const kind of await kinds.all())
+      await expect(kind).not.toContainText(/\d+ new$/)
+  }
 
   // The deleted one is kept, and counted as only in PathKeep.
   const after = await agentOverview()
@@ -109,6 +152,9 @@ test('a second backup counts what changed and keeps what a tool deleted', async 
   await expect(
     page.getByText('1 new conversation, 1 with new content.').first(),
   ).toBeVisible()
+  const row = page.locator(`li[data-run-ref="${run.runRef}"]`)
+  await expect(row).toContainText(notesText(notes))
+  await expect(row).not.toContainText(/notes? · \d+ new/)
   const switcher = page.getByRole('button', {
     name: /^Switch data type\. Now: /,
   })

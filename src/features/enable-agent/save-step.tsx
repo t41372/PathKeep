@@ -6,7 +6,9 @@
  *
  * Responsibilities: drawing the run and its end, and the retry. A tool
  * whose files were kept as they are (format not read yet) is part of a
- * normal save, not a failure; a folder that could not be read says why.
+ * normal save, not a failure: a save that only left notes is `Saved`, with
+ * how many files left them and any format version not read yet; a folder
+ * that could not be read says why.
  * Not responsible for: starting the save (`use-start-saving.ts`), the
  * dialog's buttons (`enable-agent-dialog.tsx`).
  */
@@ -30,6 +32,7 @@ import {
   wireNumber,
 } from '@/lib/queries/agent-backup'
 import { ToolBadge } from '@/features/data-kinds/tool-badge'
+import { FormatNotices } from '@/features/agent-backup/run-entries'
 import { useTaskControl } from '@/features/agent-backup/use-task-control'
 import {
   availabilityText,
@@ -284,6 +287,16 @@ function EndedView({ shown, save }: { shown: ShownRun; save: ShownSave }) {
               size: format.bytes(wireNumber(summary?.sourceBytes)),
             })}
       </p>
+      {detail.result === 'success' && wireNumber(detail.noteCount) > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {t('enableAgent.done.withNotes', {
+            count: wireNumber(detail.noteCount),
+          })}
+        </p>
+      )}
+      {(detail.formatNotices?.length ?? 0) > 0 && (
+        <FormatNotices notices={detail.formatNotices!} />
+      )}
       {detail.result === 'partial' && (
         <>
           <Notes detail={detail} />

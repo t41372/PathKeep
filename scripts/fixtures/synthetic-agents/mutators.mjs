@@ -26,7 +26,13 @@ import {
   startOfDay,
   zstd,
 } from './basics.mjs'
-import { begin, createContext, toolFacts, word } from './context.mjs'
+import {
+  begin,
+  createContext,
+  toolFacts,
+  unreadWord,
+  word,
+} from './context.mjs'
 import { claudeTurns } from './formats/claude-code.mjs'
 import { codexTurns } from './formats/codex.mjs'
 import { deepseekTurns } from './formats/deepseek.mjs'
@@ -184,8 +190,15 @@ export function appendAgentTurns(agents, key, { turns = 1 } = {}) {
  * Writes a new conversation for `tool` late on the day before `now`, with a
  * unique word, as a tool does when a new session starts between two backups.
  */
-export function addAgentConversation(agents, tool, { project } = {}) {
+export function addAgentConversation(
+  agents,
+  tool,
+  { project, formatVersion } = {},
+) {
   if (!AGENT_TOOLS.includes(tool)) throw new Error(`unknown agent tool ${tool}`)
+  // Only pi names its format version in each session file.
+  if (formatVersion !== undefined && tool !== 'pi')
+    throw new Error(`${tool} sessions carry no format version of their own`)
   const ctx = reopen(agents)
   const taken = new Set(
     [...agents.conversations, ...agents.removed].map((c) => c.key),
@@ -204,7 +217,15 @@ export function addAgentConversation(agents, tool, { project } = {}) {
   if (fitting.length === 0)
     throw new Error(`the conversation bank has nothing for ${chosen}`)
   const template = pick(random, fitting)
-  WRITERS[tool](c, turnsFrom(template.turns, word(c)))
+  if (formatVersion === undefined) {
+    WRITERS[tool](c, turnsFrom(template.turns, word(c)))
+  } else {
+    // A reader that does not know the format may not show its text.
+    WRITERS[tool](c, turnsFrom(template.turns, unreadWord(c)), {
+      version: formatVersion,
+    })
+    ctx.conversations.at(-1).formatVersion = formatVersion
+  }
   return settle(agents, ctx, [
     ...structuredClone(agents.conversations),
     ...ctx.conversations,

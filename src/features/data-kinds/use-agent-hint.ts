@@ -15,9 +15,15 @@ import {
   type AgentSettings,
 } from '@/lib/backend-client/data-kinds'
 import { describeError } from '@/lib/errors'
-import { useI18n } from '@/lib/i18n'
+import { useI18n, type MessageKey } from '@/lib/i18n'
 import { queryClient, queryKeys } from '@/lib/query'
 import { useAgentSettings } from '@/lib/queries/data-kinds'
+
+/** What a refusal says, in the words of the hint that came back. */
+const failedWords: Record<AgentHint, MessageKey> = {
+  intro: 'dataKinds.intro.dismissFailed',
+  'auto-delete': 'agentBackup.reminder.dismissFailed',
+}
 
 function setDismissed(hint: AgentHint, dismissed: boolean) {
   queryClient.setQueryData<AgentSettings>(queryKeys.agentSettings, (now) => {
@@ -39,7 +45,7 @@ export function useAgentHint(hint: AgentHint, enabled = true) {
     dataKindsClient.dismissAgentHint(hint).catch((error) => {
       setDismissed(hint, false)
       if (dataKindsErrorCode(error) === 'lock-required') return
-      toast.error(t('agentBackup.reminder.dismissFailed'), {
+      toast.error(t(failedWords[hint]), {
         description: describeError(error, 'dismiss_agent_hint'),
       })
     })

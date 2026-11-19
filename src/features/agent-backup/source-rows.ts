@@ -4,7 +4,8 @@
  * conversations in the archive (`UI-slice1-features.md` E: never all four
  * regardless). A tool can have several folders (Claude Code's own and the
  * Claude desktop app's); its row adds them up and its state is the one
- * that most needs a look.
+ * that most needs a look, and its notes are the folders' notes added up
+ * by code.
  *
  * Not responsible for: drawing (`sources-card.tsx`).
  */
@@ -12,6 +13,7 @@ import type {
   AgentOverview,
   AgentSource,
   SourceAvailability,
+  SourceNoteGroup,
   ToolTotals,
 } from '@/lib/backend-client/agent-backup'
 import { AGENT_TOOLS, type AgentToolId } from '@/lib/backend-client/data-kinds'
@@ -29,17 +31,48 @@ export interface ToolRow {
   availability: SourceAvailability
   /** The last run that read one of its folders. */
   lastRun: string | undefined
+  /** Notes its folders' last backups left; the files are saved. */
+  noteCount: number
+  newNoteCount: number
+  /** One entry per code, in the backend's order. */
+  notes: { code: string; count: number; newCount: number }[]
 }
 
-/** The worse of two outcomes, for a row with several folders. */
+/**
+ * The worse of two outcomes, for a row with several folders. Files being
+ * written and formats not read yet are saved; they rank below anything
+ * that was not.
+ */
 const rank = (availability: SourceAvailability) =>
   availability === 'available'
     ? 0
-    : availability === 'stale'
+    : availability === 'changing'
       ? 1
-      : availability === 'unknown-format'
+      : availability === 'stale'
         ? 2
-        : 3
+        : availability === 'unknown-format'
+          ? 3
+          : 4
+
+function addNotes(roots: readonly AgentSource[]) {
+  const byCode = new Map<
+    string,
+    { code: string; count: number; newCount: number }
+  >()
+  for (const group of roots.flatMap(
+    (root): SourceNoteGroup[] => root.notes ?? [],
+  )) {
+    const entry = byCode.get(group.code) ?? {
+      code: group.code,
+      count: 0,
+      newCount: 0,
+    }
+    entry.count += wireNumber(group.count)
+    entry.newCount += wireNumber(group.newCount)
+    byCode.set(group.code, entry)
+  }
+  return [...byCode.values()]
+}
 
 export function toolRows(
   sources: readonly AgentSource[],
@@ -73,6 +106,15 @@ export function toolRows(
             ? worst
             : 'stale',
         lastRun: roots.find((root) => root.lastRun)?.lastRun,
+        noteCount: roots.reduce(
+          (sum, root) => sum + wireNumber(root.noteCount),
+          0,
+        ),
+        newNoteCount: roots.reduce(
+          (sum, root) => sum + wireNumber(root.newNoteCount),
+          0,
+        ),
+        notes: addNotes(roots),
       },
     ]
   })

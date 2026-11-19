@@ -11,12 +11,16 @@
  * - Settings › Background work lists it with that reason and "Try again",
  *   which runs it once more to the end;
  * - nothing ran twice: the ledger has the stopped first save once and the
- *   retry after it, and the archive holds the same conversations.
+ *   retry after it, and the archive holds the same conversations;
+ * - a format notice dismissed before the restart (agent-backup-8 dismissed
+ *   Pi's format 1000) stays dismissed: no item needing a look and no run
+ *   carries one, and Background work shows none.
  */
 import { expect, test } from '@playwright/test'
 import {
   agentOverview,
   agentRuns,
+  agentTasks,
   chooseAndStart,
   count,
   newestRunRef,
@@ -77,6 +81,15 @@ test('a first save cut off by a restart ends stopped, and a retry finishes it on
   const row = page.locator(`li[data-run-ref="${stopped.runRef}"]`).first()
   await expect(row).toContainText('Stopped before the end')
   await expect(row).toContainText('PathKeep closed while it ran.')
+  expect(
+    (await agentTasks('attention')).filter(
+      (task) => (task.formatNotices ?? []).length > 0,
+    ),
+  ).toEqual([])
+  expect(
+    (await agentRuns()).filter((run) => (run.formatNotices ?? []).length > 0),
+  ).toEqual([])
+  await expect(page.locator('[data-format-notice]')).toHaveCount(0)
   await testInfo.attach('Background work after the restart', {
     body: await page.screenshot({ fullPage: true }),
     contentType: 'image/png',

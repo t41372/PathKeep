@@ -59,7 +59,7 @@ test('a backup goes on behind the lock screen', async ({ page }, testInfo) => {
   await openBackupPage(page)
   await expect(page.getByText(/^Backing up · /)).toHaveCount(0)
   await expect(
-    page.getByText(/^Last backup( didn’t read everything)?: /),
+    page.getByText(/^Last backup( didn’t save everything)?: /),
   ).toBeVisible()
   const overview = await backend<{ roots: string }>('get_agent_overview', {
     request: { purpose: 'backup' },

@@ -3,7 +3,8 @@
  * that shows one: its progress in the units it has at each moment (files
  * found, then files and size saved, then conversations once they are
  * known; never a percentage, since no total is known), how a tool's folder
- * fared, what a run's notes mean, and what a run did.
+ * fared, what was not saved (warnings), what a saved file's notes mean, a
+ * format version not read yet, and what a run did.
  *
  * Responsibilities: choosing the sentence. An outcome or note this build
  * does not know is shown with its code, never left blank.
@@ -12,12 +13,14 @@
  */
 import type {
   AgentRunSummary,
+  FormatNotice,
   KindTask,
   SourceAvailability,
   ToolProgress,
 } from '@/lib/backend-client/agent-backup'
 import type { Translator, MessageKey } from '@/lib/i18n'
 import { wireNumber } from '@/lib/queries/agent-backup'
+import { toolName } from '@/features/data-kinds/tools'
 
 type Bytes = (value: number) => string
 
@@ -107,8 +110,10 @@ export function availabilityText(
 }
 
 /**
- * Outcomes that are a problem to look at. Files kept as they are because
- * their format is not read yet are not: everything was saved.
+ * Outcomes that are a problem to look at: something chosen was not saved.
+ * Files kept as they are because their format is not read yet, and files
+ * read again next time because they were being written, are not: what was
+ * there is saved, and the run left notes about it.
  */
 export function isProblem(availability: SourceAvailability) {
   return ![
@@ -116,17 +121,41 @@ export function isProblem(availability: SourceAvailability) {
     'disabled',
     'stale',
     'unknown-format',
+    'changing',
     'unobserved',
   ].includes(availability)
 }
 
-/** A run note's code as a sentence; groups of codes that mean the same to a person. */
-export function warningKey(code: string): MessageKey {
+/**
+ * Something a run could not save, as a sentence. Since notes are counted
+ * apart (`counted`), every warning is data that was not saved, so a code
+ * this build has no words for says just that. Runs recorded before then
+ * listed reading conditions of saved files here too; those keep the words
+ * they had, and an unknown code there is only "a note".
+ */
+export function warningKey(code: string, counted = true): MessageKey {
   if (code === 'root-missing') return 'agentTasks.warnings.missing'
   if (code === 'root-changed' || code === 'root_changed')
     return 'agentTasks.warnings.changed'
   if (code === 'destination-unavailable')
     return 'agentTasks.warnings.destination'
+  if (code === 'archive-publication-failed')
+    return 'agentTasks.warnings.writeFailed'
+  if (/layout-unrecognized|layout_unrecognized/.test(code))
+    return 'agentTasks.warnings.layout'
+  if (/depth/.test(code)) return 'agentTasks.warnings.tooDeep'
+  if (/non_utf8_path|non-utf8-path|unrepresentable/.test(code))
+    return 'agentTasks.warnings.badName'
+  if (/^git_/.test(code)) return 'agentTasks.warnings.git'
+  if (code === 'attachment_not_retained')
+    return 'agentTasks.warnings.attachment'
+  if (code === 'source-path-outside-root') return 'agentTasks.warnings.skipped'
+  if (counted)
+    return /unreadable|unavailable|io_error|not_directory|not-directory|not-regular|enumeration-failed|discovery_failed|root-invalid/.test(
+      code,
+    )
+      ? 'agentTasks.warnings.unreadable'
+      : 'agentTasks.warnings.unsaved'
   if (
     /unsupported|unrecognized|format-limited|unknown-required|session_metadata_unavailable/.test(
       code,
@@ -142,9 +171,76 @@ export function warningKey(code: string): MessageKey {
   if (/unreadable|io_error|unavailable/.test(code))
     return 'agentTasks.warnings.unreadable'
   if (/malformed|invalid/.test(code)) return 'agentTasks.warnings.damaged'
-  if (/symlink|special-file|outside-root/.test(code))
-    return 'agentTasks.warnings.skipped'
+  if (/symlink|special-file/.test(code)) return 'agentTasks.warnings.skipped'
   return 'agentTasks.warnings.other'
+}
+
+/** Note codes a person reads the same way, from every code the capture emits. */
+const NOTE_GROUPS: [RegExp, MessageKey][] = [
+  [/^empty_transcript$/, 'agentTasks.notes.empty'],
+  // A file's own details from the file system, not a session's.
+  [/^source_metadata_unavailable$/, 'agentTasks.notes.other'],
+  [
+    /^(source_changed_during_capture|first_record_in_progress|incomplete_tail|source_changed)$|generation-changed|unterminated-tail/,
+    'agentTasks.notes.writing',
+  ],
+  [/^source_decompression_failed$/, 'agentTasks.notes.compressed'],
+  [
+    /unsupported|format-limited|^session_metadata_unavailable$/,
+    'agentTasks.notes.format',
+  ],
+  [/unrecognized|unknown-required-event/, 'agentTasks.notes.unknownRecords'],
+  [
+    /metadata|missing_native|missing_history_array|header|entry-identity/,
+    'agentTasks.notes.details',
+  ],
+  [
+    /malformed|non_object_record|invalid_utf8|record_too_large|byte_limit|incomplete_document|unexpected_json_shape|record-invalid|sequence-invalid|source_interpretation_failed/,
+    'agentTasks.notes.damaged',
+  ],
+  [
+    /symlink|special-file|non_regular_file|not_regular_file/,
+    'agentTasks.notes.skipped',
+  ],
+  [
+    /attachment|reference-budget|reference-limit|spill-coverage/,
+    'agentTasks.notes.attachment',
+  ],
+  [
+    /lineage|mixed-origins|multiple-session-ids|legacy-derived-identity|ambiguous-generation/,
+    'agentTasks.notes.lineage',
+  ],
+]
+
+/** What a note's code means, without its file's particulars. */
+export function noteKey(code: string): MessageKey {
+  return (
+    NOTE_GROUPS.find(([pattern]) => pattern.test(code))?.[1] ??
+    'agentTasks.notes.other'
+  )
+}
+
+/** One note as a sentence; a format version the parser recognised is named. */
+export function noteText(
+  t: Translator,
+  note: { code: string; detail?: string | null },
+) {
+  const key = noteKey(note.code)
+  if (
+    key === 'agentTasks.notes.format' &&
+    note.detail &&
+    /^\d+$/.test(note.detail)
+  )
+    return t('agentTasks.notes.formatVersion', { version: note.detail })
+  return t(key)
+}
+
+/** A format version of a tool that this PathKeep cannot read yet. */
+export function formatNoticeText(t: Translator, notice: FormatNotice) {
+  return t('agentTasks.formatNotice', {
+    tool: t(toolName(notice.tool)),
+    version: notice.version,
+  })
 }
 
 /** What a conversation run did: new, updated, subagents; or nothing new. */

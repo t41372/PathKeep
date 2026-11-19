@@ -248,6 +248,7 @@ export default defineConfig({
         'agent-backup-5-pause-off.spec.ts',
         'agent-backup-6-lock.spec.ts',
         'agent-backup-7-locales.spec.ts',
+        'agent-backup-8-format-notice.spec.ts',
       ],
       'change',
     ),

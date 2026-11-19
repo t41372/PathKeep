@@ -377,11 +377,14 @@ test('the ticks and the .git switch come back when the dialog opens again', asyn
     ).not.toBeChecked()
   }
 
-  // Closed and opened again from the Home card.
+  // Closed, and opened again from the Agent space's off page (the Home
+  // card was put away for good by spaces-agent-intro.spec).
   await page.keyboard.press('Escape')
   await expect(enableDialog(page)).toBeHidden()
+  await page.goto('/#/agent/backup')
+  await unlockIfLocked(page)
   await page
-    .getByRole('button', { name: 'Preview what would be saved' })
+    .getByRole('button', { name: 'Preview and turn on Agent conversations' })
     .click()
   await expectChosen()
   await testInfo.attach('choices after reopening', {

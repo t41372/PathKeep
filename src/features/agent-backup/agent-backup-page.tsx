@@ -1,8 +1,9 @@
 /**
  * The Agent space's backup page (`#/agent/backup`, `data-spaces.md` §4 and
  * `agent-history.md` §6): is this kind's data safe, and back it up now.
- * The header with its states, the automatic backup card (the same one the
- * browsing page has: one schedule for every kind), Claude Code's
+ * The header with its states, format versions PathKeep cannot read yet
+ * (with Dismiss), the automatic backup card (the same one the browsing page
+ * has: one schedule for every kind), Claude Code's
  * auto-delete reminder, the sources, recent backups with their details, and
  * the sizes.
  *
@@ -32,6 +33,7 @@ import { useRetryStore } from '@/features/data-kinds/use-retry-store'
 import { AgentRunSheet } from './agent-run-sheet'
 import { AutoDeleteReminder } from './auto-delete-reminder'
 import { BackupHeader } from './backup-header'
+import { FormatNoticeCards } from './format-notice-card'
 import { RecentRuns } from './recent-runs'
 import { SourcesCard } from './sources-card'
 
@@ -141,6 +143,7 @@ export default function AgentBackupPage() {
         paused={row.state === 'paused'}
         viewOnly={viewOnly}
       />
+      <FormatNoticeCards />
       {overview.isError && !data && (
         <CardError
           error={overview.error}

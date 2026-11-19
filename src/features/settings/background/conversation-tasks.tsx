@@ -1,7 +1,9 @@
 /**
  * Conversation backups in Settings › Background work, while Agent
- * conversations are on or paused: what needs a look (Try again, Dismiss),
- * what runs now (Cancel) with its progress in real units, and what finished
+ * conversations are on or paused: what needs a look (Try again, Dismiss;
+ * a backup that met a format version PathKeep cannot read yet says which,
+ * and offers only Dismiss), what runs now (Cancel) with its progress in
+ * real units, and what finished
  * today. Each group pages through the backend's cursor, so a year of hourly
  * backups never loads at once. A row opens its run on the Agent backup page.
  *
@@ -32,6 +34,7 @@ import {
 import { spaceBackupPath } from '@/lib/spaces'
 import { useTaskControl } from '@/features/agent-backup/use-task-control'
 import {
+  formatNoticeText,
   taskName,
   taskProgressText,
   taskReasonText,
@@ -150,6 +153,15 @@ function TaskRow({
       {reason && (
         <span className="text-xs text-muted-foreground">{reason}</span>
       )}
+      {task.formatNotices?.map((notice) => (
+        <span
+          key={`${notice.tool}-${notice.version}`}
+          data-format-notice={`${notice.tool}@${notice.version}`}
+          className="text-xs text-foreground"
+        >
+          {formatNoticeText(t, notice)}
+        </span>
+      ))}
     </li>
   )
 }

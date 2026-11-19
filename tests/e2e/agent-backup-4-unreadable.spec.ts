@@ -3,16 +3,16 @@
  * §4, §5.1): Codex's folder loses its permissions (`setAgentToolReadable`)
  * and gets them back before "Try again". POSIX only, like the mutator.
  *
- * What the fixture's two tools hold may itself end a backup as "didn't read
- * everything" (a record type no reader knows, a cut-off line), and such
- * runs stay under Needs a look until dismissed; so the counts here are
- * relative to the backup before this spec and to the attention before it.
+ * What the fixture's two tools hold (an empty file, a cut-off line) leaves
+ * notes, never a reason for a look; still, the counts here are relative to
+ * the backup before this spec and to the attention before it, so an
+ * earlier spec's leftovers do not decide this one.
  *
  * Proves:
- * - the run ends as not having read everything; Claude Code was read as
+ * - the run ends as not having saved everything; Claude Code was read as
  *   the backup before read it, and Codex was not read, because of its folder;
  * - Codex's source row says it needs a look and, unfolded, why; the run's
- *   details give the same reason for Codex;
+ *   details give the same reason for Codex and list what was not saved;
  * - the rail counts one more needing a look, and leads to Settings ›
  *   Background work, where this run is listed under Needs a look;
  * - with the folder readable again, "Try again" there reads Codex again,
@@ -25,6 +25,7 @@ import {
   agentRun,
   agentRuns,
   agentTasks,
+  count,
   idleIndicatorName,
   needsLookText,
   openBackupPage,
@@ -64,7 +65,7 @@ test('a tool that can’t be read leaves a partial run that a retry finishes', a
 
     // The page: the header names the problem; Codex's row says why.
     await expect(
-      page.getByText('The last backup couldn’t read everything.'),
+      page.getByText('The last backup didn’t save everything.'),
     ).toBeVisible()
     const codex = sourceRow(page, 'codex')
     await expect(codex).toContainText('Needs a look')
@@ -79,6 +80,10 @@ test('a tool that can’t be read leaves a partial run that a retry finishes', a
     await expect(sheet.locator('li[data-tool="codex"]')).toContainText(
       UNREADABLE,
     )
+    expect(count(detail.warningCount)).toBeGreaterThan(0)
+    await expect(
+      sheet.getByRole('region', { name: 'Not saved' }).locator('li[data-code]'),
+    ).not.toHaveCount(0)
     await testInfo.attach('the run’s details', {
       body: await sheet.screenshot(),
       contentType: 'image/png',
@@ -97,7 +102,7 @@ test('a tool that can’t be read leaves a partial run that a retry finishes', a
     const group = page.locator('section[data-task-group="attention"]')
     const task = group.locator(`li[data-run-ref="${run.runRef}"]`)
     await expect(task).toBeVisible()
-    await expect(task).toContainText('Didn’t read everything')
+    await expect(task).toContainText('Didn’t save everything')
     await testInfo.attach('Needs a look in Background work', {
       body: await page.screenshot({ fullPage: true }),
       contentType: 'image/png',

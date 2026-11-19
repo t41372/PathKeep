@@ -24,6 +24,7 @@ import { enableDialog } from './support/agent-tools'
 import {
   agentKindState,
   agentOverview,
+  agentRun,
   agentRuns,
   agentTasks,
   chooseAndStart,
@@ -146,7 +147,10 @@ test('a first save goes on behind the dialog, stops from the rail, and finishes 
   })
   const retried = await waitForRunAfter(stopped.runRef)
   expect(retried.trigger).toBe('retry')
-  expect(['success', 'partial']).toContain(retried.result)
+  // The fixture's empty file and cut-off line are notes, never a reason for
+  // a partial run; a red run lists what it could not save.
+  expect((await agentRun(retried.runRef)).warnings).toEqual([])
+  expect(retried.result).toBe('success')
   await testInfo.attach('the retry finished', {
     body: await dialog.screenshot(),
     contentType: 'image/png',

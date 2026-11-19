@@ -110,7 +110,7 @@ export function useArchiveRun(runRef: string | null, enabled = true) {
   })
 }
 
-/** The first page's header with every page's warnings and folders after it. */
+/** The first page's header with every page's warnings, notes and folders after it. */
 export function joinRunPages(
   data: InfiniteData<ArchiveRunDetail> | undefined,
 ): ArchiveRunDetail | undefined {
@@ -119,6 +119,7 @@ export function joinRunPages(
   return {
     ...first,
     warnings: [first, ...rest].flatMap((page) => page.warnings ?? []),
+    notes: [first, ...rest].flatMap((page) => page.notes ?? []),
     roots: [first, ...rest].flatMap((page) => page.roots ?? []),
   }
 }
@@ -268,6 +269,8 @@ function onTaskChanged(event: BackgroundTaskChangedEvent) {
     actions: event.actions,
     attention: event.attention,
     snapshotToken: event.snapshotToken,
+    // Absent once dismissed: the cached copy must lose it too.
+    formatNotices: event.formatNotices,
   }
   const known = patchSummary(live)
   patchGroups(live)

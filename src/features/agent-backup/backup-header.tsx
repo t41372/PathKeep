@@ -1,7 +1,8 @@
 /**
  * The Agent backup page's header: what the archive holds, the last finished
- * backup (its dot follows how it ended; one that failed or did not read
- * everything opens its details), "Back up now", or while this kind backs up
+ * backup (its dot follows how it ended, with its notes counted beside it; one
+ * that failed, did not save everything or left notes opens its details),
+ * "Back up now", or while this kind backs up
  * a line of progress in real units and a bar that slides (no total is
  * known). Under it, the states the spec asks for: paused, this computer not
  * backing up yet, the first backup not finished, the last backup's problem.
@@ -60,14 +61,20 @@ function LastBackup({ run }: { run: ArchiveRun | undefined }) {
     )
   }
   const time = format.dayAndTime(run.finishedAt ?? run.startedAt ?? 0)
-  const text = t(lastWords[run.result] ?? 'agentBackup.last.failed', { time })
+  const notes = wireNumber(run.noteCount)
+  const text = [
+    t(lastWords[run.result] ?? 'agentBackup.last.failed', { time }),
+    notes > 0 && t('agentBackup.runs.notes', { count: notes }),
+  ]
+    .filter(Boolean)
+    .join(t('agentTasks.progress.join'))
   const dot = (
     <span
       aria-hidden
       className={cn('size-1.5 rounded-full', dotColour[run.result] ?? 'bg-red')}
     />
   )
-  if (run.result === 'success') {
+  if (run.result === 'success' && notes === 0) {
     return (
       <span className={pill}>
         {dot}

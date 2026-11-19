@@ -2,7 +2,9 @@
  * One backup's details on the Agent backup page (`?run={runRef}`), also for
  * a run that is not in the list. A conversation backup shows how it ended,
  * when, how long, what started it, whether it read `.git`, what it counted,
- * each tool and folder, and its notes, a page at a time. A run of the
+ * each tool and folder, what it could not save, the format versions it met
+ * that PathKeep cannot read yet, and the notes it left on files it saved
+ * (a run with only notes succeeded, and says so), a page at a time. A run of the
  * browsing ledger (work on the whole archive, or an old numeric link) opens
  * the browsing page's own sheet, which already shows those.
  */
@@ -19,7 +21,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import type {
   AgentRunSummary,
   ArchiveRunDetail,
-  RunWarning,
 } from '@/lib/backend-client/agent-backup'
 import { dataKindsErrorCode } from '@/lib/backend-client/data-kinds'
 import { describeError } from '@/lib/errors'
@@ -30,11 +31,12 @@ import {
   wireNumber,
 } from '@/lib/queries/agent-backup'
 import { ToolBadge } from '@/features/data-kinds/tool-badge'
-import { toolName } from '@/features/data-kinds/tools'
 import { RunSheet } from '@/features/backup/run-sheet'
 import { RunResultIcon } from './recent-runs'
 import { useRunParam } from './run-param'
-import { availabilityText, runTook, warningKey } from './words'
+import { RunFormatNotices } from './format-notice-card'
+import { NoteEntry, WarningEntry } from './run-entries'
+import { availabilityText, runTook } from './words'
 
 const resultWords: Record<string, MessageKey> = {
   running: 'agentBackup.run.result.running',
@@ -96,36 +98,6 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function Warning({ warning }: { warning: RunWarning }) {
-  const { t } = useI18n()
-  const omitted = warning.code === 'diagnostics_omitted'
-  const text = omitted
-    ? t('agentTasks.warnings.omitted', {
-        count: Number(warning.detail) || 1,
-      })
-    : t(warningKey(warning.code))
-  return (
-    <li className="flex flex-col gap-0.5 rounded-lg bg-muted px-3 py-2 text-[13px]">
-      <span>
-        {warning.tool
-          ? t('agentTasks.warnings.tool', {
-              tool: t(toolName(warning.tool)),
-              text,
-            })
-          : text}
-      </span>
-      {warning.path && (
-        <span className="font-mono text-[11px] [overflow-wrap:anywhere] text-muted-foreground">
-          {warning.path}
-        </span>
-      )}
-      <span className="font-mono text-[10.5px] text-muted-foreground/80">
-        {warning.code}
-      </span>
-    </li>
-  )
-}
-
 function Detail({
   detail,
   more,
@@ -144,6 +116,8 @@ function Detail({
   const counts = summary
     ? COUNTS.filter((key) => wireNumber(summary[key]) > 0)
     : []
+  // Runs recorded before notes were counted listed everything as notes.
+  const counted = detail.noteCount != null
   return (
     <div className="flex flex-col gap-5 px-4 pb-6 text-[13px]">
       <dl className="flex flex-col gap-2">
@@ -220,20 +194,71 @@ function Detail({
           </ul>
         </section>
       )}
-      <section className="flex flex-col gap-2">
-        <h3 className="font-medium">{t('agentBackup.run.warnings')}</h3>
+      <section
+        aria-label={t(
+          counted ? 'agentBackup.run.warnings' : 'agentBackup.run.notes',
+        )}
+        className="flex flex-col gap-2"
+      >
+        <h3 className="font-medium">
+          {t(counted ? 'agentBackup.run.warnings' : 'agentBackup.run.notes')}
+        </h3>
         {(detail.warnings?.length ?? 0) === 0 ? (
           <p className="text-muted-foreground">
-            {t('agentBackup.run.noWarnings')}
+            {t(
+              counted
+                ? 'agentBackup.run.noWarnings'
+                : 'agentBackup.run.noNotes',
+            )}
           </p>
         ) : (
           <ul className="flex flex-col gap-1.5">
             {detail.warnings!.map((warning, index) => (
-              <Warning key={`${warning.code}-${index}`} warning={warning} />
+              <WarningEntry
+                key={`${warning.code}-${index}`}
+                warning={warning}
+                counted={counted}
+              />
             ))}
           </ul>
         )}
       </section>
+      {(detail.formatNotices?.length ?? 0) > 0 && (
+        <section
+          aria-label={t('agentBackup.run.formats')}
+          className="flex flex-col gap-2"
+        >
+          <h3 className="font-medium">{t('agentBackup.run.formats')}</h3>
+          <RunFormatNotices
+            runRef={detail.runRef}
+            notices={detail.formatNotices!}
+          />
+        </section>
+      )}
+      {(detail.notes?.length ?? 0) > 0 && (
+        <section
+          aria-label={t('agentBackup.run.notes')}
+          className="flex flex-col gap-2"
+        >
+          <h3 className="font-medium">
+            {t('agentBackup.run.notes')}
+            <span className="ml-1.5 font-normal text-muted-foreground tabular">
+              {wireNumber(detail.noteCount) || detail.notes!.length}
+            </span>
+          </h3>
+          <p className="text-muted-foreground">
+            {t('agentBackup.run.notesBody')}
+          </p>
+          <ul className="flex flex-col gap-1.5">
+            {detail.notes!.map((note, index) => (
+              <NoteEntry
+                key={`${note.code}-${note.path}-${index}`}
+                note={note}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
       {more && (
         <Button
           variant="outline"
@@ -277,7 +302,18 @@ function AgentRun({
           </SheetTitle>
           <SheetDescription>
             {detail
-              ? t(resultWords[detail.result] ?? 'agentBackup.run.result.failed')
+              ? [
+                  t(
+                    resultWords[detail.result] ??
+                      'agentBackup.run.result.failed',
+                  ),
+                  wireNumber(detail.noteCount) > 0 &&
+                    t('agentBackup.runs.notes', {
+                      count: wireNumber(detail.noteCount),
+                    }),
+                ]
+                  .filter(Boolean)
+                  .join(t('agentTasks.progress.join'))
               : t('agentBackup.run.description')}
           </SheetDescription>
         </SheetHeader>

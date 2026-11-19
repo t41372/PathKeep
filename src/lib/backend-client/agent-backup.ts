@@ -65,7 +65,10 @@ export interface KindTask {
   phase: string
   runRef: string
   startedAt: number
-  /** Ended partial or failed, and nobody has dismissed it. */
+  /**
+   * Ended partial or failed, or met a format version not read yet, and
+   * nobody has dismissed it. Notes alone never set it.
+   */
   attention: boolean
   actions: TaskAction[]
   /** Quitting PathKeep asks first while this runs. */
@@ -74,6 +77,8 @@ export interface KindTask {
   endedAt?: number
   /** The task this one retries. */
   retryOf?: string
+  /** Format versions its run met first; only `dismiss` is offered for them. */
+  formatNotices?: FormatNotice[]
   /** Why it stopped: `cancelled`, `owner-restarted`, an error code. */
   reason?: string
   perTool?: ToolProgress[]
@@ -122,6 +127,16 @@ export interface LedgerRunSummary {
   stats: unknown
 }
 
+/**
+ * A format version of a tool that this PathKeep cannot read yet. Its files
+ * are saved as they are; the notice asks for attention once per tool and
+ * version until dismissed.
+ */
+export interface FormatNotice {
+  tool: AgentToolId
+  version: string
+}
+
 export interface ArchiveRun {
   /** `agent-history:<id>` or `browsing:<origin>/<id>`. */
   runRef: string
@@ -131,13 +146,24 @@ export interface ArchiveRun {
   result: RunResult | (string & {})
   startedAt: number | null
   summary: AgentRunSummary | LedgerRunSummary
+  /** Data the user chose that was not saved (conversation runs since notes). */
   warningCount: WireCount
+  /**
+   * Conversation runs: conditions of saved files (empty, a damaged line, a
+   * format not read yet, written while read). They never make a run fail.
+   * Absent on runs recorded before notes were counted.
+   */
+  noteCount?: WireCount | null
+  /** Of those, the ones no earlier run had seen. */
+  newNoteCount?: WireCount | null
+  /** Format notices of this run still waiting to be dismissed. */
+  formatNotices?: FormatNotice[]
   finishedAt?: number
   durationMs?: number
   batchId?: string
 }
 
-/** A note a run left: a source problem, a file it could not read, a format it did not know. */
+/** Something a run could not save: a source problem, a file it could not read, a failed write. */
 export interface RunWarning {
   code: string
   path: string | null
@@ -145,6 +171,28 @@ export interface RunWarning {
   detail: string | null
   rootId?: string | null
   tool?: AgentToolId | null
+}
+
+/**
+ * A condition of a file the run saved: the bytes are in the archive, but
+ * reading them as a conversation met something (`code`). `isNew`: this run
+ * saw it first; later runs list it again without counting it as new.
+ */
+export interface RunNote {
+  code: string
+  path: string | null
+  ordinal: WireCount | null
+  detail: string | null
+  rootId: string
+  tool: AgentToolId | null
+  isNew: boolean
+}
+
+/** A source's notes from its last run, one entry per code. */
+export interface SourceNoteGroup {
+  code: string
+  count: WireCount
+  newCount: WireCount
 }
 
 /**
@@ -186,6 +234,8 @@ export interface RunTool {
 /** One run in full. Warnings and folders come a page at a time (`nextCursor` → `detailCursor`). */
 export interface ArchiveRunDetail extends ArchiveRun {
   warnings?: RunWarning[]
+  /** Conversation runs: the notes, a page at a time with the warnings. */
+  notes?: RunNote[]
   /** Conversation runs: whether `.git` was read. */
   readGit?: boolean
   roots?: RunRoot[]
@@ -231,6 +281,10 @@ export interface AgentSource {
   lastRun?: string
   /** Why the last run could not read it, or not all of it. */
   reason?: string
+  /** Notes from its last run; absent before notes were counted. */
+  noteCount?: WireCount
+  newNoteCount?: WireCount
+  notes?: SourceNoteGroup[]
 }
 
 export interface ToolTotals extends SourceCounts {
@@ -319,6 +373,7 @@ export interface BackgroundTaskChangedEvent {
   attention: boolean
   snapshotToken: string
   progress?: BackupProgress & { perTool?: ToolProgress[] }
+  formatNotices?: FormatNotice[]
 }
 
 /** A backup of a kind ended, however it was started. */
@@ -331,7 +386,11 @@ export interface KindBackupFinishedEvent {
   trigger: BackupTrigger
   result: RunResult
   summary: AgentRunSummary
+  /** What was not saved; empty when only notes were left. */
   reasonCodes: string[]
+  noteCount?: WireCount | null
+  newNoteCount?: WireCount | null
+  formatNotices?: FormatNotice[]
 }
 
 /** What the backup page and the switcher's line read changed. */

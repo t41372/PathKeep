@@ -37,6 +37,7 @@ export const dataKinds = defineMessages({
       preview: 'Preview what would be saved',
       later: 'Not now',
       dismiss: 'Hide this card',
+      dismissFailed: 'Couldn’t hide this card',
     },
     manage: {
       title: 'Manage data types',
@@ -132,6 +133,7 @@ export const dataKinds = defineMessages({
       preview: '预览会保存什么',
       later: '以后再说',
       dismiss: '关闭这张卡片',
+      dismissFailed: '没能关闭这张卡片',
     },
     manage: {
       title: '管理数据类型',
@@ -222,6 +224,7 @@ export const dataKinds = defineMessages({
       preview: '預覽會保存什麼',
       later: '以後再說',
       dismiss: '關閉這張卡片',
+      dismissFailed: '沒能關閉這張卡片',
     },
     manage: {
       title: '管理資料類型',

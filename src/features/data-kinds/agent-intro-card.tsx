@@ -4,13 +4,16 @@
  *
  * Responsibilities: showing it only while Agent conversations are off, at
  * least one tool's folder is on this computer and the card was not put
- * away on this device; naming exactly the tools found; opening the preview
- * or putting the card away for good. Finding the tools only checks that
- * their folders exist: nothing in them is opened or listed.
- * Not responsible for: the preview itself (`features/enable-agent/`).
+ * away on this computer; naming exactly the tools found; opening the
+ * preview or putting the card away for good. Finding the tools only checks
+ * that their folders exist: nothing in them is opened or listed, and they
+ * are not looked for until the settings say the card was not put away.
+ * Not responsible for: where "put away" is kept (`use-agent-hint.ts`: the
+ * backend keeps it with this computer's settings, so it holds in every
+ * window and after an update; another computer still shows it).
+ * Nor for the preview itself (`features/enable-agent/`).
  */
 import { Bot, X } from 'lucide-react'
-import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/lib/i18n'
 import { useDataKinds, useDetectedSources } from '@/lib/queries/data-kinds'
@@ -18,41 +21,19 @@ import { kindStateOf } from '@/lib/spaces'
 import { useOpenEnableAgent } from '@/features/enable-agent/links'
 import { foundAgentTools } from './presence'
 import { ToolBadge } from './tool-badge'
-
-/** Put away on this device only, like the theme: another computer still shows it. */
-const DISMISSED_KEY = 'pathkeep-agent-intro-dismissed'
-
-function readDismissed() {
-  try {
-    return localStorage.getItem(DISMISSED_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-function rememberDismissed() {
-  try {
-    localStorage.setItem(DISMISSED_KEY, '1')
-  } catch {
-    // Put away for this window at least.
-  }
-}
+import { useAgentHint } from './use-agent-hint'
 
 export function AgentIntroCard() {
   const { t } = useI18n()
   const openEnable = useOpenEnableAgent()
-  const [dismissed, setDismissed] = useState(readDismissed)
   const kinds = useDataKinds()
   const off = kindStateOf(kinds.data, 'agent-history') === 'off'
-  const detected = useDetectedSources(['agent-history'], off && !dismissed)
+  const { dismissed, dismiss } = useAgentHint('intro', off)
+  const shown = off && dismissed === false
+  const detected = useDetectedSources(['agent-history'], shown)
   const found = detected.data ? foundAgentTools(detected.data) : []
 
-  if (dismissed || !off || found.length === 0) return null
-
-  const dismiss = () => {
-    rememberDismissed()
-    setDismissed(true)
-  }
+  if (!shown || found.length === 0) return null
 
   return (
     <section
