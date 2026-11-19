@@ -31,6 +31,15 @@ jobs:
         run: bun run check:platform
       - name: Run desktop bridge truth gate
         run: bun run test:e2e
+      # The only place the suite runs on macOS. Without its traces and screenshots a failure
+      # here cannot be told apart from a slow runner.
+      - name: Upload E2E artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-artifacts-macos
+          path: artifacts/e2e/
+          if-no-files-found: warn
 
   platform-linux:
     runs-on: ubuntu-latest
