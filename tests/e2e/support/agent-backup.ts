@@ -93,6 +93,8 @@ export interface WireSource {
   path: string | null
   enabled: boolean
   availability: string
+  /** Which folder at the path was approved; absent for a tool without one. */
+  directoryToken?: string
   noteCount?: string
   newNoteCount?: string
   notes?: { code: string; count: string; newCount: string }[]

@@ -31,7 +31,7 @@ import {
   type ToolProgress,
 } from '@/lib/backend-client/agent-backup'
 import type { DataKindRow } from '@/lib/backend-client/data-kinds'
-import { isViewOnly } from '@/lib/backend-client/data-kinds'
+import { agentNeedsReview, isViewOnly } from '@/lib/backend-client/data-kinds'
 import { subscribeToAgentBackup } from '@/lib/ipc/agent-backup-events'
 import { queryClient, queryKeys } from '@/lib/query'
 import { useDataKinds } from './data-kinds'
@@ -55,6 +55,8 @@ export function useAgentKind() {
     /** On or paused, and its store opens: the backup page and tasks can be read. */
     readable: visible && row.availability === 'available',
     viewOnly: isViewOnly(row),
+    /** On, but an import left no approved folder: they are chosen again. */
+    needsReview: agentNeedsReview(row),
   }
 }
 
@@ -156,7 +158,11 @@ export function wireNumber(value: string | null | undefined) {
 
 /** A task still at work: it can show progress. */
 export function isActive(task: Pick<KindTask, 'state'>) {
-  return task.state === 'running' || task.state === 'cancelling'
+  return (
+    task.state === 'running' ||
+    task.state === 'cancelling' ||
+    task.state === 'queued'
+  )
 }
 
 type Live = Partial<KindTask> & { taskId: string }
@@ -221,7 +227,7 @@ function patchGroups(live: Live) {
   )
 }
 
-/** The cached task with this id, wherever it is cached. */
+/** The cached task with this id, wherever it is cached: lists or a run's details. */
 export function cachedTask(taskId: string): KindTask | undefined {
   const summary = queryClient.getQueryData<TaskSummary>(queryKeys.taskSummary)
   const running = summary?.running.find((task) => task.taskId === taskId)
@@ -234,7 +240,58 @@ export function cachedTask(taskId: string): KindTask | undefined {
       if (task) return task
     }
   }
+  for (const [, data] of queryClient.getQueriesData<
+    InfiniteData<ArchiveRunDetail>
+  >({ queryKey: queryKeys.archiveRuns })) {
+    const task = data?.pages?.[0]?.task
+    if (task?.taskId === taskId) return task
+  }
   return undefined
+}
+
+/**
+ * The task an action answered with, in every cached copy at once, so the
+ * next action sends its new token even before the lists are read again.
+ * The whole task replaces the old one: a dismissed notice is gone from it.
+ */
+export function rememberTask(task: KindTask) {
+  queryClient.setQueryData<TaskSummary>(queryKeys.taskSummary, (summary) =>
+    summary
+      ? {
+          ...summary,
+          running: summary.running.map((item) =>
+            item.taskId === task.taskId ? task : item,
+          ),
+        }
+      : summary,
+  )
+  queryClient.setQueriesData<InfiniteData<CursorPage<KindTask>>>(
+    { queryKey: queryKeys.kindTasks },
+    (data) =>
+      data?.pages
+        ? {
+            ...data,
+            pages: data.pages.map((page) => ({
+              ...page,
+              items: page.items.map((item) =>
+                item.taskId === task.taskId ? task : item,
+              ),
+            })),
+          }
+        : data,
+  )
+  queryClient.setQueryData<InfiniteData<ArchiveRunDetail>>(
+    queryKeys.archiveRun(task.runRef),
+    (data) =>
+      data?.pages?.[0]?.task
+        ? {
+            ...data,
+            pages: data.pages.map((page, index) =>
+              index === 0 ? { ...page, task } : page,
+            ),
+          }
+        : data,
+  )
 }
 
 function refetchTasks() {

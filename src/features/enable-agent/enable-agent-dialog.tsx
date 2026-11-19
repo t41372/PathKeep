@@ -302,7 +302,7 @@ function SaveFlow({
 
 export default function EnableAgentDialog() {
   const { open, close } = useEnableAgentParam()
-  const { kinds, row, viewOnly } = useAgentKind()
+  const { kinds, row, viewOnly, needsReview } = useAgentKind()
   const state = row?.state
   const first = useFirstSaveToShow()
   // Each opening is a fresh flow; the old one stays while the dialog fades.
@@ -313,7 +313,9 @@ export default function EnableAgentDialog() {
     if (open) setSession((count) => count + 1)
   }
 
-  const turningOn = state === 'off' || viewOnly
+  // On with no approved folder here (an import left none) chooses folders
+  // the same way as turning on.
+  const turningOn = state === 'off' || viewOnly || needsReview
   // The first save turns the kind on; off again since, a remembered one is
   // over, and this opening turns it on anew.
   const save = turningOn ? null : first.save

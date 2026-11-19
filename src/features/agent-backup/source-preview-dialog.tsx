@@ -7,11 +7,17 @@
  * - a tool switched on that has no approved folder here yet: look at its
  *   folder, then add it;
  * - "Rescan this source": look at a tool's folders again and see what is
- *   in them now. It backs nothing up.
+ *   in them now. It backs nothing up;
+ * - a folder made again where an approved one was (same path, another
+ *   folder: its `directoryToken` differs): look at it by its path, approve
+ *   it again, and back up, since the backup it failed cannot be retried
+ *   once its folder was replaced. A rescan that finds such a folder offers
+ *   the same.
  *
- * Responsibilities: the walk for each case and the add (every approved
- * folder plus the new readable ones, with this preview). A look that went
- * stale or a set of sources changed meanwhile asks for another look.
+ * Responsibilities: the walk for each case and the approval (every approved
+ * folder plus the new or replaced readable ones, each once, with this
+ * preview). A look that went stale or a set of sources changed meanwhile
+ * asks for another look.
  */
 import { FolderSearch } from 'lucide-react'
 import { useId, useMemo, useState } from 'react'
@@ -48,11 +54,36 @@ import { isFound } from '@/features/enable-agent/preview-model'
 import { PreviewWalk } from '@/features/enable-agent/preview-step'
 import { useAgentPreview } from '@/features/enable-agent/use-agent-preview'
 import { sendSourceChange } from './use-source-changes'
+import { useStartAgentBackup } from './use-start-backup'
 
 export type SourceDialogMode =
   | { mode: 'folder' }
   | { mode: 'tool'; tool: AgentToolId }
   | { mode: 'rescan'; tool: AgentToolId; rootIds: string[] }
+  | { mode: 'renew'; tool: AgentToolId; path: string; rootId: string }
+
+/** An approved folder, and which folder at its path was approved. */
+export interface ApprovedRoot {
+  rootId: string
+  directoryToken?: string
+}
+
+/**
+ * A folder the look found that is approved by id but is another folder now.
+ * Without a token on either side there is nothing to compare.
+ */
+function replaced(
+  approved: readonly ApprovedRoot[],
+  row: { rootId: string; directoryToken?: string },
+) {
+  const known = approved.find((item) => item.rootId === row.rootId)
+  return (
+    known !== undefined &&
+    known.directoryToken !== undefined &&
+    row.directoryToken !== undefined &&
+    known.directoryToken !== row.directoryToken
+  )
+}
 
 const addFailures: Partial<Record<string, MessageKey>> = {
   'scope-denied': 'agentBackup.add.reasons.scopeDenied',
@@ -69,36 +100,63 @@ async function pickFolder(title: string) {
   return typeof picked === 'string' ? picked : null
 }
 
-/** One look at the folders the request names, and adding what it found. */
+/** One look at the folders the request names, and approving what it found. */
 function Look({
   active,
   request,
   tool,
-  add,
-  approvedRootIds,
+  mode,
+  renewing,
+  approved,
   onClose,
 }: {
   /** The dialog is open; closing it stops the walk. */
   active: boolean
   request: AgentPreviewRequest
   tool: AgentToolId
-  add: boolean
-  approvedRootIds: readonly string[]
+  mode: SourceDialogMode['mode']
+  /** The approved folder looked at again by its path (renew mode). */
+  renewing?: string
+  approved: readonly ApprovedRoot[]
   onClose: () => void
 }) {
   const { t } = useI18n()
   const preview = useAgentPreview(active, request)
+  const backup = useStartAgentBackup()
   const [adding, setAdding] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const report =
     preview.state.phase === 'finished' ? preview.state.report : null
-  const fresh = report
-    ? report.rows.filter(
-        (row) =>
-          isFound(row) && row.readable && !approvedRootIds.includes(row.rootId),
-      )
+  const readable = report
+    ? report.rows.filter((row) => isFound(row) && row.readable)
     : []
-  const nothing = report !== null && fresh.length === 0
+  const fresh = readable.filter(
+    (row) => !approved.some((item) => item.rootId === row.rootId),
+  )
+  const renewed = readable.filter((row) => replaced(approved, row))
+  // Adding offers what is new; a look at known folders offers only a
+  // folder that was replaced. A look by path also offers a folder the path
+  // now leads to under another identity, in place of the old one.
+  const add = mode === 'folder' || mode === 'tool'
+  const byPath = add || mode === 'renew'
+  const approving = byPath ? [...fresh, ...renewed] : renewed
+  const offer = byPath || renewed.length > 0
+  const nothing = report !== null && approving.length === 0
+  // The approved folder is still the one at its path: nothing to approve.
+  const target = readable.find((row) => row.rootId === renewing)
+  const unchanged =
+    target !== undefined &&
+    target.directoryToken !== undefined &&
+    approved.some(
+      (item) =>
+        item.rootId === renewing &&
+        item.directoryToken === target.directoryToken,
+    )
+  // Its path leads elsewhere now: the new folder takes its place.
+  const dropped =
+    mode === 'renew' && target === undefined && fresh.length > 0
+      ? renewing
+      : undefined
 
   const confirm = async () => {
     if (!report) return
@@ -108,12 +166,22 @@ function Look({
       await sendSourceChange({
         previewId: report.previewId,
         selectedRootIds: [
-          ...approvedRootIds,
-          ...fresh.map((row) => row.rootId),
+          ...new Set([
+            ...approved
+              .map((item) => item.rootId)
+              .filter((rootId) => rootId !== dropped),
+            ...approving.map((row) => row.rootId),
+          ]),
         ],
-        toolChanges: { [tool]: true },
+        ...(add ? { toolChanges: { [tool]: true } } : {}),
       })
-      toast(t('agentBackup.add.added'))
+      if (add) {
+        toast(t('agentBackup.add.added'))
+      } else {
+        // The backup that failed on the old folder cannot be retried; a new
+        // one reads the folder just approved.
+        void backup.start()
+      }
       onClose()
     } catch (error) {
       const known = addFailures[dataKindsErrorCode(error) ?? '']
@@ -135,6 +203,16 @@ function Look({
       <p className="text-xs text-muted-foreground">
         {t('enableAgent.preview.nothingOpened')}
       </p>
+      {(renewed.length > 0 || (mode === 'renew' && fresh.length > 0)) && (
+        <p role="status" className="text-[13px]">
+          {t('agentBackup.renew.replaced', { count: approving.length })}
+        </p>
+      )}
+      {mode === 'renew' && nothing && (
+        <p role="status" className="text-[13px] text-muted-foreground">
+          {t(unchanged ? 'agentBackup.renew.same' : 'agentBackup.renew.none')}
+        </p>
+      )}
       {add && nothing && (
         <p role="status" className="text-[13px] text-muted-foreground">
           {t('agentBackup.add.nothingReadable')}
@@ -152,7 +230,7 @@ function Look({
         </div>
       )}
       <DialogFooter className="gap-2 sm:gap-2">
-        {add ? (
+        {offer ? (
           <>
             <Button variant="ghost" onClick={onClose}>
               {t('common.cancel')}
@@ -166,7 +244,7 @@ function Look({
               }
               onClick={() => void confirm()}
             >
-              {t('agentBackup.add.confirm')}
+              {t(add ? 'agentBackup.add.confirm' : 'agentBackup.renew.confirm')}
             </Button>
           </>
         ) : (
@@ -264,12 +342,12 @@ function FolderFields({
 function DialogBody({
   open,
   dialog,
-  approvedRootIds,
+  approved,
   onClose,
 }: {
   open: boolean
   dialog: SourceDialogMode
-  approvedRootIds: readonly string[]
+  approved: readonly ApprovedRoot[]
   onClose: () => void
 }) {
   const { t } = useI18n()
@@ -285,6 +363,12 @@ function DialogBody({
         : { purpose: 'rescan', tools: [dialog.tool] }
     if (dialog.mode === 'tool')
       return { purpose: 'rescan', tools: [dialog.tool] }
+    // By its path: a look by id refuses a folder that was replaced.
+    if (dialog.mode === 'renew')
+      return {
+        purpose: 'rescan',
+        pickedFolder: { tool: dialog.tool, path: dialog.path },
+      }
     return picked
       ? {
           purpose: 'rescan',
@@ -299,13 +383,17 @@ function DialogBody({
       ? t('agentBackup.add.title')
       : dialog.mode === 'tool'
         ? t('agentBackup.add.toolTitle', { name })
-        : t('agentBackup.rescan.title', { name })
+        : dialog.mode === 'renew'
+          ? t('agentBackup.renew.title', { name })
+          : t('agentBackup.rescan.title', { name })
   const body =
     dialog.mode === 'folder'
       ? t('agentBackup.add.body')
       : dialog.mode === 'tool'
         ? t('agentBackup.add.toolBody', { name })
-        : t('agentBackup.rescan.body')
+        : dialog.mode === 'renew'
+          ? t('agentBackup.renew.body', { path: dialog.path })
+          : t('agentBackup.rescan.body')
   const tool =
     dialog.mode === 'folder' ? (picked?.tool ?? 'claude-code') : dialog.tool
 
@@ -335,8 +423,9 @@ function DialogBody({
             active={open}
             request={request}
             tool={tool}
-            add={dialog.mode !== 'rescan'}
-            approvedRootIds={approvedRootIds}
+            mode={dialog.mode}
+            renewing={dialog.mode === 'renew' ? dialog.rootId : undefined}
+            approved={approved}
             onClose={onClose}
           />
         </div>
@@ -353,11 +442,11 @@ function DialogBody({
 
 export function SourcePreviewDialog({
   dialog,
-  approvedRootIds,
+  approved,
   onClose,
 }: {
   dialog: SourceDialogMode | null
-  approvedRootIds: readonly string[]
+  approved: readonly ApprovedRoot[]
   onClose: () => void
 }) {
   // The last one stays drawn while the dialog fades out; each opening is new.
@@ -372,7 +461,7 @@ export function SourcePreviewDialog({
             key={shown.opening}
             open={dialog !== null}
             dialog={shown.dialog}
-            approvedRootIds={approvedRootIds}
+            approved={approved}
             onClose={onClose}
           />
         )}

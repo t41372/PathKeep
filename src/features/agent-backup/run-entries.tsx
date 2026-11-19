@@ -1,21 +1,16 @@
 /**
  * The entries of one conversation backup's details: what it could not save
- * (warnings), the notes it left on files it did save, and the format
- * versions it met that this PathKeep cannot read yet. Each entry is in
+ * (warnings) and the notes it left on files it did save. Each entry is in
  * plain words, with its tool, its file and its code for anyone who needs
- * to look further.
+ * to look further. Format notices are `format-notice-card.tsx`.
  *
  * Not responsible for: which entries a run has or paging them
  * (`agent-run-sheet.tsx`).
  */
-import type {
-  FormatNotice,
-  RunNote,
-  RunWarning,
-} from '@/lib/backend-client/agent-backup'
+import type { RunNote, RunWarning } from '@/lib/backend-client/agent-backup'
 import { useI18n } from '@/lib/i18n'
 import { toolName } from '@/features/data-kinds/tools'
-import { formatNoticeText, noteText, warningKey } from './words'
+import { noteText, warningText } from './words'
 
 const OMITTED = new Set(['diagnostics_omitted', 'capture_warnings_omitted'])
 
@@ -74,7 +69,7 @@ export function WarningEntry({
   const { t } = useI18n()
   const text = OMITTED.has(warning.code)
     ? t('agentTasks.warnings.omitted', { count: Number(warning.detail) || 1 })
-    : t(warningKey(warning.code, counted))
+    : warningText(t, warning, counted)
   return (
     <Entry
       text={text}
@@ -96,27 +91,5 @@ export function NoteEntry({ note }: { note: RunNote }) {
       code={note.code}
       isNew={note.isNew}
     />
-  )
-}
-
-/** Format versions not read yet, each with what happens to its files. */
-export function FormatNotices({
-  notices,
-}: {
-  notices: readonly FormatNotice[]
-}) {
-  const { t } = useI18n()
-  return (
-    <ul className="flex flex-col gap-1.5">
-      {notices.map((notice) => (
-        <li
-          key={`${notice.tool}-${notice.version}`}
-          data-format-notice={`${notice.tool}@${notice.version}`}
-          className="rounded-lg border border-brand/25 bg-brand-soft px-3 py-2 text-[13px]"
-        >
-          {formatNoticeText(t, notice)}
-        </li>
-      ))}
-    </ul>
   )
 }

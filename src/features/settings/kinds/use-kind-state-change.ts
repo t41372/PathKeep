@@ -93,6 +93,11 @@ export function useKindStateChange() {
         case 'enable-preview-required':
           openEnable()
           break
+        case 'source-selection-empty':
+          // The other kind is on with nothing to back up.
+          toast.error(t('dataKinds.manage.sourceSelectionEmpty'))
+          void queryClient.invalidateQueries({ queryKey: queryKeys.dataKinds })
+          break
         default:
           toast.error(t('dataKinds.manage.changeFailed', { name }), {
             description: describeError(error, 'set_data_kind_state'),

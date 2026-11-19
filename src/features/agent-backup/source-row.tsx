@@ -3,8 +3,10 @@
  * source has), its icon and name, the auto-delete badge, how many
  * conversations of it the archive holds, its last backup, its state and
  * how many notes its last backup left; expanded, the folders it reads, what
- * is kept of it, why it was not read in full, and its notes by kind (the
- * files are saved; a note is about reading them). Its ⋯ menu shows a folder in the file manager and rescans.
+ * is kept of it, why it was not read in full (a folder made again where
+ * the approved one was offers to look at it and approve it again), and its
+ * notes by kind (the files are saved; a note is about reading them). Its ⋯
+ * menu shows a folder in the file manager and rescans.
  *
  * Not responsible for: what a switch does (`use-source-changes.ts`) or the
  * rescan itself (`source-preview-dialog.tsx`).
@@ -32,7 +34,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Switch } from '@/components/ui/switch'
-import type { SourcePart } from '@/lib/backend-client/agent-backup'
+import type { AgentSource, SourcePart } from '@/lib/backend-client/agent-backup'
 import { supportClient } from '@/lib/backend-client/support'
 import { cn } from '@/lib/cn'
 import { describeError } from '@/lib/errors'
@@ -132,15 +134,24 @@ export function SourceRow({
   row,
   locked,
   pending,
+  lastSourceNote,
   onSwitch,
   onRescan,
+  onRenew,
 }: {
   row: ToolRow
   /** The switch cannot be used now (a backup runs, or nothing is set up here). */
   locked: boolean
   pending: boolean
+  /**
+   * The id of the note saying it is the last source of the only kind on:
+   * it cannot be switched off, and the switch says so.
+   */
+  lastSourceNote?: string
   onSwitch: (on: boolean) => void
   onRescan: () => void
+  /** Look again at a folder made again where an approved one was. */
+  onRenew: (root: AgentSource) => void
 }) {
   const { t } = useI18n()
   const format = useFormat()
@@ -162,8 +173,12 @@ export function SourceRow({
             aria-label={t('agentBackup.sources.switchLabel', { name })}
             checked={row.enabled}
             disabled={
-              locked || pending || (row.roots.length === 0 && !row.found)
+              locked ||
+              pending ||
+              (row.roots.length === 0 && !row.found) ||
+              (lastSourceNote !== undefined && row.enabled)
             }
+            aria-describedby={lastSourceNote}
             onCheckedChange={onSwitch}
           />
           <CollapsibleTrigger
@@ -280,6 +295,18 @@ export function SourceRow({
                     {availabilityText(t, root.availability)}
                   </span>
                 )}
+                {row.enabled &&
+                  root.availability === 'root-changed' &&
+                  !locked && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-1 h-7 w-fit"
+                      onClick={() => onRenew(root)}
+                    >
+                      {t('agentBackup.sources.lookAgain')}
+                    </Button>
+                  )}
                 {row.enabled &&
                   (root.availability === 'unknown-format' ||
                     root.availability === 'changing') && (

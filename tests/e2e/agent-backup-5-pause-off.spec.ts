@@ -7,7 +7,8 @@
  *   stopped (`affectedTasks`); the run ends stopped before the end;
  * - paused, the backup page says so; "Back up everything now" backs up
  *   browsing history and skips conversations (no new conversation run),
- *   while the page's own "Back up now" still backs them up;
+ *   and says it left them out because they are paused, while the page's
+ *   own "Back up now" still backs them up;
  * - off, the switcher no longer lists the space, `#/agent/backup` says it
  *   is off, and the archive still holds every conversation;
  * - "On" again turns it on directly (its folders are still approved here):
@@ -79,6 +80,9 @@ test('pause stops a running backup and skips the kind; off hides it; on brings i
   const browsingBefore = await lastBrowsingRun()
   const list = await openTaskList(page)
   await list.getByRole('button', { name: 'Back up everything now' }).click()
+  await expect(
+    page.getByText('“Agent conversations” is paused, so it wasn’t backed up.'),
+  ).toBeVisible()
   await expect
     .poll(
       async () => {

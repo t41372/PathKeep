@@ -10,6 +10,7 @@
  */
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { kindSkipSentence } from '@/app/backup-skips'
 import { agentBackupClient } from '@/lib/backend-client/agent-backup'
 import { dataKindsErrorCode } from '@/lib/backend-client/data-kinds'
 import { describeError } from '@/lib/errors'
@@ -45,6 +46,13 @@ export function useStartAgentBackup() {
         return
       }
       if (dataKindsErrorCode(error) === 'lock-required') return
+      // Every tool switched off (another window, just now): said plainly.
+      if (dataKindsErrorCode(error) === 'source-selection-empty') {
+        toast(
+          kindSkipSentence(t, { kind: 'agent-history', reason: 'no-source' }),
+        )
+        return
+      }
       toast.error(t('agentBackup.started.failed'), {
         description: describeError(error, 'start_backup'),
       })

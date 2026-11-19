@@ -12,9 +12,10 @@
  *   which runs it once more to the end;
  * - nothing ran twice: the ledger has the stopped first save once and the
  *   retry after it, and the archive holds the same conversations;
- * - a format notice dismissed before the restart (agent-backup-8 dismissed
- *   Pi's format 1000) stays dismissed: no item needing a look and no run
- *   carries one, and Background work shows none.
+ * - format notices dismissed before the restart (agent-backup-8 dismissed
+ *   Pi's formats 1000 and 1001, each with its own Dismiss) stay dismissed:
+ *   no item needing a look and no run carries one, and Background work
+ *   shows none.
  */
 import { expect, test } from '@playwright/test'
 import {

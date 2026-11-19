@@ -81,6 +81,11 @@ export interface DataKindRow {
    * storage cannot be opened, and from a backend that predates it.
    */
   hasBackupSource?: boolean
+  /**
+   * On, but nothing it can back up: browsing with no browser chosen, or
+   * conversations whose approved folders did not come along with an
+   * imported archive. Its sources have to be chosen again.
+   */
   sourceReviewRequired?: boolean
   /** The kind's bytes in the archive; only when asked for (`listWithSizes`). */
   archiveBytes?: WireCount
@@ -108,6 +113,47 @@ export function isViewOnly(row: DataKindRow | undefined) {
     row.state === 'paused' &&
     row.hasBackupSource === false
   )
+}
+
+/**
+ * On, with no source it can back up (`sourceReviewRequired`): browsing with
+ * no browser profile chosen; conversations with no approved folder here (an
+ * import left none) or with every tool switched off. While one kind is
+ * like this, the backend keeps the other on. `state` is the one shown,
+ * which may be a change still on its way.
+ */
+export function needsSourceReview(
+  row: DataKindRow | undefined,
+  state = row?.state,
+) {
+  return state === 'on' && row?.sourceReviewRequired === true
+}
+
+/**
+ * Conversations on with nothing here to back up. Which way out depends on
+ * the sources: with no approved folder here the enable dialog chooses them
+ * (`agentReviewKind`); with approved folders whose tools are all switched
+ * off, switching one on is enough.
+ */
+export function agentNeedsReview(row: DataKindRow | undefined) {
+  return row?.kind === 'agent-history' && needsSourceReview(row)
+}
+
+/** What on with nothing to back up needs, from the approved folders here. */
+export function agentReviewKind(
+  row: DataKindRow | undefined,
+  approvedHere: boolean | undefined,
+): 'choose-folders' | 'switch-on' | undefined {
+  if (!agentNeedsReview(row) || approvedHere === undefined) return undefined
+  return approvedHere ? 'switch-on' : 'choose-folders'
+}
+
+/**
+ * Conversations that back nothing up here and need the enable dialog to
+ * choose folders: view-only, or on without an approved folder.
+ */
+export function needsAgentSetup(row: DataKindRow | undefined) {
+  return isViewOnly(row) || agentNeedsReview(row)
 }
 
 export interface AgentPolicy {
@@ -240,6 +286,8 @@ export interface RootInventory {
   dateBasis: 'filesystem-modified'
   earliestAt: number | null
   latestAt: number | null
+  /** Which folder this is; compared with an approved source's token. */
+  directoryToken?: string
 }
 
 export interface ToolInventory extends InventoryCounts {

@@ -78,6 +78,12 @@ export const agentTasks = defineMessages({
       git: 'The project’s .git couldn’t be read.',
       attachment: 'An attachment it points to couldn’t be read.',
       unsaved: 'Something PathKeep was asked to save wasn’t saved.',
+      outputLimit:
+        'Some tool outputs it points to were past the size PathKeep keeps, so they weren’t saved.',
+      attachmentMissing:
+        'A file it points to was gone by the time of the backup, so it wasn’t saved.',
+      attachmentUnreadable:
+        'A file it points to couldn’t be read (no permission, or a read error), so it wasn’t saved.',
     },
     notes: {
       empty: 'An empty file: it holds no conversation yet.',
@@ -106,6 +112,7 @@ export const agentTasks = defineMessages({
     formatNotice:
       'PathKeep can’t read {tool} format {version} yet. Its files are saved as they are and will be readable after an update.',
     states: {
+      queued: 'Starting',
       running: 'Running',
       cancelling: 'Stopping',
       succeeded: 'Done',
@@ -116,6 +123,8 @@ export const agentTasks = defineMessages({
     reasons: {
       cancelled: 'You cancelled it.',
       ownerRestarted: 'PathKeep closed while it ran.',
+      terminalPublication:
+        'The disk wasn’t available when it came to record the end, so it was recorded later. What it saved is kept.',
       other: 'It ended with “{code}”.',
     },
     actions: {
@@ -125,6 +134,7 @@ export const agentTasks = defineMessages({
       retryLabel: 'Try “{name}” again',
       dismiss: 'Dismiss',
       dismissLabel: 'Dismiss “{name}” from Needs a look',
+      dismissNoticeLabel: 'Dismiss the notice about {tool} format {version}',
     },
     control: {
       failed: 'Couldn’t do that',
@@ -133,7 +143,7 @@ export const agentTasks = defineMessages({
       finishing: 'It’s finishing up and can’t be stopped now.',
       busy: 'Another backup is running. Try again when it has finished.',
       previewRequired:
-        'The folders this backup read have changed since. Look at them again on the backup page before backing them up.',
+        'This backup can’t run again as it was: its folders or choices changed since. Back up now reads what is chosen today.',
       openBackupPage: 'Open the backup page',
     },
     group: {
@@ -235,6 +245,11 @@ export const agentTasks = defineMessages({
       git: '项目的 .git 读不到。',
       attachment: '它指向的附件读不到。',
       unsaved: '有要保存的东西没存下来。',
+      outputLimit:
+        '它指向的一些工具输出超过 PathKeep 保留的大小，所以没有存下来。',
+      attachmentMissing: '它指向的文件在备份时已经不在了，所以没有存下来。',
+      attachmentUnreadable:
+        '它指向的文件读不了（没有权限或读取出错），所以没有存下来。',
     },
     notes: {
       empty: '空文件：里面还没有对话。',
@@ -256,6 +271,7 @@ export const agentTasks = defineMessages({
     formatNotice:
       'PathKeep 还读不懂 {tool} 的格式 {version}。它的文件照原样存下了，更新 PathKeep 之后就能读。',
     states: {
+      queued: '正在开始',
       running: '正在跑',
       cancelling: '正在停下',
       succeeded: '完成',
@@ -266,6 +282,8 @@ export const agentTasks = defineMessages({
     reasons: {
       cancelled: '你取消了它。',
       ownerRestarted: '它跑的时候 PathKeep 关掉了。',
+      terminalPublication:
+        '记录结束时磁盘用不了，所以晚一点才记下。它存下的都还在。',
       other: '结束时是「{code}」。',
     },
     actions: {
@@ -275,6 +293,7 @@ export const agentTasks = defineMessages({
       retryLabel: '再试一次「{name}」',
       dismiss: '收起',
       dismissLabel: '从「需要你看一下」收起「{name}」',
+      dismissNoticeLabel: '收起 {tool} 格式 {version} 的提醒',
     },
     control: {
       failed: '没能做到',
@@ -282,7 +301,7 @@ export const agentTasks = defineMessages({
       finishing: '它正在收尾，现在不能停。',
       busy: '另一个备份正在跑。等它做完再试一次。',
       previewRequired:
-        '这次备份读过的文件夹后来变了。先到备份页再看一次，再备份它们。',
+        '这次备份没办法照原样再跑：它的文件夹或选择后来变了。「立即备份」会照现在的选择读。',
       openBackupPage: '打开备份页',
     },
     group: {
@@ -381,6 +400,11 @@ export const agentTasks = defineMessages({
       git: '專案的 .git 讀不到。',
       attachment: '它指向的附件讀不到。',
       unsaved: '有要保存的東西沒存下來。',
+      outputLimit:
+        '它指向的一些工具輸出超過 PathKeep 保留的大小，所以沒有存下來。',
+      attachmentMissing: '它指向的檔案在備份時已經不在了，所以沒有存下來。',
+      attachmentUnreadable:
+        '它指向的檔案讀不了（沒有權限或讀取出錯），所以沒有存下來。',
     },
     notes: {
       empty: '空檔案：裡面還沒有對話。',
@@ -402,6 +426,7 @@ export const agentTasks = defineMessages({
     formatNotice:
       'PathKeep 還讀不懂 {tool} 的格式 {version}。它的檔案照原樣存下了，更新 PathKeep 之後就能讀。',
     states: {
+      queued: '正在開始',
       running: '正在跑',
       cancelling: '正在停下',
       succeeded: '完成',
@@ -412,6 +437,8 @@ export const agentTasks = defineMessages({
     reasons: {
       cancelled: '你取消了它。',
       ownerRestarted: '它跑的時候 PathKeep 關掉了。',
+      terminalPublication:
+        '記錄結束時磁碟用不了，所以晚一點才記下。它存下的都還在。',
       other: '結束時是「{code}」。',
     },
     actions: {
@@ -421,6 +448,7 @@ export const agentTasks = defineMessages({
       retryLabel: '再試一次「{name}」',
       dismiss: '收起',
       dismissLabel: '從「需要你看一下」收起「{name}」',
+      dismissNoticeLabel: '收起 {tool} 格式 {version} 的提醒',
     },
     control: {
       failed: '沒能做到',
@@ -428,7 +456,7 @@ export const agentTasks = defineMessages({
       finishing: '它正在收尾，現在不能停。',
       busy: '另一個備份正在跑。等它做完再試一次。',
       previewRequired:
-        '這次備份讀過的資料夾後來變了。先到備份頁再看一次，再備份它們。',
+        '這次備份沒辦法照原樣再跑：它的資料夾或選擇後來變了。「立即備份」會照現在的選擇讀。',
       openBackupPage: '打開備份頁',
     },
     group: {

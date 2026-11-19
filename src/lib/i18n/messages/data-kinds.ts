@@ -79,6 +79,18 @@ export const dataKinds = defineMessages({
       viewOnly:
         'This computer isn’t backing conversations up yet. The archive holds conversations saved on another computer, and you can read and search them.',
       setUp: 'Set up backup…',
+      heldOn:
+        '“{name}” has to stay on: “{other}” is on but has nothing to back up until its sources are chosen.',
+      review: {
+        browsing:
+          'On, but no browser profile is chosen, so nothing is backed up. Choose which browsers to back up.',
+        agent:
+          'On, but nothing on this computer is chosen to back up, so nothing is backed up. Everything saved is still here.',
+        chooseBrowsers: 'Choose browsers',
+        chooseSources: 'Choose sources',
+      },
+      sourceSelectionEmpty:
+        'That would leave PathKeep with nothing to back up. Choose another source, or turn on the other kind of data, first.',
       stoppedBackup_one:
         'The backup of {name} that was running stopped. What it saved stays in the archive.',
       stoppedBackup_other:
@@ -174,6 +186,18 @@ export const dataKinds = defineMessages({
       viewOnly:
         '这台电脑还没在备份对话。存档里有另一台电脑存下的对话，可以照常阅读和搜索。',
       setUp: '设置备份…',
+      heldOn:
+        '「{other}」开着，但还没有可以备份的来源，所以在选好它的来源之前，「{name}」得一直开着。',
+      review: {
+        browsing:
+          '开着，但没有选任何浏览器配置文件，所以什么都没在备份。选一下要备份哪些浏览器。',
+        agent:
+          '开着，但这台电脑上没有选任何要备份的来源，所以什么都没在备份。已经存下的都还在。',
+        chooseBrowsers: '选择浏览器',
+        chooseSources: '选择来源',
+      },
+      sourceSelectionEmpty:
+        '这样 PathKeep 就没有东西可以备份了。先选另一个来源，或者先打开另一种数据。',
       stoppedBackup_one: '正在进行的{name}备份已停下，已存的都还在存档里。',
       stoppedBackup_other:
         '{count} 个正在进行的{name}备份已停下，已存的都还在存档里。',
@@ -264,6 +288,18 @@ export const dataKinds = defineMessages({
       viewOnly:
         '這台電腦還沒在備份對話。存檔裡有另一台電腦存下的對話，可以照常閱讀和搜尋。',
       setUp: '設定備份…',
+      heldOn:
+        '「{other}」開著，但還沒有可以備份的來源，所以在選好它的來源之前，「{name}」得一直開著。',
+      review: {
+        browsing:
+          '開著，但沒有選任何瀏覽器設定檔，所以什麼都沒在備份。選一下要備份哪些瀏覽器。',
+        agent:
+          '開著，但這台電腦上沒有選任何要備份的來源，所以什麼都沒在備份。已經存下的都還在。',
+        chooseBrowsers: '選擇瀏覽器',
+        chooseSources: '選擇來源',
+      },
+      sourceSelectionEmpty:
+        '這樣 PathKeep 就沒有東西可以備份了。先選另一個來源，或先打開另一種資料。',
       stoppedBackup_one: '正在進行的{name}備份已停下，已存的都還在存檔裡。',
       stoppedBackup_other:
         '{count} 個正在進行的{name}備份已停下，已存的都還在存檔裡。',

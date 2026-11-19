@@ -1,24 +1,22 @@
 /**
  * Format versions PathKeep cannot read yet, on the Agent backup page: one
- * card per backup that met them first, saying which tool and version, that
- * the files are saved as they are, and that an update will read them, with
- * Dismiss; and the same list with Dismiss in that backup's details.
- * Dismissed, a version stays quiet for good; a newer version raises a card
- * of its own.
+ * card per backup that met them first, each notice saying which tool and
+ * version, that the files are saved as they are, and that an update will
+ * read them, with a Dismiss of its own; and the same list in that backup's
+ * details. Dismissing a notice puts away only that tool and version: a
+ * backup that also could not save something stays under Needs a look.
+ * Dismissed, a version stays quiet for good; a newer one raises its own.
  *
  * Responsibilities: finding the backups that still carry a notice (the
- * "needs a look" tasks) and dismissing one.
+ * "needs a look" tasks, or the run's own task).
  * Not responsible for: the words (`words.ts`) or what Dismiss does
  * (`use-task-control.ts`).
  */
 import { Info } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import type { FormatNotice, KindTask } from '@/lib/backend-client/agent-backup'
-import { useI18n } from '@/lib/i18n'
 import { useKindTasks } from '@/lib/queries/agent-backup'
-import { FormatNotices } from './run-entries'
+import { NoticeLine } from './notice-line'
 import { useTaskControl } from './use-task-control'
-import { formatNoticeText, taskName } from './words'
 
 /** Conversation backups whose format notices nobody has dismissed. */
 function useFormatNoticeTasks(): KindTask[] {
@@ -29,46 +27,33 @@ function useFormatNoticeTasks(): KindTask[] {
   )
 }
 
-function DismissButton({ task }: { task: KindTask }) {
-  const { t } = useI18n()
-  const control = useTaskControl()
-  if (!task.actions.includes('dismiss')) return null
-  return (
-    <Button
-      size="sm"
-      variant="outline"
-      className="w-fit"
-      aria-label={t('agentTasks.actions.dismissLabel', {
-        name: taskName(t, task),
-      })}
-      disabled={control.busy !== null}
-      onClick={() => void control.send(task, 'dismiss')}
-    >
-      {t('agentTasks.actions.dismiss')}
-    </Button>
-  )
-}
-
-/** In a backup's details: its notices still waiting, and Dismiss. */
+/** In a backup's details: its notices still waiting, each with Dismiss. */
 export function RunFormatNotices({
-  runRef,
+  task,
   notices,
 }: {
-  runRef: string
+  /** The run's own task (`get_archive_run`), when it has one. */
+  task: KindTask | undefined
   notices: readonly FormatNotice[]
 }) {
-  const task = useFormatNoticeTasks().find((item) => item.runRef === runRef)
+  const control = useTaskControl()
   return (
-    <>
-      <FormatNotices notices={notices} />
-      {task && <DismissButton task={task} />}
-    </>
+    <ul className="flex flex-col gap-1.5">
+      {notices.map((notice) => (
+        <li
+          key={`${notice.tool}-${notice.version}`}
+          className="rounded-lg border border-brand/25 bg-brand-soft px-3 py-2 text-[13px]"
+        >
+          <NoticeLine notice={notice} task={task} control={control} />
+        </li>
+      ))}
+    </ul>
   )
 }
 
 export function FormatNoticeCards() {
-  const { t } = useI18n()
   const tasks = useFormatNoticeTasks()
+  const control = useTaskControl()
   if (tasks.length === 0) return null
   return (
     <>
@@ -77,23 +62,22 @@ export function FormatNoticeCards() {
           key={task.taskId}
           role="status"
           data-format-notice-task={task.taskId}
-          className="flex flex-wrap items-start gap-3 rounded-xl border bg-card px-5 py-3.5 text-[13px] duration-200 animate-in fade-in-0 slide-in-from-top-1"
+          className="flex animate-in items-start gap-3 rounded-xl border bg-card px-5 py-3.5 text-[13px] duration-200 fade-in-0 slide-in-from-top-1"
         >
           <Info
             aria-hidden
-            className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+            className="mt-1 size-4 shrink-0 text-muted-foreground"
           />
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             {task.formatNotices!.map((notice) => (
-              <span
+              <NoticeLine
                 key={`${notice.tool}-${notice.version}`}
-                data-format-notice={`${notice.tool}@${notice.version}`}
-              >
-                {formatNoticeText(t, notice)}
-              </span>
+                notice={notice}
+                task={task}
+                control={control}
+              />
             ))}
           </div>
-          <DismissButton task={task} />
         </div>
       ))}
     </>

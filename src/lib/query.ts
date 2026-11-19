@@ -52,6 +52,8 @@ export const queryKeys = {
     ['archive', 'agent', 'runs', policyToken] as const,
   /** One run's detail, Agent or browsing, by its public reference. */
   archiveRun: (runRef: string) => ['archive', 'run', runRef] as const,
+  /** Every cached run's details, whichever ledger. */
+  archiveRuns: ['archive', 'run'] as const,
   /** The first save the enable dialog started in this session; cleared by the lock. */
   firstSave: ['first-save'] as const,
   /** Prefix for background tasks that live in the backend (conversation backups). */

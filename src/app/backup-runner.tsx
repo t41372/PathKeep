@@ -1,7 +1,8 @@
 /**
  * Runs a manual backup and reports progress. Lives above the router so Home,
  * Backup, the command palette and onboarding share one run and one progress
- * state.
+ * state. A backup that skipped browsing because it is paused or off says
+ * so, from here and from the menu bar.
  */
 import {
   createContext,
@@ -26,6 +27,7 @@ import {
 import { subscribeToBackupProgress } from '@/lib/ipc/backup-progress'
 import { subscribeToBackupFinished } from '@/lib/ipc/desktop-events'
 import { useI18n } from '@/lib/i18n'
+import { kindSkipReason, kindSkipSentence } from './backup-skips'
 import { queryClient, queryKeys } from '@/lib/query'
 import type { BackupProgressEvent, BackupReport } from '@/lib/types'
 
@@ -35,9 +37,12 @@ export type BackupOutcome =
   | { ok: false; error: unknown; report?: BackupReport }
 
 interface RunOptions {
+  /** The browsing page's own button: it backs browsing up even while paused. */
   kindSpecific?: boolean
   /** Onboarding shows the result itself, so it turns the toasts off. */
   toast?: boolean
+  /** The caller says itself that browsing was skipped ("Back up everything"). */
+  quietSkip?: boolean
 }
 
 interface BackupRunnerValue {
@@ -98,6 +103,14 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
     },
     [t],
   )
+  /** A run skipped because browsing is paused or off: say so. */
+  const announceSkipped = useCallback(
+    (report: BackupReport) => {
+      const reason = kindSkipReason(report.reasonCode)
+      if (reason) toast(kindSkipSentence(t, { kind: 'browsing', reason }))
+    },
+    [t],
+  )
   /** The translated sentence for a failed run's code, when it has one. */
   const failureCopy = useCallback(
     (error: unknown) =>
@@ -124,17 +137,22 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
       if (event.source !== 'menu-bar') return
       if (event.report) {
         setLastReport(event.report)
-        if (!event.report.dueSkipped) announceDone(event.report)
+        if (event.report.dueSkipped) announceSkipped(event.report)
+        else announceDone(event.report)
       } else {
         announceFailed(event.error)
       }
       void refreshAfterArchiveChange().catch(() => undefined)
     })
     return () => void unsubscribe.then((stop) => stop())
-  }, [announceDone, announceFailed])
+  }, [announceDone, announceFailed, announceSkipped])
 
   const run = useCallback(
-    async ({ toast: notify = true, kindSpecific = false }: RunOptions = {}) => {
+    async ({
+      toast: notify = true,
+      kindSpecific = false,
+      quietSkip = false,
+    }: RunOptions = {}) => {
       if (runningRef.current) return null
       runningRef.current = true
       setRunning(true)
@@ -143,7 +161,9 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
       try {
         const report = await archiveClient.runBackupNow(false, kindSpecific)
         setLastReport(report)
-        if (notify && !report.dueSkipped) announceDone(report)
+        if (notify && report.dueSkipped) {
+          if (!quietSkip) announceSkipped(report)
+        } else if (notify) announceDone(report)
         await refreshAfterArchiveChange()
         // A partial run still saved what it read; its warnings say what it left out.
         return { ok: true, report } as const
@@ -158,7 +178,7 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
         setProgress(null)
       }
     },
-    [announceDone, announceFailed],
+    [announceDone, announceFailed, announceSkipped],
   )
 
   const value = useMemo(

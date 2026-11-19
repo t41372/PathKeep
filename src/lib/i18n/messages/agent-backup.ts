@@ -40,6 +40,15 @@ export const agentBackup = defineMessages({
       body: 'The archive holds conversations saved on another computer, and you can read and search them. To keep this computer’s conversations too, see first what PathKeep would read.',
       setUp: 'Set up backup…',
     },
+    review: {
+      title: 'Choose the folders to back up again',
+      body: 'Agent conversations are on, but no folder on this computer is approved for backing up (an archive brought in from elsewhere doesn’t carry this computer’s approvals), so nothing is backed up now. Everything saved is still here. Look at the folders on this computer and choose them.',
+      choose: 'Choose folders…',
+    },
+    switchOn: {
+      title: 'Every tool is switched off',
+      body: 'Agent conversations are on, but no tool under Sources is switched on, so nothing is backed up. Switch one on, or pause Agent conversations in Manage data types.',
+    },
     first: {
       running:
         'The first backup is still running. What it has saved so far is already in the archive.',
@@ -129,6 +138,11 @@ export const agentBackup = defineMessages({
         body: 'Only the repo’s root folder, which repo a worktree belongs to, the current branch and the remote URL, to put the folders of one project together. Once a folder is deleted this can’t be found out any more, so it is noted at backup time. It never reads code or changes any file.',
       },
       saveFailed: 'Couldn’t change the sources',
+      lookAgain: 'Look at it again…',
+      lastSource:
+        '{name} is the only source of Agent conversations, and they are the only kind of data that’s on, so it can’t be switched off. Turn on another tool or browsing history first.',
+      lastSourceRefused:
+        'That would leave PathKeep with nothing to back up. Turn on another tool or browsing history first.',
       more: 'Show more sources',
     },
     add: {
@@ -161,6 +175,17 @@ export const agentBackup = defineMessages({
       title: 'Rescan {name}',
       body: 'PathKeep looks at the folder again and counts what is in it now. It doesn’t back anything up.',
     },
+    renew: {
+      title: 'Look at {name}’s folder again',
+      body: 'The folder at {path} isn’t the one you approved: it was deleted and made again, or another disk is there now. PathKeep looks at it and only counts files; it backs it up only once you approve it again.',
+      replaced_one:
+        'This is a different folder from the one you approved. Approve it to back it up from now on.',
+      replaced_other:
+        '{count} of these are different folders from the ones you approved. Approve them to back them up from now on.',
+      same: 'It’s the folder you approved; nothing to approve again.',
+      none: 'There’s no folder here that PathKeep can read and approve.',
+      confirm: 'Approve and back up',
+    },
     runs: {
       title: 'Recent backups',
       allFine: '{time} · all fine',
@@ -184,6 +209,8 @@ export const agentBackup = defineMessages({
       archive: {
         doctor: 'Health check of the whole archive',
         retention_prune: 'Clean-up of the whole archive',
+        rekey: 'Password or encryption change of the whole archive',
+        archive_restore: 'The whole archive restored from a copy',
         other: 'Work on the whole archive',
       },
     },
@@ -239,6 +266,7 @@ export const agentBackup = defineMessages({
     footer: {
       all: 'To back up every kind at once, use “Back up everything now” in the background tasks menu at the bottom left.',
       size: 'Agent conversations take about {size} in the archive ({source} at the source).',
+      counting: 'Counting the size in the archive…',
     },
   },
   'zh-CN': {
@@ -272,6 +300,15 @@ export const agentBackup = defineMessages({
       title: '这台电脑还没有备份对话',
       body: '存档里有在别的电脑上存下的对话，可以看、可以搜。也要保存这台电脑上的对话的话，先看看 PathKeep 会读什么。',
       setUp: '设置备份…',
+    },
+    review: {
+      title: '重新选择要备份的文件夹',
+      body: 'Agent 对话开着，但这台电脑上没有核准备份的文件夹（从别处搬进来的存档不带这台电脑的核准），所以现在什么都没在备份。已经存下的都还在。看一下这台电脑上的文件夹，再选一次。',
+      choose: '选择文件夹…',
+    },
+    switchOn: {
+      title: '所有工具都关着',
+      body: 'Agent 对话开着，但「来源」里没有打开任何工具，所以什么都没在备份。打开一个，或者到「管理数据类型」把 Agent 对话暂停。',
     },
     first: {
       running: '第一次备份还在跑。已经存下的部分已经在存档里了。',
@@ -359,6 +396,11 @@ export const agentBackup = defineMessages({
         body: '只看 repo 的根目录、worktree 属于哪个 repo、当前分支、远程地址，用来把同一个项目的文件夹并在一起。文件夹删掉之后就查不到了，所以要在备份当下记下来。不读代码，也不改任何文件。',
       },
       saveFailed: '没能改来源',
+      lookAgain: '再看一次…',
+      lastSource:
+        '{name} 是 Agent 对话唯一的来源，而现在只开着这一种数据，所以没办法关掉它。先打开另一个工具或浏览记录。',
+      lastSourceRefused:
+        '这样 PathKeep 就没有东西可以备份了。先打开另一个工具或浏览记录。',
       more: '显示更多来源',
     },
     add: {
@@ -389,6 +431,17 @@ export const agentBackup = defineMessages({
       title: '重新扫描 {name}',
       body: 'PathKeep 重新看一次这个文件夹，数一数现在里面有什么。它不备份任何东西。',
     },
+    renew: {
+      title: '再看一次 {name} 的文件夹',
+      body: '{path} 这个文件夹已经不是你核准的那一个：它被删掉又重建了，或者现在接的是另一个磁盘。PathKeep 会看一下，只数文件；要等你再核准一次才会备份它。',
+      replaced_one:
+        '这是另一个文件夹，不是你核准的那一个。核准之后，往后就备份它。',
+      replaced_other:
+        '其中 {count} 个是另外的文件夹，不是你核准的那些。核准之后，往后就备份它们。',
+      same: '还是你核准的那个文件夹，不用再核准。',
+      none: '这里没有 PathKeep 读得到、可以核准的文件夹。',
+      confirm: '核准并备份',
+    },
     runs: {
       title: '最近的备份',
       allFine: '{time} · 都正常',
@@ -412,6 +465,8 @@ export const agentBackup = defineMessages({
       archive: {
         doctor: '检查整个存档',
         retention_prune: '清理整个存档',
+        rekey: '更改整个存档的密码或加密',
+        archive_restore: '从副本还原整个存档',
         other: '对整个存档做的事',
       },
     },
@@ -467,6 +522,7 @@ export const agentBackup = defineMessages({
     footer: {
       all: '要一次备份全部类型，用左下角后台任务菜单里的「全部立即备份」。',
       size: '存档里的 Agent 对话约 {size}（来源 {source}）。',
+      counting: '正在计算存档里的大小…',
     },
   },
   'zh-TW': {
@@ -500,6 +556,15 @@ export const agentBackup = defineMessages({
       title: '這台電腦還沒有備份對話',
       body: '存檔裡有在別的電腦上存下的對話，可以看、可以搜。也要保存這台電腦上的對話的話，先看看 PathKeep 會讀什麼。',
       setUp: '設定備份…',
+    },
+    review: {
+      title: '重新選擇要備份的資料夾',
+      body: 'Agent 對話開著，但這台電腦上沒有核准備份的資料夾（從別處搬進來的存檔不帶這台電腦的核准），所以現在什麼都沒在備份。已經存下的都還在。看一下這台電腦上的資料夾，再選一次。',
+      choose: '選擇資料夾…',
+    },
+    switchOn: {
+      title: '所有工具都關著',
+      body: 'Agent 對話開著，但「來源」裡沒有打開任何工具，所以什麼都沒在備份。打開一個，或到「管理資料類型」把 Agent 對話暫停。',
     },
     first: {
       running: '第一次備份還在跑。已經存下的部分已經在存檔裡了。',
@@ -587,6 +652,11 @@ export const agentBackup = defineMessages({
         body: '只看 repo 的根目錄、worktree 屬於哪個 repo、目前分支、遠端網址，用來把同一個專案的資料夾併在一起。資料夾刪掉之後就查不到了，所以要在備份當下記下來。不讀程式碼，也不改任何檔案。',
       },
       saveFailed: '沒能改來源',
+      lookAgain: '再看一次…',
+      lastSource:
+        '{name} 是 Agent 對話唯一的來源，而現在只開著這一種資料，所以沒辦法關掉它。先打開另一個工具或瀏覽紀錄。',
+      lastSourceRefused:
+        '這樣 PathKeep 就沒有東西可以備份了。先打開另一個工具或瀏覽紀錄。',
       more: '顯示更多來源',
     },
     add: {
@@ -617,6 +687,17 @@ export const agentBackup = defineMessages({
       title: '重新掃描 {name}',
       body: 'PathKeep 重新看一次這個資料夾，數一數現在裡面有什麼。它不備份任何東西。',
     },
+    renew: {
+      title: '再看一次 {name} 的資料夾',
+      body: '{path} 這個資料夾已經不是你核准的那一個：它被刪掉又重建了，或現在接的是另一個磁碟。PathKeep 會看一下，只數檔案；要等你再核准一次才會備份它。',
+      replaced_one:
+        '這是另一個資料夾，不是你核准的那一個。核准之後，往後就備份它。',
+      replaced_other:
+        '其中 {count} 個是另外的資料夾，不是你核准的那些。核准之後，往後就備份它們。',
+      same: '還是你核准的那個資料夾，不用再核准。',
+      none: '這裡沒有 PathKeep 讀得到、可以核准的資料夾。',
+      confirm: '核准並備份',
+    },
     runs: {
       title: '最近的備份',
       allFine: '{time} · 都正常',
@@ -640,6 +721,8 @@ export const agentBackup = defineMessages({
       archive: {
         doctor: '檢查整個存檔',
         retention_prune: '清理整個存檔',
+        rekey: '更改整個存檔的密碼或加密',
+        archive_restore: '從副本還原整個存檔',
         other: '對整個存檔做的事',
       },
     },
@@ -695,6 +778,7 @@ export const agentBackup = defineMessages({
     footer: {
       all: '要一次備份全部類型，用左下角背景任務選單裡的「全部立即備份」。',
       size: '存檔裡的 Agent 對話約 {size}（來源 {source}）。',
+      counting: '正在計算存檔裡的大小…',
     },
   },
 })

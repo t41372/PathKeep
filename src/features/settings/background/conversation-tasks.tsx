@@ -1,9 +1,9 @@
 /**
  * Conversation backups in Settings › Background work, while Agent
- * conversations are on or paused: what needs a look (Try again, Dismiss;
- * a backup that met a format version PathKeep cannot read yet says which,
- * and offers only Dismiss), what runs now (Cancel) with its progress in
- * real units, and what finished
+ * conversations are on or paused: what needs a look (Try again, Dismiss
+ * for what was not saved; a format version PathKeep cannot read yet, each
+ * with a Dismiss of its own that leaves the rest), what runs now (Cancel)
+ * with its progress in real units, and what finished
  * today. Each group pages through the backend's cursor, so a year of hourly
  * backups never loads at once. A row opens its run on the Agent backup page.
  *
@@ -23,7 +23,11 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { KindTask, TaskGroup } from '@/lib/backend-client/agent-backup'
+import type {
+  KindTask,
+  TaskAction,
+  TaskGroup,
+} from '@/lib/backend-client/agent-backup'
 import { cn } from '@/lib/cn'
 import { useFormat, useI18n, type MessageKey } from '@/lib/i18n'
 import {
@@ -32,15 +36,19 @@ import {
   useKindTasks,
 } from '@/lib/queries/agent-backup'
 import { spaceBackupPath } from '@/lib/spaces'
-import { useTaskControl } from '@/features/agent-backup/use-task-control'
+import { NoticeLine } from '@/features/agent-backup/notice-line'
 import {
-  formatNoticeText,
+  actionKey,
+  useTaskControl,
+} from '@/features/agent-backup/use-task-control'
+import {
   taskName,
   taskProgressText,
   taskReasonText,
 } from '@/features/agent-backup/words'
 
 const stateWords: Record<KindTask['state'], MessageKey> = {
+  queued: 'agentTasks.states.queued',
   running: 'agentTasks.states.running',
   cancelling: 'agentTasks.states.cancelling',
   succeeded: 'agentTasks.states.succeeded',
@@ -50,6 +58,7 @@ const stateWords: Record<KindTask['state'], MessageKey> = {
 }
 
 const stateStyle: Record<KindTask['state'], string> = {
+  queued: 'bg-muted text-muted-foreground',
   running: 'bg-brand-soft text-brand',
   cancelling: 'bg-muted text-muted-foreground',
   succeeded: 'bg-green/12 text-green',
@@ -74,8 +83,8 @@ function TaskRow({
     'agent',
     `?run=${encodeURIComponent(task.runRef)}`,
   )
-  const pressing = (action: string) =>
-    control.busy === `${task.taskId}:${action}`
+  const pressing = (action: TaskAction) =>
+    control.busy === actionKey(task, action)
   return (
     <li
       data-task-id={task.taskId}
@@ -154,13 +163,13 @@ function TaskRow({
         <span className="text-xs text-muted-foreground">{reason}</span>
       )}
       {task.formatNotices?.map((notice) => (
-        <span
+        <NoticeLine
           key={`${notice.tool}-${notice.version}`}
-          data-format-notice={`${notice.tool}@${notice.version}`}
+          notice={notice}
+          task={task}
+          control={control}
           className="text-xs text-foreground"
-        >
-          {formatNoticeText(t, notice)}
-        </span>
+        />
       ))}
     </li>
   )

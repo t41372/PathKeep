@@ -47,10 +47,26 @@ export interface ToolProgress {
   newChildren: WireCount
 }
 
+/**
+ * `queued`: a first save the backend has recorded but not yet begun; it
+ * offers no action for that moment and reads as still at work.
+ */
 export type TaskState =
-  'running' | 'cancelling' | 'succeeded' | 'partial' | 'interrupted' | 'failed'
+  | 'queued'
+  | 'running'
+  | 'cancelling'
+  | 'succeeded'
+  | 'partial'
+  | 'interrupted'
+  | 'failed'
 
-export type TaskAction = 'cancel' | 'retry' | 'dismiss' | 'pause' | 'resume'
+/**
+ * `dismiss` puts away what was not saved; `dismiss-notice` one format
+ * notice (with its `notice`). A task can offer both, and each leaves the
+ * other in place.
+ */
+export type TaskAction =
+  'cancel' | 'retry' | 'dismiss' | 'dismiss-notice' | 'pause' | 'resume'
 
 /**
  * A conversation backup as a background task. `snapshotToken` changes with
@@ -242,6 +258,11 @@ export interface ArchiveRunDetail extends ArchiveRun {
   perTool?: RunTool[]
   coverage?: { state: string; reasons: string[] }
   nextCursor?: string
+  /**
+   * The run's task with its actions and current token, for a conversation
+   * run started from the app, also after a restart or the next day.
+   */
+  task?: KindTask
 }
 
 /** What the archive holds of one source, from what backups committed. */
@@ -277,6 +298,11 @@ export interface AgentSource {
   sourceBytes: WireCount | null
   /** The tool deletes old conversations unless told otherwise (Claude Code). */
   autoDeletesByDefault: boolean
+  /**
+   * Which folder at `path` was approved. A folder made again at the same
+   * path has another token, and is read only once approved again.
+   */
+  directoryToken?: string
   /** The last run that read this folder. */
   lastRun?: string
   /** Why the last run could not read it, or not all of it. */
@@ -304,8 +330,11 @@ export interface AgentOverview extends SourceCounts {
   lastRun?: ArchiveRun
   /** The backup running now. */
   activeTask?: FirstSave
-  /** Bytes the saved conversations take in the archive. */
-  archiveBytes: WireCount
+  /**
+   * Bytes the saved conversations take in the archive. Counting reads the
+   * archive files, so the backup page asks for it after it is drawn.
+   */
+  archiveBytes?: WireCount
 }
 
 /** The run a request started, or the one already running. */
@@ -433,13 +462,21 @@ export const agentBackupClient = {
     call<CursorPage<KindTask>>('list_background_tasks', {
       request: { group, limit, ...(cursor ? { cursor } : {}) },
     }),
+  /** `notice` names the one format notice `dismiss-notice` puts away. */
   control: (
     taskId: string,
     action: TaskAction,
     expectedToken: string,
     requestId: string,
+    notice?: FormatNotice,
   ) =>
     call<ControlResult>('control_background_task', {
-      request: { taskId, action, expectedToken, requestId },
+      request: {
+        taskId,
+        action,
+        expectedToken,
+        requestId,
+        ...(notice ? { notice } : {}),
+      },
     }),
 }

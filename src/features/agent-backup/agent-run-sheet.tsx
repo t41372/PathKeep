@@ -4,9 +4,12 @@
  * when, how long, what started it, whether it read `.git`, what it counted,
  * each tool and folder, what it could not save, the format versions it met
  * that PathKeep cannot read yet, and the notes it left on files it saved
- * (a run with only notes succeeded, and says so), a page at a time. A run of the
+ * (a run with only notes succeeded, and says so), a page at a time; with
+ * Try again and Dismiss from the run's own task, so an attempt from before
+ * a restart or yesterday can still be retried. A run of the
  * browsing ledger (work on the whole archive, or an old numeric link) opens
- * the browsing page's own sheet, which already shows those.
+ * the browsing page's own sheet, which already shows those, once its full
+ * reference is known to still name it.
  */
 import { useState, type ReactNode } from 'react'
 import {
@@ -18,9 +21,11 @@ import {
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { RotateCcw } from 'lucide-react'
 import type {
   AgentRunSummary,
   ArchiveRunDetail,
+  KindTask,
 } from '@/lib/backend-client/agent-backup'
 import { dataKindsErrorCode } from '@/lib/backend-client/data-kinds'
 import { describeError } from '@/lib/errors'
@@ -36,7 +41,8 @@ import { RunResultIcon } from './recent-runs'
 import { useRunParam } from './run-param'
 import { RunFormatNotices } from './format-notice-card'
 import { NoteEntry, WarningEntry } from './run-entries'
-import { availabilityText, runTook } from './words'
+import { useTaskControl } from './use-task-control'
+import { availabilityText, runTook, taskName } from './words'
 
 const resultWords: Record<string, MessageKey> = {
   running: 'agentBackup.run.result.running',
@@ -98,6 +104,46 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
+/**
+ * Try again and Dismiss for the run itself, from its own task: also for an
+ * attempt from before a restart or yesterday, which no list shows now.
+ */
+function RunActions({ task }: { task: KindTask }) {
+  const { t } = useI18n()
+  const control = useTaskControl()
+  const name = taskName(t, task)
+  const retry = task.actions.includes('retry')
+  const dismiss = task.actions.includes('dismiss')
+  if (!retry && !dismiss) return null
+  return (
+    <div className="flex flex-wrap gap-2">
+      {retry && (
+        <Button
+          size="sm"
+          variant="outline"
+          aria-label={t('agentTasks.actions.retryLabel', { name })}
+          disabled={control.busy !== null}
+          onClick={() => void control.send(task, 'retry')}
+        >
+          <RotateCcw aria-hidden />
+          {t('agentTasks.actions.retry')}
+        </Button>
+      )}
+      {dismiss && (
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label={t('agentTasks.actions.dismissLabel', { name })}
+          disabled={control.busy !== null}
+          onClick={() => void control.send(task, 'dismiss')}
+        >
+          {t('agentTasks.actions.dismiss')}
+        </Button>
+      )}
+    </div>
+  )
+}
+
 function Detail({
   detail,
   more,
@@ -120,6 +166,7 @@ function Detail({
   const counted = detail.noteCount != null
   return (
     <div className="flex flex-col gap-5 px-4 pb-6 text-[13px]">
+      {detail.task && <RunActions task={detail.task} />}
       <dl className="flex flex-col gap-2">
         <Fact label={t('agentBackup.run.started')}>
           {format.dayAndTime(detail.startedAt ?? 0)}
@@ -230,7 +277,7 @@ function Detail({
         >
           <h3 className="font-medium">{t('agentBackup.run.formats')}</h3>
           <RunFormatNotices
-            runRef={detail.runRef}
+            task={detail.task}
             notices={detail.formatNotices!}
           />
         </section>
@@ -344,6 +391,47 @@ function AgentRun({
   )
 }
 
+/**
+ * A run of the browsing ledger by its full reference. The number alone
+ * could name another run once the archive was restored or brought in (its
+ * ledger starts again), so the reference is checked first; one that names
+ * nothing any more says so instead of opening whatever has that number now.
+ */
+function BrowsingRun({
+  runRef,
+  open,
+  onClose,
+}: {
+  runRef: string
+  open: boolean
+  onClose: () => void
+}) {
+  const { t } = useI18n()
+  const qualified = runRef.startsWith('browsing:')
+  const check = useArchiveRun(qualified ? runRef : null)
+  const missing = dataKindsErrorCode(check.error) === 'record-unavailable'
+  if (qualified && missing)
+    return (
+      <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
+        <SheetContent className="w-[460px] sm:max-w-[460px]">
+          <SheetHeader>
+            <SheetTitle>{t('agentBackup.runs.title')}</SheetTitle>
+            <SheetDescription>{t('agentBackup.run.notFound')}</SheetDescription>
+          </SheetHeader>
+        </SheetContent>
+      </Sheet>
+    )
+  // An answer that is not "missing" (also a refusal for another reason)
+  // leaves it to the browsing sheet, which says what went wrong.
+  const checked = !qualified || check.isSuccess || check.isError
+  return (
+    <RunSheet
+      runId={open && checked ? browsingRunId(runRef) : null}
+      onClose={onClose}
+    />
+  )
+}
+
 /** The sheet for `?run=`, whichever ledger the run is in. */
 export function AgentRunSheet() {
   const { runRef, close } = useRunParam()
@@ -353,10 +441,5 @@ export function AgentRunSheet() {
   if (last === null) return null
   if (last.startsWith('agent-history:'))
     return <AgentRun runRef={last} open={runRef !== null} onClose={close} />
-  return (
-    <RunSheet
-      runId={runRef === null ? null : browsingRunId(last)}
-      onClose={close}
-    />
-  )
+  return <BrowsingRun runRef={last} open={runRef !== null} onClose={close} />
 }

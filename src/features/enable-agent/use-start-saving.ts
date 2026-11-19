@@ -21,7 +21,7 @@ import {
 import {
   dataKindsClient,
   dataKindsErrorCode,
-  isViewOnly,
+  needsAgentSetup,
   type AgentToolId,
   type DataKindList,
   type PreviewReport,
@@ -77,7 +77,7 @@ async function send(
   })
 }
 
-/** Whether the kind is still waiting to be turned on here. */
+/** Whether the kind still waits to be turned on, or for its folders to be chosen, here. */
 async function stillOff() {
   const list = await queryClient.fetchQuery({
     queryKey: queryKeys.dataKinds,
@@ -85,7 +85,7 @@ async function stillOff() {
     staleTime: 0,
   })
   const row = list.kinds.find((item) => item.kind === 'agent-history')
-  return row?.state === 'off' || isViewOnly(row)
+  return row?.state === 'off' || needsAgentSetup(row)
 }
 
 function showOn(result: EnableResult) {

@@ -58,6 +58,10 @@ export const enableAgent = defineMessages({
       failed: 'The preview didn’t finish',
       expired:
         'This preview is more than five minutes old, and the folders may have changed since. Run it again before saving.',
+      unknownFiles_one:
+        '{count} other file in these folders isn’t one PathKeep recognises, so it isn’t counted or saved.',
+      unknownFiles_other:
+        '{count} other files in these folders aren’t ones PathKeep recognises, so they aren’t counted or saved.',
       nothingFound: {
         title: 'No Agent tool folders on this computer',
         body: 'PathKeep looks for the folders of Claude Code, Codex, Pi and DeepSeek Harness. Once one of them is installed and has been used, check again.',
@@ -218,6 +222,10 @@ export const enableAgent = defineMessages({
       runAgain: '重新预览',
       failed: '预览没有完成',
       expired: '这份预览已经超过五分钟，文件夹可能变了。保存之前再预览一次。',
+      unknownFiles_one:
+        '这些文件夹里还有 {count} 个 PathKeep 认不出来的文件，不计入，也不保存。',
+      unknownFiles_other:
+        '这些文件夹里还有 {count} 个 PathKeep 认不出来的文件，不计入，也不保存。',
       nothingFound: {
         title: '这台电脑上没有找到 Agent 工具的文件夹',
         body: 'PathKeep 会寻找 Claude Code、Codex、Pi、DeepSeek Harness 的文件夹。装好并使用过之后，再检查一次。',
@@ -362,6 +370,10 @@ export const enableAgent = defineMessages({
       runAgain: '重新預覽',
       failed: '預覽沒有完成',
       expired: '這份預覽已經超過五分鐘，資料夾可能變了。保存之前再預覽一次。',
+      unknownFiles_one:
+        '這些資料夾裡還有 {count} 個 PathKeep 認不出來的檔案，不計入，也不保存。',
+      unknownFiles_other:
+        '這些資料夾裡還有 {count} 個 PathKeep 認不出來的檔案，不計入，也不保存。',
       nothingFound: {
         title: '這台電腦上沒有找到 Agent 工具的資料夾',
         body: 'PathKeep 會尋找 Claude Code、Codex、Pi、DeepSeek Harness 的資料夾。裝好並使用過之後，再檢查一次。',

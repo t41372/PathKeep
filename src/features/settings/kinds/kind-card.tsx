@@ -8,8 +8,13 @@
  * says which file is damaged or unreadable, when that was found, that
  * browsing is unaffected, and offers to try again (`store-damage.tsx`).
  * Agent conversations held from another computer, with nothing here
- * backed up, say so and offer to set backup up. The size in the archive
- * joins the line once it is counted, after the cards are drawn.
+ * backed up, say so and offer to set backup up. A kind that is on with
+ * nothing it can back up (browsing with no browser chosen; conversations
+ * whose approved folders did not come with an imported archive) says so
+ * and opens its backup page, where its sources are chosen; while it does,
+ * the other kind
+ * cannot be paused or turned off either, and says why. The size in the
+ * archive joins the line once it is counted, after the cards are drawn.
  */
 import { useId } from 'react'
 import { Button } from '@/components/ui/button'
@@ -17,6 +22,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
   isViewOnly,
+  needsSourceReview,
   type DataKindRow,
   type KindState,
 } from '@/lib/backend-client/data-kinds'
@@ -89,6 +95,7 @@ export function KindCard({
   row,
   shownState,
   lastOn,
+  heldBy,
   busy,
   sources,
   archiveBytes,
@@ -96,6 +103,7 @@ export function KindCard({
   onChange,
   onRetry,
   onSetUp,
+  onReview,
 }: {
   space: DataSpace
   row: DataKindRow
@@ -103,6 +111,11 @@ export function KindCard({
   shownState: KindState
   /** The only kind on: it can be neither paused nor turned off. */
   lastOn: boolean
+  /**
+   * The other kind is on but has nothing to back up, so this one has to
+   * stay on until that one's sources are chosen.
+   */
+  heldBy: DataKindRow | undefined
   busy: boolean
   sources: SourcesLine
   /** Its size in the archive, once counted (`list_data_kinds` with sizes). */
@@ -113,6 +126,8 @@ export function KindCard({
   onRetry: () => void
   /** Opens the preview, for conversations kept from another computer. */
   onSetUp: () => void
+  /** Opens where this kind's sources are chosen again. */
+  onReview: () => void
 }) {
   const { t } = useI18n()
   const format = useFormat()
@@ -122,6 +137,8 @@ export function KindCard({
   const count = holding(t, row)
   const hint = t(stateHint[shownState])
   const notReady = row.availability === 'not-initialized'
+  const held = !lastOn && heldBy !== undefined
+  const reviewing = needsSourceReview(row)
 
   return (
     <section
@@ -150,7 +167,7 @@ export function KindCard({
             if (value) onChange(value as KindState)
           }}
           aria-label={t('dataKinds.manage.stateLabel', { name })}
-          aria-describedby={lastOn ? reasonId : undefined}
+          aria-describedby={lastOn || held ? reasonId : undefined}
           className="transition-opacity data-[disabled]:opacity-80"
         >
           {STATES.map((state) => (
@@ -158,7 +175,7 @@ export function KindCard({
               key={state}
               value={state}
               className="px-3"
-              disabled={lastOn && state !== 'on'}
+              disabled={(lastOn || held) && state !== 'on'}
             >
               {t(stateLabel[state])}
             </ToggleGroupItem>
@@ -169,6 +186,18 @@ export function KindCard({
         {lastOn && (
           <p id={reasonId} className="text-xs text-foreground">
             {t('dataKinds.manage.lastOn', { name })}
+          </p>
+        )}
+        {held && (
+          <p id={reasonId} className="text-xs text-foreground">
+            {t('dataKinds.manage.heldOn', {
+              name,
+              other: t(
+                heldBy.kind === 'browsing'
+                  ? 'spaces.browsing.name'
+                  : 'spaces.agent.name',
+              ),
+            })}
           </p>
         )}
         <p className="text-xs text-muted-foreground">
@@ -191,6 +220,24 @@ export function KindCard({
             </p>
             <Button size="sm" variant="outline" onClick={onSetUp}>
               {t('dataKinds.manage.setUp')}
+            </Button>
+          </div>
+        )}
+        {reviewing && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <p className="max-w-[60ch] flex-1 text-xs text-foreground">
+              {t(
+                row.kind === 'browsing'
+                  ? 'dataKinds.manage.review.browsing'
+                  : 'dataKinds.manage.review.agent',
+              )}
+            </p>
+            <Button size="sm" variant="outline" onClick={onReview}>
+              {t(
+                row.kind === 'browsing'
+                  ? 'dataKinds.manage.review.chooseBrowsers'
+                  : 'dataKinds.manage.review.chooseSources',
+              )}
             </Button>
           </div>
         )}

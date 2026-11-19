@@ -61,6 +61,8 @@ export function RunResultIcon({ result }: { result: string }) {
 const archiveWork: Record<string, MessageKey> = {
   doctor: 'agentBackup.runs.archive.doctor',
   retention_prune: 'agentBackup.runs.archive.retention_prune',
+  rekey: 'agentBackup.runs.archive.rekey',
+  archive_restore: 'agentBackup.runs.archive.archive_restore',
 }
 
 /** What the run did, in this space's terms. */

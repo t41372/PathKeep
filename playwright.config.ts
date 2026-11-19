@@ -249,6 +249,7 @@ export default defineConfig({
         'agent-backup-6-lock.spec.ts',
         'agent-backup-7-locales.spec.ts',
         'agent-backup-8-format-notice.spec.ts',
+        'agent-backup-9-replaced-folder.spec.ts',
       ],
       'change',
     ),

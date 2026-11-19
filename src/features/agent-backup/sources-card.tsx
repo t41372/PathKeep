@@ -18,9 +18,16 @@ import type { AgentOverview } from '@/lib/backend-client/agent-backup'
 import type { AgentToolId } from '@/lib/backend-client/data-kinds'
 import { useI18n } from '@/lib/i18n'
 import { useAgentSources } from '@/lib/queries/agent-backup'
-import { useAgentSettings, useDetectedSources } from '@/lib/queries/data-kinds'
+import { kindStateOf } from '@/lib/spaces'
+import { useRenewParam } from './review-param'
+import {
+  useAgentSettings,
+  useDataKinds,
+  useDetectedSources,
+} from '@/lib/queries/data-kinds'
 import { CardError } from '@/components/app/section-card'
 import { foundAgentTools } from '@/features/data-kinds/presence'
+import { toolName } from '@/features/data-kinds/tools'
 import {
   SourcePreviewDialog,
   type SourceDialogMode,
@@ -58,6 +65,7 @@ export function SourcesCard({
 }) {
   const { t } = useI18n()
   const noteId = useId()
+  const lastId = useId()
   const gitTitle = useId()
   const gitBody = useId()
   const sources = useAgentSources()
@@ -78,9 +86,47 @@ export function SourcesCard({
     () => toolRows(items, overview, found),
     [items, overview, found],
   )
-  const approved = items.flatMap((item) => (item.rootId ? [item.rootId] : []))
+  const approved = useMemo(
+    () =>
+      items.flatMap((item) =>
+        item.rootId
+          ? [{ rootId: item.rootId, directoryToken: item.directoryToken }]
+          : [],
+      ),
+    [items],
+  )
   const locked = running || viewOnly
   const readGit = settings.data?.policy.readGit ?? true
+  // The only kind on cannot lose its last source: the backend refuses, so
+  // that switch does not offer it (a folder not plugged in still counts).
+  const kinds = useDataKinds()
+  const soleOn =
+    kindStateOf(kinds.data, 'agent-history') === 'on' &&
+    kindStateOf(kinds.data, 'browsing') !== 'on'
+  const backedUp = rows.filter((row) => row.enabled && row.roots.length > 0)
+  const lastTool =
+    soleOn && backedUp.length === 1 ? backedUp[0].tool : undefined
+
+  // A folder to look at again, asked for by the address (a retry, a link).
+  const renew = useRenewParam()
+  const renewing = renew.rootId
+    ? items.find((item) => item.rootId === renew.rootId)
+    : undefined
+  const renewTool = renewing?.tool
+  const renewPath = renewing?.path
+  const renewRoot = renewing?.rootId
+  const asked = useMemo<SourceDialogMode | null>(
+    () =>
+      renewTool && renewPath && renewRoot
+        ? { mode: 'renew', tool: renewTool, path: renewPath, rootId: renewRoot }
+        : null,
+    [renewTool, renewPath, renewRoot],
+  )
+  const shownDialog = dialog ?? asked
+  const closeDialog = () => {
+    setDialog(null)
+    if (renew.rootId) renew.clear()
+  }
 
   const onSwitch = async (tool: AgentToolId, on: boolean) => {
     const outcome = await changes.setTool(tool, on)
@@ -124,6 +170,16 @@ export function SourcesCard({
           )}
         </p>
       )}
+      {!locked && lastTool && (
+        <p
+          id={lastId}
+          className="border-t bg-muted/30 px-5 py-2 text-xs text-muted-foreground"
+        >
+          {t('agentBackup.sources.lastSource', {
+            name: t(toolName(lastTool)),
+          })}
+        </p>
+      )}
       {sources.isError && !sources.data ? (
         <div className="border-t px-5 py-4">
           <CardError
@@ -150,16 +206,43 @@ export function SourcesCard({
               row={row}
               locked={locked}
               pending={changes.pending === row.tool}
+              lastSourceNote={row.tool === lastTool ? lastId : undefined}
               onSwitch={(on) => void onSwitch(row.tool, on)}
-              onRescan={() =>
+              onRenew={(root) =>
+                root.rootId &&
+                root.path &&
                 setDialog({
-                  mode: 'rescan',
-                  tool: row.tool,
-                  rootIds: row.roots.flatMap((root) =>
-                    root.rootId ? [root.rootId] : [],
-                  ),
+                  mode: 'renew',
+                  tool: root.tool,
+                  path: root.path,
+                  rootId: root.rootId,
                 })
               }
+              onRescan={() => {
+                // A look by id refuses a replaced folder: look at it by path.
+                const changed = row.roots.find(
+                  (root) =>
+                    root.availability === 'root-changed' &&
+                    root.rootId &&
+                    root.path,
+                )
+                setDialog(
+                  changed
+                    ? {
+                        mode: 'renew',
+                        tool: changed.tool,
+                        path: changed.path!,
+                        rootId: changed.rootId!,
+                      }
+                    : {
+                        mode: 'rescan',
+                        tool: row.tool,
+                        rootIds: row.roots.flatMap((root) =>
+                          root.rootId ? [root.rootId] : [],
+                        ),
+                      },
+                )
+              }}
             />
           ))}
         </ul>
@@ -201,9 +284,9 @@ export function SourcesCard({
         />
       </div>
       <SourcePreviewDialog
-        dialog={dialog}
-        approvedRootIds={approved}
-        onClose={() => setDialog(null)}
+        dialog={shownDialog}
+        approved={approved}
+        onClose={closeDialog}
       />
     </section>
   )

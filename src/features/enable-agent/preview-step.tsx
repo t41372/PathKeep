@@ -6,8 +6,11 @@
  *
  * Every state of the walk has its own face: counting (running count and a
  * way to stop), stopped, failed (with the reason and another try), no tool
- * folder on this computer (where it looked, and another check), and a
- * finished preview gone stale (run it again).
+ * folder on this computer (where it looked, and another check; a walk
+ * that found no folder at all answers with no rows, and then the places
+ * come from the presence check), and a finished preview gone stale (run it
+ * again). Files in the folders that PathKeep does not recognise, and so
+ * neither counts nor saves, are said in one line under the table.
  */
 import {
   CircleAlert,
@@ -28,6 +31,7 @@ import {
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n, type MessageKey } from '@/lib/i18n'
 import { PREVIEW_CONNECTION_LOST } from '@/lib/ipc/agent-preview-stream'
+import { useDetectedSources } from '@/lib/queries/data-kinds'
 import { lookedIn, shownRows, wire } from './preview-model'
 import { PreviewTable } from './preview-table'
 import type { PreviewState } from './use-agent-preview'
@@ -180,37 +184,20 @@ export function PreviewWalk({
   }
 
   const rows = shownRows(state.report.rows)
-  if (rows.length === 0) {
-    const places = lookedIn(state.report.rows)
+  if (rows.length === 0)
     return (
-      <Notice
-        tone="info"
-        title={t('enableAgent.preview.nothingFound.title')}
-        action={
-          <Button variant="outline" size="sm" onClick={onRerun}>
-            <RotateCcw aria-hidden />
-            {t('enableAgent.preview.nothingFound.checkAgain')}
-          </Button>
-        }
-      >
-        <p>{t('enableAgent.preview.nothingFound.body')}</p>
-        {places.length > 0 && (
-          <>
-            <p>{t('enableAgent.preview.nothingFound.lookedIn')}</p>
-            <ul className="flex max-h-32 flex-col gap-0.5 overflow-y-auto font-mono text-xs [overflow-wrap:anywhere]">
-              {places.map((place) => (
-                <li key={place}>{place}</li>
-              ))}
-            </ul>
-          </>
-        )}
-      </Notice>
+      <NothingFound places={lookedIn(state.report.rows)} onRerun={onRerun} />
     )
-  }
+  const unknown = wire(state.report.totals.unknownFiles)
 
   return (
     <div className="flex flex-col gap-2.5">
       <PreviewTable rows={rows} counting={false} />
+      {unknown > 0 && (
+        <p className="text-xs text-muted-foreground tabular">
+          {t('enableAgent.preview.unknownFiles', { count: unknown })}
+        </p>
+      )}
       {state.expired && (
         <Notice
           tone="info"
@@ -224,6 +211,58 @@ export function PreviewWalk({
         />
       )}
     </div>
+  )
+}
+
+/**
+ * No tool folder on this computer. A walk that met missing folders lists
+ * them; one that found none at all has no rows, so the places come from
+ * the presence check (which only looks whether each folder is there).
+ */
+function NothingFound({
+  places,
+  onRerun,
+}: {
+  places: string[]
+  onRerun: () => void
+}) {
+  const { t } = useI18n()
+  const presence = useDetectedSources(['agent-history'], places.length === 0)
+  const shown =
+    places.length > 0
+      ? places
+      : [
+          ...new Set(
+            (presence.data?.sources ?? []).flatMap((source) =>
+              source.kind === 'agent-history' && !source.found
+                ? [source.path]
+                : [],
+            ),
+          ),
+        ]
+  return (
+    <Notice
+      tone="info"
+      title={t('enableAgent.preview.nothingFound.title')}
+      action={
+        <Button variant="outline" size="sm" onClick={onRerun}>
+          <RotateCcw aria-hidden />
+          {t('enableAgent.preview.nothingFound.checkAgain')}
+        </Button>
+      }
+    >
+      <p>{t('enableAgent.preview.nothingFound.body')}</p>
+      {shown.length > 0 && (
+        <>
+          <p>{t('enableAgent.preview.nothingFound.lookedIn')}</p>
+          <ul className="flex max-h-32 flex-col gap-0.5 overflow-y-auto font-mono text-xs [overflow-wrap:anywhere]">
+            {shown.map((place) => (
+              <li key={place}>{place}</li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Notice>
   )
 }
 

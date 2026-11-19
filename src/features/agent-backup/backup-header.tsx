@@ -5,7 +5,9 @@
  * "Back up now", or while this kind backs up
  * a line of progress in real units and a bar that slides (no total is
  * known). Under it, the states the spec asks for: paused, this computer not
- * backing up yet, the first backup not finished, the last backup's problem.
+ * backing up yet, on with nothing to back up (no approved folder here:
+ * choose folders; or every tool switched off: switch one on), the first
+ * backup not finished, the last backup's problem.
  *
  * Not responsible for: starting the backup (`use-start-backup.ts`).
  */
@@ -150,12 +152,18 @@ export function BackupHeader({
   running,
   paused,
   viewOnly,
+  needsReview,
+  review,
 }: {
   overview: AgentOverview | undefined
   lastFinished: ArchiveRun | undefined
   running: KindTask | undefined
   paused: boolean
   viewOnly: boolean
+  /** On, with nothing to back up: "Back up now" would be refused. */
+  needsReview: boolean
+  /** Which way out, once the sources say (`agentReviewKind`). */
+  review: 'choose-folders' | 'switch-on' | undefined
 }) {
   const { t } = useI18n()
   const backup = useStartAgentBackup()
@@ -189,7 +197,8 @@ export function BackupHeader({
             {running ? (
               <Running task={running} />
             ) : (
-              !viewOnly && (
+              !viewOnly &&
+              !needsReview && (
                 <Button
                   className="h-9"
                   disabled={backup.starting}
@@ -214,6 +223,27 @@ export function BackupHeader({
           <span className="font-medium">{t('agentBackup.viewOnly.title')}</span>
           <span className="text-muted-foreground">
             {t('agentBackup.viewOnly.body')}
+          </span>
+        </Note>
+      ) : review === 'choose-folders' ? (
+        <Note
+          tone="warn"
+          action={
+            <Button size="sm" onClick={openEnable}>
+              {t('agentBackup.review.choose')}
+            </Button>
+          }
+        >
+          <span className="font-medium">{t('agentBackup.review.title')}</span>
+          <span className="text-muted-foreground">
+            {t('agentBackup.review.body')}
+          </span>
+        </Note>
+      ) : review === 'switch-on' ? (
+        <Note tone="warn">
+          <span className="font-medium">{t('agentBackup.switchOn.title')}</span>
+          <span className="text-muted-foreground">
+            {t('agentBackup.switchOn.body')}
           </span>
         </Note>
       ) : (

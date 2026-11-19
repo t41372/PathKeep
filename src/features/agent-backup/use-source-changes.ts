@@ -73,9 +73,11 @@ export function useSourceChanges() {
       await sendSourceChange(patch)
       return 'saved'
     } catch (error) {
-      if (dataKindsErrorCode(error) === 'enable-preview-required')
-        return 'needs-preview'
-      if (dataKindsErrorCode(error) !== 'lock-required')
+      const code = dataKindsErrorCode(error)
+      if (code === 'enable-preview-required') return 'needs-preview'
+      if (code === 'source-selection-empty')
+        toast.error(t('agentBackup.sources.lastSourceRefused'))
+      else if (code !== 'lock-required')
         toast.error(t('agentBackup.sources.saveFailed'), {
           description: describeError(error, 'update_agent_sources'),
         })

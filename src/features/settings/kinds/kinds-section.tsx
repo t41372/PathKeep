@@ -5,7 +5,8 @@
  *
  * Responsibilities: laying out one card per kind in the switcher's order,
  * from the backend's states and the sources found on this computer, and
- * working out which kind is the last one on. Sizes are asked for after the
+ * working out which kind is the last one on, or the one that has to stay on
+ * while the other has no sources to back up. Sizes are asked for after the
  * cards are drawn (counting them reads the archive files); until they
  * come, or if they cannot be counted, the cards just leave them out.
  * Not in this build: deleting one kind's saved data, which arrives with
@@ -14,14 +15,18 @@
 import { SettingsSection } from '@/components/app/setting-row'
 import { CardError } from '@/components/app/section-card'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { DetectedSources } from '@/lib/backend-client/data-kinds'
+import {
+  needsSourceReview,
+  type DetectedSources,
+} from '@/lib/backend-client/data-kinds'
 import { useI18n } from '@/lib/i18n'
 import {
   useDataKinds,
   useDataKindSizes,
   useDetectedSources,
 } from '@/lib/queries/data-kinds'
-import { spaces, type DataSpace } from '@/lib/spaces'
+import { useNavigate } from 'react-router-dom'
+import { spaceBackupPath, spaces, type DataSpace } from '@/lib/spaces'
 import { foundAgentTools, foundBrowsers } from '@/features/data-kinds/presence'
 import { useRetryStore } from '@/features/data-kinds/use-retry-store'
 import { toolName } from '@/features/data-kinds/tools'
@@ -77,6 +82,12 @@ export function KindsSection() {
     ? list.kinds.filter((row) => (pending[row.kind] ?? row.state) === 'on')
         .length
     : 0
+  // A kind on with nothing it can back up does not count: the other one
+  // has to stay on until its sources are chosen.
+  const waiting = list?.kinds.find((row) =>
+    needsSourceReview(row, pending[row.kind] ?? row.state),
+  )
+  const navigate = useNavigate()
 
   return (
     <SettingsSection title={t('dataKinds.manage.title')}>
@@ -101,6 +112,11 @@ export function KindsSection() {
               row={row}
               shownState={shownState}
               lastOn={shownState === 'on' && onCount === 1}
+              heldBy={
+                shownState === 'on' && waiting && waiting.kind !== space.kind
+                  ? waiting
+                  : undefined
+              }
               busy={pending[space.kind] !== undefined}
               sources={sourcesOf(space, detected, t)}
               archiveBytes={
@@ -111,6 +127,7 @@ export function KindsSection() {
               onChange={(next) => void change(space, list, next)}
               onRetry={() => void retry.retry()}
               onSetUp={openEnable}
+              onReview={() => navigate(spaceBackupPath(space.id))}
             />
           )
         })

@@ -141,6 +141,9 @@ export function warningKey(code: string, counted = true): MessageKey {
     return 'agentTasks.warnings.destination'
   if (code === 'archive-publication-failed')
     return 'agentTasks.warnings.writeFailed'
+  if (code === 'pi-local-output-limit') return 'agentTasks.warnings.outputLimit'
+  if (code === 'authority_unavailable')
+    return 'agentTasks.warnings.attachmentUnreadable'
   if (/layout-unrecognized|layout_unrecognized/.test(code))
     return 'agentTasks.warnings.layout'
   if (/depth/.test(code)) return 'agentTasks.warnings.tooDeep'
@@ -173,6 +176,24 @@ export function warningKey(code: string, counted = true): MessageKey {
   if (/malformed|invalid/.test(code)) return 'agentTasks.warnings.damaged'
   if (/symlink|special-file/.test(code)) return 'agentTasks.warnings.skipped'
   return 'agentTasks.warnings.other'
+}
+
+/**
+ * Something a run could not save, as a sentence: an attachment it points
+ * to that is gone reads differently from one it could not read.
+ */
+export function warningText(
+  t: Translator,
+  warning: { code: string; detail?: string | null },
+  counted: boolean,
+) {
+  if (warning.code === 'attachment_not_retained') {
+    if (warning.detail === 'missing')
+      return t('agentTasks.warnings.attachmentMissing')
+    if (warning.detail === 'authority_unavailable')
+      return t('agentTasks.warnings.attachmentUnreadable')
+  }
+  return t(warningKey(warning.code, counted))
 }
 
 /** Note codes a person reads the same way, from every code the capture emits. */
@@ -270,6 +291,8 @@ export function taskReasonText(t: Translator, reason: string | undefined) {
   if (reason === 'cancelled') return t('agentTasks.reasons.cancelled')
   if (reason === 'owner-restarted')
     return t('agentTasks.reasons.ownerRestarted')
+  if (reason === 'terminal-publication-failed')
+    return t('agentTasks.reasons.terminalPublication')
   return t('agentTasks.reasons.other', { code: reason })
 }
 

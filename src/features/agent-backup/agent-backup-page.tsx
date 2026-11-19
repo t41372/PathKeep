@@ -18,14 +18,17 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CardError } from '@/components/app/section-card'
 import { FluidPage } from '@/components/app/fluid-page'
 import type { ArchiveRun } from '@/lib/backend-client/agent-backup'
+import { agentReviewKind } from '@/lib/backend-client/data-kinds'
 import { useFormat, useI18n } from '@/lib/i18n'
 import {
   useAgentKind,
   useAgentOverview,
   useAgentRuns,
+  useAgentSources,
   useTaskSummary,
   wireNumber,
 } from '@/lib/queries/agent-backup'
+import { useDataKindSizes } from '@/lib/queries/data-kinds'
 import { spaceById } from '@/lib/spaces'
 import { ScheduleCard } from '@/features/backup/schedule-card'
 import { StoreDamage } from '@/features/data-kinds/store-damage'
@@ -59,23 +62,47 @@ function lastFinished(runs: readonly ArchiveRun[], fallback?: ArchiveRun) {
   return fallback && fallback.result !== 'running' ? fallback : undefined
 }
 
-function Footer({
-  archiveBytes,
-  sourceBytes,
-}: {
-  archiveBytes: string
-  sourceBytes: string
-}) {
+/** Stands for the size in the sentence until it is counted. */
+const SIZE_SLOT = '\u0000'
+
+/**
+ * The size in the archive, asked for after the page is drawn (counting it
+ * reads the archive files): a placeholder of about its width holds the
+ * line until it comes, so nothing moves.
+ */
+function Footer({ sourceBytes }: { sourceBytes: string }) {
   const { t } = useI18n()
   const format = useFormat()
+  const sizes = useDataKindSizes()
+  const bytes = sizes.data?.kinds.find(
+    (row) => row.kind === 'agent-history',
+  )?.archiveBytes
+  const [before, after = ''] = t('agentBackup.footer.size', {
+    size: SIZE_SLOT,
+    source: format.bytes(wireNumber(sourceBytes)),
+  }).split(SIZE_SLOT)
   return (
     <div className="flex flex-col gap-1.5 px-1 text-[13px] text-muted-foreground">
       <span>{t('agentBackup.footer.all')}</span>
       <span className="tabular">
-        {t('agentBackup.footer.size', {
-          size: format.bytes(wireNumber(archiveBytes)),
-          source: format.bytes(wireNumber(sourceBytes)),
-        })}
+        {before}
+        {bytes !== undefined ? (
+          <span className="animate-in duration-200 fade-in-0">
+            {format.bytes(wireNumber(bytes))}
+          </span>
+        ) : sizes.isError || sizes.data ? (
+          // It could not be counted: the line stays whole without it.
+          '—'
+        ) : (
+          <>
+            <span className="sr-only">{t('agentBackup.footer.counting')}</span>
+            <Skeleton
+              aria-hidden
+              className="inline-block h-3 w-12 align-[-1px]"
+            />
+          </>
+        )}
+        {after}
       </span>
     </div>
   )
@@ -83,7 +110,12 @@ function Footer({
 
 export default function AgentBackupPage() {
   const { t } = useI18n()
-  const { kinds, row, viewOnly } = useAgentKind()
+  const { kinds, row, viewOnly, needsReview } = useAgentKind()
+  const sources = useAgentSources()
+  const approvedHere = sources.data?.pages.some((page) =>
+    page.items.some((item) => item.rootId !== null),
+  )
+  const review = agentReviewKind(row, approvedHere)
   const overview = useAgentOverview('backup')
   const runs = useAgentRuns()
   const summary = useTaskSummary()
@@ -142,6 +174,8 @@ export default function AgentBackupPage() {
         running={running}
         paused={row.state === 'paused'}
         viewOnly={viewOnly}
+        needsReview={needsReview}
+        review={review}
       />
       <FormatNoticeCards />
       {overview.isError && !data && (
@@ -163,17 +197,12 @@ export default function AgentBackupPage() {
           <SourcesCard
             overview={data}
             running={running !== undefined}
-            viewOnly={viewOnly}
+            viewOnly={viewOnly || review === 'choose-folders'}
           />
           <RecentRuns />
         </div>
       </div>
-      {data && (
-        <Footer
-          archiveBytes={data.archiveBytes}
-          sourceBytes={data.sourceBytes}
-        />
-      )}
+      {data && <Footer sourceBytes={data.sourceBytes} />}
       <AgentRunSheet />
     </FluidPage>
   )

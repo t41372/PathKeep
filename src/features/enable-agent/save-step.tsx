@@ -32,7 +32,7 @@ import {
   wireNumber,
 } from '@/lib/queries/agent-backup'
 import { ToolBadge } from '@/features/data-kinds/tool-badge'
-import { FormatNotices } from '@/features/agent-backup/run-entries'
+import { RunFormatNotices } from '@/features/agent-backup/format-notice-card'
 import { useTaskControl } from '@/features/agent-backup/use-task-control'
 import {
   availabilityText,
@@ -295,7 +295,7 @@ function EndedView({ shown, save }: { shown: ShownRun; save: ShownSave }) {
         </p>
       )}
       {(detail.formatNotices?.length ?? 0) > 0 && (
-        <FormatNotices notices={detail.formatNotices!} />
+        <RunFormatNotices task={detail.task} notices={detail.formatNotices!} />
       )}
       {detail.result === 'partial' && (
         <>
