@@ -375,7 +375,7 @@ pub(crate) fn header_fields(payload: &Value) -> Option<(&str, u64, i64)> {
 }
 
 pub(crate) fn parts(event: &NativeEvent, version: Option<u64>) -> Vec<RecordPart> {
-    if !version.is_some_and(|v| v <= CURRENT_VERSION) {
+    if version.is_none_or(|v| v > CURRENT_VERSION) {
         return Vec::new();
     }
     let kind = event.kind.as_str();
