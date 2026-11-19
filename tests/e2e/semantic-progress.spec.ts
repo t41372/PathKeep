@@ -69,10 +69,14 @@ test('updated visits and a later backup keep one truthful progress scope', async
       await expect(semantic).not.toBeChecked()
     }
     await semantic.click()
-    await idle()
+    // The build is admitted a moment after the click, so an idle queue right
+    // after it proves nothing. Wait for the index itself, then for the queue.
     await expect
-      .poll(async () => (await queue()).semanticIndex.chosenComplete)
+      .poll(async () => (await queue()).semanticIndex.chosenComplete, {
+        timeout: 240_000,
+      })
       .toBe(true)
+    await idle()
 
     // Chrome stores one title per URL. The fixture's append helper alone preserves the old title.
     for (const visit of updated) {
@@ -145,6 +149,17 @@ test('updated visits and a later backup keep one truthful progress scope', async
     service.release()
     await page.goto('/#/settings/ai')
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
+    // The same holds here: the queue can read idle before the paused job is
+    // back in it. Wait for that job to finish; the update it admits on
+    // finishing is in the queue by then, and `idle` waits for it.
+    await expect
+      .poll(
+        async () =>
+          (await queue()).recentJobs.find((job) => job.id === during.jobId)
+            ?.state,
+        { timeout: 240_000 },
+      )
+      .toBe('succeeded')
     await idle()
     const complete = await queue()
     // The job kept the scope it started with: its own counts, and no more.
