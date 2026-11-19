@@ -2,10 +2,15 @@
  * Changing a kind's state from Manage data types: on, paused or off.
  *
  * Responsibilities: showing the new state at once and going back to the
- * stored one if the backend refuses; sending Agent conversations that are
- * off through the preview instead (the backend refuses to turn them on any
- * other way); the toast after turning a kind off; and saying why a change
- * was refused (the last kind on, a change made elsewhere meanwhile).
+ * stored one if the backend refuses; sending "On" for Agent conversations
+ * through the preview when nothing on this computer is approved to back up
+ * (`hasBackupSource: false`, or the backend's `enable-preview-required`):
+ * with folders still approved here, "On" turns them back on directly, with
+ * no second first save; the toast after turning a kind off, and saying
+ * which running backup the change stopped; and saying why a change was
+ * refused (the last kind on, a change made elsewhere meanwhile). Pausing
+ * conversations that are off is allowed: they show, read-only, and the
+ * backend forgets the folders approved here.
  * Not responsible for: disabling what cannot be changed (the card does
  * that up front; the backend's `last-active-kind` stays the authority).
  */
@@ -37,10 +42,16 @@ export function useKindStateChange() {
     list: DataKindList,
     next: KindState,
   ) => {
-    const current = list.kinds.find((row) => row.kind === space.kind)?.state
+    const row = list.kinds.find((item) => item.kind === space.kind)
+    const current = row?.state
     if (!current || next === current || pending[space.kind]) return
-    // Agent conversations turn on only through the preview (`data-spaces.md` §2).
-    if (space.kind === 'agent-history' && current === 'off') {
+    // Agent conversations start backing up only through the preview
+    // (`data-spaces.md` §2) when no folder here is approved.
+    if (
+      space.kind === 'agent-history' &&
+      next === 'on' &&
+      row?.hasBackupSource === false
+    ) {
       openEnable()
       return
     }
@@ -57,7 +68,11 @@ export function useKindStateChange() {
         policyToken: result.policyToken,
       })
       void queryClient.invalidateQueries({ queryKey: queryKeys.agentSettings })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.kindTasks })
+      const stopped = result.affectedTasks?.length ?? 0
       if (next === 'off') toast(t('dataKinds.manage.turnedOff', { name }))
+      if (stopped > 0)
+        toast(t('dataKinds.manage.stoppedBackup', { name, count: stopped }))
     } catch (error) {
       if (isStoreDamage(error)) {
         // The card says which file and when, once the list is read again.

@@ -6,17 +6,28 @@
  * The last kind that is on cannot be paused or turned off: those choices
  * are disabled and the card says why. A kind whose storage will not open
  * says which file is damaged or unreadable, when that was found, that
- * browsing is unaffected, and offers to look again.
+ * browsing is unaffected, and offers to try again (`store-damage.tsx`).
+ * Agent conversations held from another computer, with nothing here
+ * backed up, say so and offer to set backup up. The size in the archive
+ * joins the line once it is counted, after the cards are drawn.
  */
-import { CircleAlert } from 'lucide-react'
 import { useId } from 'react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import type { DataKindRow, KindState } from '@/lib/backend-client/data-kinds'
-import { useI18n, type MessageKey, type Translator } from '@/lib/i18n'
+import {
+  isViewOnly,
+  type DataKindRow,
+  type KindState,
+} from '@/lib/backend-client/data-kinds'
+import {
+  useFormat,
+  useI18n,
+  type MessageKey,
+  type Translator,
+} from '@/lib/i18n'
 import type { DataSpace } from '@/lib/spaces'
-import { damageWords } from './kind-damage'
+import { StoreDamage } from '@/features/data-kinds/store-damage'
 
 const STATES: readonly KindState[] = ['on', 'paused', 'off']
 
@@ -73,50 +84,6 @@ function Sources({ sources }: { sources: SourcesLine }) {
   )
 }
 
-function Damage({
-  space,
-  row,
-  onRetry,
-}: {
-  space: DataSpace
-  row: DataKindRow
-  onRetry: () => void
-}) {
-  const { t } = useI18n()
-  return (
-    <div
-      role="alert"
-      className="flex gap-2 rounded-lg border bg-background/60 px-3 py-2.5 text-[13px]"
-    >
-      <CircleAlert
-        aria-hidden
-        className="mt-0.5 size-4 shrink-0 text-destructive"
-      />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="font-medium">
-          {t('dataKinds.damage.title', { name: t(space.name) })}
-        </span>
-        <span className="text-muted-foreground">
-          {[
-            ...damageWords(row.failure),
-            'dataKinds.damage.notAffected' as const,
-          ]
-            .map((key) => t(key))
-            .join(' ')}
-        </span>
-      </div>
-      <Button
-        variant="outline"
-        size="sm"
-        className="shrink-0 self-start"
-        onClick={onRetry}
-      >
-        {t('dataKinds.damage.retry')}
-      </Button>
-    </div>
-  )
-}
-
 export function KindCard({
   space,
   row,
@@ -124,8 +91,11 @@ export function KindCard({
   lastOn,
   busy,
   sources,
+  archiveBytes,
+  retrying,
   onChange,
   onRetry,
+  onSetUp,
 }: {
   space: DataSpace
   row: DataKindRow
@@ -135,11 +105,17 @@ export function KindCard({
   lastOn: boolean
   busy: boolean
   sources: SourcesLine
+  /** Its size in the archive, once counted (`list_data_kinds` with sizes). */
+  archiveBytes: string | undefined
+  retrying: boolean
   onChange: (next: KindState) => void
-  /** Asks the backend again whether the kind's storage opens. */
+  /** Asks the backend to open the kind's storage again. */
   onRetry: () => void
+  /** Opens the preview, for conversations kept from another computer. */
+  onSetUp: () => void
 }) {
   const { t } = useI18n()
+  const format = useFormat()
   const reasonId = useId()
   const Icon = space.icon
   const name = t(space.name)
@@ -200,10 +176,31 @@ export function KindCard({
             ? t('dataKinds.manage.notInitialized')
             : count === null
               ? t('dataKinds.manage.hintOnly', { hint })
-              : t('dataKinds.manage.holds', { hint, count })}
+              : archiveBytes === undefined
+                ? t('dataKinds.manage.holds', { hint, count })
+                : t('dataKinds.manage.holdsSize', {
+                    hint,
+                    count,
+                    size: format.bytes(Number(archiveBytes) || 0),
+                  })}
         </p>
+        {isViewOnly(row) && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <p className="max-w-[60ch] flex-1 text-xs text-foreground">
+              {t('dataKinds.manage.viewOnly')}
+            </p>
+            <Button size="sm" variant="outline" onClick={onSetUp}>
+              {t('dataKinds.manage.setUp')}
+            </Button>
+          </div>
+        )}
         {row.availability === 'unavailable' && (
-          <Damage space={space} row={row} onRetry={onRetry} />
+          <StoreDamage
+            space={space}
+            row={row}
+            busy={retrying}
+            onRetry={onRetry}
+          />
         )}
       </div>
     </section>

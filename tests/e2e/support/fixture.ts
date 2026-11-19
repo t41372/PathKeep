@@ -52,6 +52,20 @@ export function fixture(): Fixture {
 }
 
 /**
+ * Keeps what a mutator (`appendAgentTurns`, `deleteAgentConversation`, …)
+ * did to the tool folders for the specs after this one: they read the
+ * folders as they are now, not as first written.
+ */
+export function replaceAgents(next: SyntheticAgents) {
+  const file = process.env.PATHKEEP_E2E_FIXTURE
+  if (!file)
+    throw new Error('PATHKEEP_E2E_FIXTURE is not set; run via the E2E config.')
+  const current = fixture()
+  cached = { ...current, agents: next }
+  writeFileSync(file, JSON.stringify(cached))
+}
+
+/**
  * Makes the app fail at its checkpoint `name` (`fault_inject::checkpoint` in
  * vault-core) every time it gets there, until the returned function is called:
  * a file of that name in `PATHKEEP_TEST_FAULTS_DIR`, which debug builds read.

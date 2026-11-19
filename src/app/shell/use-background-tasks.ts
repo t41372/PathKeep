@@ -9,9 +9,14 @@
  *   which is read again when a backup or an import ends, when Settings
  *   starts index work, and when the queue reports a job ended;
  * - the last backup, which needs a look when it failed (the same signal as
- *   Home's backup status), until a backup succeeds.
+ *   Home's backup status), until a backup succeeds;
+ * - conversation backups (`get_task_summary`): those running, in the units
+ *   they have (no percentage: no total is known until they end), and how
+ *   many need a look. The frame keeps that answer current from the
+ *   backend's task events (`useAgentBackupSync`); it is read only while
+ *   Agent conversations are on or paused and their store opens.
  *
- * It adds no reads and no polling. So it leaves out what nothing follows
+ * It adds no polling. So it leaves out what nothing follows
  * outside Settings › Background work: the Insights queue's jobs, and a live
  * percentage for an index job (the snapshot's figure would stand still).
  *
@@ -24,7 +29,14 @@ import {
   useTakeoutImport,
 } from '@/features/backup/import-runner'
 import { useJobViews } from '@/features/settings/background/job-view'
-import { useI18n } from '@/lib/i18n'
+import { taskName, taskProgressText } from '@/features/agent-backup/words'
+import type { KindTask } from '@/lib/backend-client/agent-backup'
+import { useFormat, useI18n } from '@/lib/i18n'
+import {
+  useAgentKind,
+  useTaskSummary,
+  wireNumber,
+} from '@/lib/queries/agent-backup'
 import { useSnapshot } from '@/lib/queries/app'
 import type { ImportProgressEvent } from '@/lib/types'
 
@@ -36,6 +48,8 @@ export interface BackgroundTask {
   /** Not started reporting yet: "Preparing" instead of a percentage. */
   preparing: boolean
   detail: string | null
+  /** A conversation backup: the list offers its own Cancel. */
+  kindTask?: KindTask
 }
 
 export interface BackgroundTasks {
@@ -43,6 +57,8 @@ export interface BackgroundTasks {
   queued: number
   /** The last backup when it failed, to open its details. */
   failedRun: number | null
+  /** Conversation backups that need a look (Settings › Background work lists them). */
+  kindAttention: number
 }
 
 function clampPercent(value: number | null | undefined) {
@@ -53,7 +69,11 @@ function clampPercent(value: number | null | undefined) {
 
 export function useBackgroundTasks(): BackgroundTasks {
   const { t } = useI18n()
+  const format = useFormat()
   const backup = useBackupRunner()
+  const summaryQuery = useTaskSummary()
+  // A kind turned off keeps its last answer in the cache; it is not current.
+  const summary = useAgentKind().readable ? summaryQuery.data : undefined
   const takeout = useTakeoutImport().state
   const browserFile = useBrowserImport().state
   const { aiStatus, recentRuns } = useSnapshot()
@@ -137,14 +157,28 @@ export function useBackgroundTasks(): BackgroundTasks {
       })
     }
 
+    for (const task of summary?.running ?? []) {
+      running.push({
+        id: `kind-${task.taskId}`,
+        name: taskName(t, task),
+        percent: null,
+        preparing: false,
+        detail: taskProgressText(t, format.bytes, task),
+        kindTask: task,
+      })
+    }
+
     const last = recentRuns[0]
     return {
       running,
-      queued: aiStatus.queuedJobs,
+      queued: aiStatus.queuedJobs + (summary?.queuedCount ?? 0),
       failedRun: last?.status === 'failed' ? last.id : null,
+      kindAttention: wireNumber(summary?.attentionCount),
     }
   }, [
     t,
+    format,
+    summary,
     backup.running,
     backup.progress,
     takeout,

@@ -94,7 +94,11 @@ function Notice({
   )
 }
 
-function Walk({
+/**
+ * The walk itself: the table as folders are counted, then the result or
+ * what stopped it. Also the backup page's rescan and add-a-folder dialogs.
+ */
+export function PreviewWalk({
   state,
   onCancel,
   onRerun,
@@ -289,7 +293,7 @@ export function PreviewStep({
   const { t } = useI18n()
   return (
     <div className="flex flex-col gap-4">
-      <Walk state={state} onCancel={onCancel} onRerun={onRerun} />
+      <PreviewWalk state={state} onCancel={onCancel} onRerun={onRerun} />
       <p className="text-xs text-muted-foreground">
         {t('enableAgent.preview.nothingOpened')}
       </p>

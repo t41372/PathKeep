@@ -103,8 +103,11 @@ export interface Space extends DataSpace {
   backupPage: string
   /** One line for the switcher's menu, loaded when the menu opens. */
   Status: ComponentType
-  /** ⌘K's results group for this space. */
-  palette: {
+  /**
+   * ⌘K's results group for this space, and its "Search in" row. A space
+   * whose records cannot be searched yet has none.
+   */
+  palette?: {
     heading: MessageKey
     Results: ComponentType<PaletteResultsProps>
   }
@@ -174,10 +177,12 @@ const browsing = {
 } as const satisfies Space
 
 /**
- * Agent conversations. Its pages (insights, records, projects, backup;
- * `data-spaces-tradeoff.md` §4.1) come with the conversation read model and
- * the backup steps; until they are here the space is never shown as on, and
- * its addresses show the page for a kind that is off.
+ * Agent conversations. Its pages are insights, records, projects and
+ * backup (`data-spaces-tradeoff.md` §4.1); this build has the backup page,
+ * so for now it is also where the space opens and its list page, and ⌘K
+ * has no conversation results for it. Insights, records and projects come
+ * with the conversation read model: insights goes first (where the space
+ * opens), records becomes `listPage` with ⌘K's results and "Search in".
  */
 const agent = {
   id: 'agent',
@@ -188,7 +193,18 @@ const agent = {
   why: 'dataKinds.why.agent',
   icon: Bot,
   hue: 195,
-} as const satisfies DataSpace
+  pages: [
+    {
+      id: 'backup',
+      label: 'shell.nav.backup',
+      icon: HardDriveDownload,
+      screen: () => import('@/features/agent-backup/agent-backup-page'),
+    },
+  ],
+  listPage: 'backup',
+  backupPage: 'backup',
+  Status: lazy(() => import('@/features/agent-backup/agent-status')),
+} as const satisfies Space
 
 /** Every kind of data PathKeep can keep, in the switcher's order. */
 export const spaces = [browsing, agent] as const satisfies readonly DataSpace[]

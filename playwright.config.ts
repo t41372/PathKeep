@@ -14,7 +14,9 @@
  * Projects run in order, because they share one backend and one archive:
  * first-run (onboarding) → read (history, insights; nothing changes) →
  * change (background work, new visits, schedule, imports, lock, archive
- * password) → wipe (delete everything) → empty (a new archive with no visits,
+ * password) → agent (Agent conversations backed up; they stay on, with
+ * conversations in the archive, for every project after it) → restart …
+ * → wipe (delete everything) → empty (a new archive with no visits,
  * deleted again) → upgrade (an archive left by 0.3).
  */
 import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
@@ -101,6 +103,11 @@ function prepareFixture() {
     PATHKEEP_TEST_SAVE_DIR: path.join(root, 'saved'),
     // Lets export.spec.ts watch and stop an export of the small fixture. Debug only.
     PATHKEEP_TEST_EXPORT_ROW_DELAY_US: '500',
+    // Slows each file a conversation backup reads, so the agent-backup specs
+    // can watch its progress, cancel it, pause, lock or kill the app while it
+    // runs: Claude Code and Codex have about 45 files in the fixture, so a
+    // backup of the two takes about 13 s. Debug only.
+    PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US: '300000',
     // A file here fails the app's checkpoint of that name (`injectFault`). Debug only.
     PATHKEEP_TEST_FAULTS_DIR: path.join(root, 'faults'),
     // The launcher runs the app itself and starts it again when it exits
@@ -227,18 +234,36 @@ export default defineConfig({
       ],
       'zone',
     ),
+    // Agent conversations backed up for real: the first save, the backup
+    // page, the tasks. In name order: each starts from what the one before
+    // left (the first save, the mutated tool folders). After the change
+    // project, so App Lock is on and the previews there saw the kind off.
+    project(
+      'agent',
+      [
+        'agent-backup-1-first-save.spec.ts',
+        'agent-backup-2-background.spec.ts',
+        'agent-backup-3-second-backup.spec.ts',
+        'agent-backup-4-unreadable.spec.ts',
+        'agent-backup-5-pause-off.spec.ts',
+        'agent-backup-6-lock.spec.ts',
+        'agent-backup-7-locales.spec.ts',
+      ],
+      'change',
+    ),
     // They kill the app, or let it quit, and the launcher starts it again,
     // behind App Lock.
     project(
       'restart',
       [
+        'agent-backup-restart.spec.ts',
         'insights-reopen.spec.ts',
         'quit-during-work.spec.ts',
         'semantic-index.spec.ts',
         'semantic-progress.spec.ts',
         'takeout-continue.spec.ts',
       ],
-      'change',
+      'agent',
     ),
     // Large imports, after the semantic index is built so it does not embed
     // their pages (a project runs its files in name order, so not in restart).

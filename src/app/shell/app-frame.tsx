@@ -8,8 +8,9 @@
  * The rail follows the space of the page shown (`current-space.ts`), and
  * the panel fades when the space changes (`space-panel.tsx`). The frame
  * keeps the kinds of data's states current for the whole shell
- * (`useDataKindsSync`) and holds the dialog that turns Agent conversations
- * on, which `?enable=agent` opens over any screen.
+ * (`useDataKindsSync`), and conversation backups with their notices
+ * (`useAgentBackupNotices`), and holds the dialog that turns Agent
+ * conversations on, which `?enable=agent` opens over any screen.
  */
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -29,6 +30,7 @@ import { NavRail } from './nav-rail'
 import { SpacePanel } from './space-panel'
 import { useHistorySteps } from './use-history-steps'
 import { useEnableAgentParam } from '@/features/enable-agent/links'
+import { useAgentBackupNotices } from '@/features/agent-backup/use-backup-notices'
 
 const EnableAgentDialog = lazy(
   () => import('@/features/enable-agent/enable-agent-dialog'),
@@ -72,6 +74,7 @@ export function AppFrame() {
   }, [session, navigate, t])
 
   useDataKindsSync()
+  useAgentBackupNotices()
   useSpaceFromUrl(useLocation().pathname)
   const switchTo = useSwitchSpace()
 

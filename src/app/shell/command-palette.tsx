@@ -214,9 +214,18 @@ export function CommandPalette({
         )}
         {open &&
           term.length >= 2 &&
-          on.map((space) => (
-            <SpaceResults key={space.id} space={space} term={term} go={go} />
-          ))}
+          on.map(
+            (space) =>
+              space.palette && (
+                <SpaceResults
+                  key={space.id}
+                  space={space}
+                  palette={space.palette}
+                  term={term}
+                  go={go}
+                />
+              ),
+          )}
       </CommandList>
       <div className="flex gap-4 border-t px-3 py-2 text-[11px] text-muted-foreground">
         <span>↑↓ {t('shell.palette.hintNavigate')}</span>
@@ -229,17 +238,19 @@ export function CommandPalette({
 /** A space's own results, then the row that searches its list page. */
 function SpaceResults({
   space,
+  palette,
   term,
   go,
 }: {
   space: Space
+  palette: NonNullable<Space['palette']>
   term: string
   go: (to: string) => void
 }) {
   const { t } = useI18n()
-  const { Results } = space.palette
+  const { Results } = palette
   return (
-    <CommandGroup heading={t(space.palette.heading)}>
+    <CommandGroup heading={t(palette.heading)}>
       <Suspense fallback={null}>
         <Results term={term} open={go} />
       </Suspense>

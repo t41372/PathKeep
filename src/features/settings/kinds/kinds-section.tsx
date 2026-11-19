@@ -5,7 +5,9 @@
  *
  * Responsibilities: laying out one card per kind in the switcher's order,
  * from the backend's states and the sources found on this computer, and
- * working out which kind is the last one on.
+ * working out which kind is the last one on. Sizes are asked for after the
+ * cards are drawn (counting them reads the archive files); until they
+ * come, or if they cannot be counted, the cards just leave them out.
  * Not in this build: deleting one kind's saved data, which arrives with
  * its own backend step.
  */
@@ -14,10 +16,16 @@ import { CardError } from '@/components/app/section-card'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { DetectedSources } from '@/lib/backend-client/data-kinds'
 import { useI18n } from '@/lib/i18n'
-import { useDataKinds, useDetectedSources } from '@/lib/queries/data-kinds'
+import {
+  useDataKinds,
+  useDataKindSizes,
+  useDetectedSources,
+} from '@/lib/queries/data-kinds'
 import { spaces, type DataSpace } from '@/lib/spaces'
 import { foundAgentTools, foundBrowsers } from '@/features/data-kinds/presence'
+import { useRetryStore } from '@/features/data-kinds/use-retry-store'
 import { toolName } from '@/features/data-kinds/tools'
+import { useOpenEnableAgent } from '@/features/enable-agent/links'
 import { KindCard, type SourcesLine } from './kind-card'
 import { useKindStateChange } from './use-kind-state-change'
 
@@ -59,7 +67,10 @@ export function KindsSection() {
   const { t } = useI18n()
   const kinds = useDataKinds()
   const detected = useDetectedSources(['browsing', 'agent-history'])
+  const sizes = useDataKindSizes(kinds.isSuccess)
   const { pending, change } = useKindStateChange()
+  const retry = useRetryStore()
+  const openEnable = useOpenEnableAgent()
   const list = kinds.data
 
   const onCount = list
@@ -92,8 +103,14 @@ export function KindsSection() {
               lastOn={shownState === 'on' && onCount === 1}
               busy={pending[space.kind] !== undefined}
               sources={sourcesOf(space, detected, t)}
+              archiveBytes={
+                sizes.data?.kinds.find((item) => item.kind === space.kind)
+                  ?.archiveBytes
+              }
+              retrying={retry.busy}
               onChange={(next) => void change(space, list, next)}
-              onRetry={() => void kinds.refetch()}
+              onRetry={() => void retry.retry()}
+              onSetUp={openEnable}
             />
           )
         })

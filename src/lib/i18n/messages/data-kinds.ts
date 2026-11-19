@@ -55,6 +55,7 @@ export const dataKinds = defineMessages({
         off: 'No more backups, and not shown in the navigation; saved data is kept',
       },
       holds: '{hint}. The archive holds {count}.',
+      holdsSize: '{hint}. The archive holds {count}, {size}.',
       hintOnly: '{hint}.',
       count: {
         visits_one: '{count} visit',
@@ -74,6 +75,13 @@ export const dataKinds = defineMessages({
         'This was changed somewhere else meanwhile. What you see now is what is stored.',
       changeFailed: 'Couldn’t change “{name}”',
       notInitialized: 'The archive isn’t set up yet.',
+      viewOnly:
+        'This computer isn’t backing conversations up yet. The archive holds conversations saved on another computer, and you can read and search them.',
+      setUp: 'Set up backup…',
+      stoppedBackup_one:
+        'The backup of {name} that was running stopped. What it saved stays in the archive.',
+      stoppedBackup_other:
+        '{count} backups of {name} that were running stopped. What they saved stays in the archive.',
     },
     damage: {
       title: 'Saved {name} can’t be opened right now',
@@ -95,6 +103,7 @@ export const dataKinds = defineMessages({
       },
       notAffected: 'Browsing history is not affected.',
       retry: 'Try again',
+      retryFailed: 'Couldn’t try again',
     },
   },
   'zh-CN': {
@@ -140,6 +149,7 @@ export const dataKinds = defineMessages({
         off: '不再备份，也不在导航栏显示；已存的数据保留',
       },
       holds: '{hint}。存档里有 {count}。',
+      holdsSize: '{hint}。存档里有 {count}，{size}。',
       hintOnly: '{hint}。',
       count: {
         visits_one: '{count} 次浏览',
@@ -159,6 +169,12 @@ export const dataKinds = defineMessages({
         '这段时间它在别处被改过了，现在显示的是保存下来的状态。',
       changeFailed: '无法更改「{name}」',
       notInitialized: '存档还没建立。',
+      viewOnly:
+        '这台电脑还没在备份对话。存档里有另一台电脑存下的对话，可以照常阅读和搜索。',
+      setUp: '设置备份…',
+      stoppedBackup_one: '正在进行的{name}备份已停下，已存的都还在存档里。',
+      stoppedBackup_other:
+        '{count} 个正在进行的{name}备份已停下，已存的都还在存档里。',
     },
     damage: {
       title: '已存的{name}现在打不开',
@@ -177,6 +193,7 @@ export const dataKinds = defineMessages({
       },
       notAffected: '浏览记录不受影响。',
       retry: '再试一次',
+      retryFailed: '没能再试一次',
     },
   },
   'zh-TW': {
@@ -222,6 +239,7 @@ export const dataKinds = defineMessages({
         off: '不再備份，也不在導航列顯示；已存的資料保留',
       },
       holds: '{hint}。存檔裡有 {count}。',
+      holdsSize: '{hint}。存檔裡有 {count}，{size}。',
       hintOnly: '{hint}。',
       count: {
         visits_one: '{count} 次瀏覽',
@@ -240,6 +258,12 @@ export const dataKinds = defineMessages({
       changedElsewhere: '這段時間它在別處被改過了，現在顯示的是存下來的狀態。',
       changeFailed: '無法變更「{name}」',
       notInitialized: '存檔還沒建立。',
+      viewOnly:
+        '這台電腦還沒在備份對話。存檔裡有另一台電腦存下的對話，可以照常閱讀和搜尋。',
+      setUp: '設定備份…',
+      stoppedBackup_one: '正在進行的{name}備份已停下，已存的都還在存檔裡。',
+      stoppedBackup_other:
+        '{count} 個正在進行的{name}備份已停下，已存的都還在存檔裡。',
     },
     damage: {
       title: '已存的{name}現在打不開',
@@ -258,6 +282,7 @@ export const dataKinds = defineMessages({
       },
       notAffected: '瀏覽紀錄不受影響。',
       retry: '再試一次',
+      retryFailed: '沒能再試一次',
     },
   },
 })

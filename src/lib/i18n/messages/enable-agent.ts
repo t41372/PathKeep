@@ -114,8 +114,48 @@ export const enableAgent = defineMessages({
         'You can change these choices later on the backup page of {name}, or turn the whole kind off in Settings › Manage data types. Turning it off doesn’t delete conversations already saved.',
       saveFailed: 'Couldn’t save your choice',
       needOne: 'Tick at least one tool.',
-      notConnected:
-        'This development build can’t start saving yet: the step that saves conversations isn’t connected.',
+      starting: 'Starting…',
+      startFailed: 'Couldn’t start saving',
+      turnedOnElsewhere:
+        'Agent conversations were turned on somewhere else meanwhile.',
+    },
+    restart: {
+      expired:
+        'The preview had expired, so PathKeep looked at the folders again. Check them, then start saving.',
+      changed:
+        'A folder changed after the preview, so PathKeep looked at the folders again. Check them, then start saving.',
+      policy:
+        'These choices were changed somewhere else meanwhile, so PathKeep looked at the folders again.',
+      empty:
+        'None of the ticked folders could be read any more, so PathKeep looked at the folders again.',
+    },
+    run: {
+      title: 'Saving',
+      body: 'The first time reads every conversation; after that, only what is new.',
+      toolsLabel: 'Saving, by tool',
+      background:
+        'Closing this dialog doesn’t stop the save. You can follow it in Background tasks at the bottom left.',
+      continue: 'Keep going in the background',
+      continued: 'Saving goes on in the background',
+      continuedBody:
+        'You can follow it in Background tasks at the bottom left.',
+      loading: 'Finding out how far the save has got',
+    },
+    done: {
+      title: 'Saved',
+      body: 'Saved {conversations} and {subagents}, {size} in all.',
+      nothingNew:
+        'Nothing new to save: what these tools hold was already in the archive.',
+      notes: 'Not everything could be read. What could be read is saved:',
+      failedTitle: 'Saving didn’t finish',
+      failedBody:
+        'Saving stopped at the problem below. What was saved before it stays in the archive.',
+      interruptedTitle: 'Saving stopped before the end',
+      interruptedBody:
+        'What was saved so far stays in the archive. Try again to save the rest.',
+      inTasks:
+        'Until it is saved in full, it is listed in Background tasks under Needs a look.',
+      view: 'View conversations',
     },
     actions: {
       noThanks: 'No thanks',
@@ -223,7 +263,39 @@ export const enableAgent = defineMessages({
         '之后可以在{name}的备份页改这些选择；要整个关掉，在「设置 › 管理数据类型」。关掉不会删掉已经存下的对话。',
       saveFailed: '无法保存你的选择',
       needOne: '至少勾一个工具。',
-      notConnected: '这个开发版还不能开始保存：保存对话的那一步还没接上。',
+      starting: '正在开始…',
+      startFailed: '没能开始保存',
+      turnedOnElsewhere: 'Agent 对话刚刚在别处被开启了。',
+    },
+    restart: {
+      expired:
+        '预览已经过期，所以 PathKeep 重新看了一次文件夹。确认之后再开始保存。',
+      changed:
+        '预览之后有个文件夹变了，所以 PathKeep 重新看了一次文件夹。确认之后再开始保存。',
+      policy: '这些设置刚刚在别处被改了，所以 PathKeep 重新看了一次文件夹。',
+      empty: '勾选的文件夹都读不到了，所以 PathKeep 重新看了一次文件夹。',
+    },
+    run: {
+      title: '正在保存',
+      body: '第一次要读完全部的记录，之后只读新增的部分。',
+      toolsLabel: '每个工具的保存进度',
+      background: '关掉这个对话框也会继续存，进度在左下角的后台任务里看得到。',
+      continue: '在后台继续',
+      continued: '在后台继续保存',
+      continuedBody: '进度在左下角的后台任务里看得到。',
+      loading: '正在看保存进行到哪里',
+    },
+    done: {
+      title: '存好了',
+      body: '保存了 {conversations}和 {subagents}，共 {size}。',
+      nothingNew: '没有新的要保存：这些工具里的内容已经在存档里了。',
+      notes: '没有全部读到。读得到的都存下了：',
+      failedTitle: '保存没有完成',
+      failedBody: '保存停在下面这个问题。在那之前存下的留在存档里。',
+      interruptedTitle: '保存中途停下了',
+      interruptedBody: '已经存下的留在存档里。再试一次就会存完剩下的。',
+      inTasks: '在全部存好之前，它会列在后台任务的「需要你看一下」里。',
+      view: '看对话',
     },
     actions: {
       noThanks: '不用了',
@@ -331,7 +403,39 @@ export const enableAgent = defineMessages({
         '之後可以在{name}的備份頁改這些選擇；要整個關掉，在「設定 › 管理資料類型」。關掉不會刪掉已經存下的對話。',
       saveFailed: '無法儲存你的選擇',
       needOne: '至少勾一個工具。',
-      notConnected: '這個開發版還不能開始保存：保存對話的那一步還沒接上。',
+      starting: '正在開始…',
+      startFailed: '沒能開始保存',
+      turnedOnElsewhere: 'Agent 對話剛剛在別處被開啟了。',
+    },
+    restart: {
+      expired:
+        '預覽已經過期，所以 PathKeep 重新看了一次資料夾。確認之後再開始保存。',
+      changed:
+        '預覽之後有個資料夾變了，所以 PathKeep 重新看了一次資料夾。確認之後再開始保存。',
+      policy: '這些設定剛剛在別處被改了，所以 PathKeep 重新看了一次資料夾。',
+      empty: '勾選的資料夾都讀不到了，所以 PathKeep 重新看了一次資料夾。',
+    },
+    run: {
+      title: '正在保存',
+      body: '第一次要讀完全部的紀錄，之後只讀新增的部分。',
+      toolsLabel: '每個工具的保存進度',
+      background: '關掉這個對話框也會繼續存，進度在左下角的背景任務裡看得到。',
+      continue: '在背景繼續',
+      continued: '在背景繼續保存',
+      continuedBody: '進度在左下角的背景任務裡看得到。',
+      loading: '正在看保存進行到哪裡',
+    },
+    done: {
+      title: '存好了',
+      body: '保存了 {conversations}和 {subagents}，共 {size}。',
+      nothingNew: '沒有新的要保存：這些工具裡的內容已經在存檔裡了。',
+      notes: '沒有全部讀到。讀得到的都存下了：',
+      failedTitle: '保存沒有完成',
+      failedBody: '保存停在下面這個問題。在那之前存下的留在存檔裡。',
+      interruptedTitle: '保存中途停下了',
+      interruptedBody: '已經存下的留在存檔裡。再試一次就會存完剩下的。',
+      inTasks: '在全部存好之前，它會列在背景任務的「需要你看一下」裡。',
+      view: '看對話',
     },
     actions: {
       noThanks: '不用了',

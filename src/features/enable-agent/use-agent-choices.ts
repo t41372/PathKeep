@@ -9,6 +9,8 @@
  * after the settings changed elsewhere, and saying when a save failed.
  * Each save sends every readable tool's tick, not only the one changed:
  * the stored set starts empty, so a single "off" would change nothing.
+ * `flush` waits for the saves on their way, so the save step starts from
+ * the stored choice and its token.
  *
  * Not responsible for: turning the kind on (the save step).
  */
@@ -71,7 +73,9 @@ export function useAgentChoices(tools: readonly ToolChoice[]) {
   const [edit, setEdit] = useState<Choice | null>(null)
   const [saveError, setSaveError] = useState<unknown>(null)
   const latest = useRef<Choice | null>(null)
-  const saving = useRef(false)
+  const saving = useRef<Promise<void> | null>(null)
+  /** The same as `saveError`, readable right after a save without a render. */
+  const lastError = useRef<unknown>(null)
 
   const tickable = tools
     .filter((tool) => tool.readable)
@@ -80,36 +84,44 @@ export function useAgentChoices(tools: readonly ToolChoice[]) {
   const stored = policy
     ? policy.enabledTools.filter((tool) => tickable.includes(tool))
     : []
+  // Nothing chosen yet on this computer: every readable tool, as the
+  // spec's "all ticked". Chosen, every tool unticked stays unticked. A
+  // backend that does not say falls back to "something is stored".
+  const chosen = settings.data?.toolsChosen ?? stored.length > 0
   const shown: Choice = edit ?? {
-    // Nothing stored yet (or only tools not readable here): every readable
-    // tool, as the spec's "all ticked".
-    ticked: new Set(stored.length > 0 ? stored : tickable),
+    ticked: new Set(chosen ? stored : tickable),
     readGit: policy?.readGit ?? true,
   }
 
-  const persist = async (choice: Choice) => {
+  const persist = (choice: Choice) => {
     latest.current = choice
-    if (saving.current) return
-    saving.current = true
-    try {
-      // Changes made during a save go out right after it, newest only.
-      let next: Choice | null = latest.current
-      while (next) {
-        latest.current = null
-        await store(next, tickable)
-        next = latest.current
+    if (saving.current) return saving.current
+    const run = async () => {
+      try {
+        // Changes made during a save go out right after it, newest only.
+        let next: Choice | null = latest.current
+        while (next) {
+          latest.current = null
+          await store(next, tickable)
+          next = latest.current
+        }
+        lastError.current = null
+        setSaveError(null)
+      } catch (error) {
+        lastError.current = error
+        setSaveError(error)
+        throw error
+      } finally {
+        saving.current = null
       }
-      setSaveError(null)
-    } catch (error) {
-      setSaveError(error)
-    } finally {
-      saving.current = false
     }
+    saving.current = run()
+    return saving.current
   }
 
   const change = (next: Choice) => {
     setEdit(next)
-    void persist(next)
+    persist(next).catch(() => undefined)
   }
 
   return {
@@ -125,6 +137,11 @@ export function useAgentChoices(tools: readonly ToolChoice[]) {
     },
     setReadGit: (readGit: boolean) => change({ ticked: shown.ticked, readGit }),
     saveError,
-    retrySave: () => void persist(shown),
+    retrySave: () => void persist(shown).catch(() => undefined),
+    /** Waits until every change is stored; the last save's error, or null. */
+    flush: async (): Promise<unknown> => {
+      if (saving.current) await saving.current.catch(() => undefined)
+      return lastError.current
+    },
   }
 }

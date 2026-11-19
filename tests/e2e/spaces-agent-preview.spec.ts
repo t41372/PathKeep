@@ -10,7 +10,8 @@
  *   size, earliest file date) and every tool's line in the choose step equal
  *   what the fixture wrote; the note says nothing was opened; the numbers
  *   say the growth is an estimate and the encryption is the archive's own;
- *   the last step's button is disabled and says why;
+ *   with every tool ticked, "Start saving" can be pressed (this spec does
+ *   not press it: the agent-backup specs save, after the change project);
  * - stopping a preview while it runs leaves the dialog usable: it says what
  *   happened, and the next preview finishes with the same numbers. The
  *   stop reaches the backend with the stream's id;
@@ -105,7 +106,7 @@ test.afterEach(async () => {
   await resetAgentSettings()
 })
 
-test('the preview counts what the fixture wrote, opens nothing, and the last step says why it cannot start', async ({
+test('the preview counts what the fixture wrote, opens nothing, and the last step can start', async ({
   page,
 }, testInfo) => {
   // Guards the numbers below: a folder missing from the fake home would make
@@ -187,12 +188,7 @@ test('the preview counts what the fixture wrote, opens nothing, and the last ste
     dialog.getByRole('switch', { name: 'Note each project’s git details' }),
   ).toBeChecked()
   const start = dialog.getByRole('button', { name: 'Start saving' })
-  await expect(start).toBeDisabled()
-  await expect(
-    dialog.getByText(
-      'This development build can’t start saving yet: the step that saves conversations isn’t connected.',
-    ),
-  ).toBeVisible()
+  await expect(start).toBeEnabled()
   await testInfo.attach('choose', {
     body: await dialog.screenshot(),
     contentType: 'image/png',
@@ -467,7 +463,6 @@ const LOCALES = [
     next: '下一步',
     chooseTitle: '要保存哪些工具的對話？',
     start: '開始保存',
-    reason: '這個開發版還不能開始保存：保存對話的那一步還沒接上。',
   },
   {
     language: 'zh-CN',
@@ -477,7 +472,6 @@ const LOCALES = [
     next: '下一步',
     chooseTitle: '要保存哪些工具的对话？',
     start: '开始保存',
-    reason: '这个开发版还不能开始保存：保存对话的那一步还没接上。',
   },
 ] as const
 
@@ -523,10 +517,11 @@ for (const locale of LOCALES) {
       await expect(
         dialog.getByRole('heading', { name: locale.chooseTitle }),
       ).toBeVisible()
+      // Every tool ticked (`resetAgentSettings`): it can start; this spec
+      // does not press it.
       await expect(
         dialog.getByRole('button', { name: locale.start }),
-      ).toBeDisabled()
-      await expect(dialog.getByText(locale.reason)).toBeVisible()
+      ).toBeEnabled()
       expect(await dialog.innerText()).not.toMatch(MESSAGE_KEY)
       await testInfo.attach(`choose in ${locale.language}`, {
         body: await dialog.screenshot(),

@@ -60,6 +60,21 @@ export function useDataKindsSync() {
 }
 
 /** The Agent tools' switches and reading `.git`, with the token a change must carry. */
+/**
+ * The kinds again with each one's size in the archive, for Manage data
+ * types. Counting reads the archive files, so it is asked for only once the
+ * cards are drawn, and read again whenever the kinds are (same key prefix).
+ */
+export function useDataKindSizes(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.dataKindSizes,
+    queryFn: dataKindsClient.listWithSizes,
+    enabled,
+    staleTime: Infinity,
+    retry: false,
+  })
+}
+
 export function useAgentSettings(enabled = true) {
   return useQuery({
     queryKey: queryKeys.agentSettings,

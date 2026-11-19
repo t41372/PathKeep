@@ -226,14 +226,19 @@ export function agentSettings() {
   return backend<AgentSettings>('get_agent_settings', { request: {} })
 }
 
-/** Puts the tool switches and `.git` back the way a new archive has them. */
+/**
+ * Puts the tool switches and `.git` back the way a new archive shows them:
+ * every tool ticked, `.git` on. (The backend tells "never chosen" from
+ * "every tool unticked" (`toolsChosen`), and nothing turns a choice back
+ * into "never chosen"; every tool ticked is what both show while off.)
+ */
 export async function resetAgentSettings() {
   const now = await agentSettings()
   await backend('update_agent_sources', {
     request: {
       expectedToken: now.policyToken,
       readGit: true,
-      toolChanges: Object.fromEntries(TOOL_ORDER.map((tool) => [tool, false])),
+      toolChanges: Object.fromEntries(TOOL_ORDER.map((tool) => [tool, true])),
     },
   })
 }

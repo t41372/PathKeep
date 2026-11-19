@@ -3,6 +3,8 @@
  * three languages side by side, so a copy change is reviewed in one place.
  */
 import type { MessagePath, ResolvedLanguage } from '../define'
+import { agentBackup } from './agent-backup'
+import { agentTasks } from './agent-tasks'
 import { ask } from './ask'
 import { backup } from './backup'
 import { backupImport } from './backup-import'
@@ -32,6 +34,8 @@ const namespaces = {
   spaces,
   dataKinds,
   enableAgent,
+  agentBackup,
+  agentTasks,
   home,
   history,
   historyPage,

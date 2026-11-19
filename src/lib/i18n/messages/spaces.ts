@@ -19,6 +19,10 @@ export const spaces = defineMessages({
     agent: {
       name: 'Agent conversations',
       shortName: 'Agent',
+      conversations_one: '{count} conversation',
+      conversations_other: '{count} conversations',
+      onlyInPathkeep_one: '{count} only in PathKeep',
+      onlyInPathkeep_other: '{count} only in PathKeep',
     },
     switcher: {
       label: 'Switch data type. Now: {name}',
@@ -67,6 +71,10 @@ export const spaces = defineMessages({
     agent: {
       name: 'Agent 对话',
       shortName: 'Agent',
+      conversations_one: '{count} 段对话',
+      conversations_other: '{count} 段对话',
+      onlyInPathkeep_one: '只剩 PathKeep 有 {count} 段',
+      onlyInPathkeep_other: '只剩 PathKeep 有 {count} 段',
     },
     switcher: {
       label: '切换数据类型。当前：{name}',
@@ -115,6 +123,10 @@ export const spaces = defineMessages({
     agent: {
       name: 'Agent 對話',
       shortName: 'Agent',
+      conversations_one: '{count} 段對話',
+      conversations_other: '{count} 段對話',
+      onlyInPathkeep_one: '只剩 PathKeep 有 {count} 段',
+      onlyInPathkeep_other: '只剩 PathKeep 有 {count} 段',
     },
     switcher: {
       label: '切換資料類型。現在：{name}',

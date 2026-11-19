@@ -40,4 +40,22 @@ export const queryKeys = {
   /** Which source folders exist on this computer, per kind of data. */
   dataSources: (kinds: readonly string[]) =>
     ['data-sources', ...kinds] as const,
+  /** The kinds again with their sizes in the archive (Manage data types). */
+  dataKindSizes: ['archive', 'data-kinds', 'sizes'] as const,
+  /** Prefix for what the Agent backup page reads: overview, sources, runs. */
+  agentBackup: ['archive', 'agent'] as const,
+  agentOverview: (purpose: 'backup' | 'space') =>
+    ['archive', 'agent', 'overview', purpose] as const,
+  agentSources: ['archive', 'agent', 'sources'] as const,
+  /** Run pages are bound to the stored choices; a change starts from the first page. */
+  agentRuns: (policyToken: string) =>
+    ['archive', 'agent', 'runs', policyToken] as const,
+  /** One run's detail, Agent or browsing, by its public reference. */
+  archiveRun: (runRef: string) => ['archive', 'run', runRef] as const,
+  /** The first save the enable dialog started in this session; cleared by the lock. */
+  firstSave: ['first-save'] as const,
+  /** Prefix for background tasks that live in the backend (conversation backups). */
+  kindTasks: ['kind-tasks'] as const,
+  taskSummary: ['kind-tasks', 'summary'] as const,
+  taskGroup: (group: string) => ['kind-tasks', 'group', group] as const,
 }

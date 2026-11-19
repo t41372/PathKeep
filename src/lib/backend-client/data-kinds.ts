@@ -74,6 +74,15 @@ export interface DataKindRow {
   firstBackup?: string
   /** Set when one part of the kind's storage failed and the rest still opens. */
   failure?: KindFailure
+  /**
+   * Agent conversations: whether this computer backs any folder up. `false`
+   * on a kind that is paused only because the archive holds conversations
+   * (moved or restored here): readable, nothing backed up. Absent when the
+   * storage cannot be opened, and from a backend that predates it.
+   */
+  hasBackupSource?: boolean
+  /** The kind's bytes in the archive; only when asked for (`listWithSizes`). */
+  archiveBytes?: WireCount
 }
 
 export interface DataKindList {
@@ -83,8 +92,21 @@ export interface DataKindList {
 }
 
 export interface KindTransition extends DataKindList {
-  /** Tasks the change stopped or queued; always empty until the tasks step lands. */
-  affectedTasks: unknown[]
+  /** Ids of the running tasks the change told to stop (a backup of the kind). */
+  affectedTasks: string[]
+}
+
+/**
+ * Agent conversations that are paused on a computer that backs nothing up:
+ * the archive holds conversations from elsewhere, and this computer has not
+ * been set up to save its own (`hasBackupSource: false`).
+ */
+export function isViewOnly(row: DataKindRow | undefined) {
+  return (
+    row?.kind === 'agent-history' &&
+    row.state === 'paused' &&
+    row.hasBackupSource === false
+  )
 }
 
 export interface AgentPolicy {
@@ -93,11 +115,22 @@ export interface AgentPolicy {
   /** Tools whose switch is on, in `AGENT_TOOLS` order. */
   enabledTools: AgentToolId[]
   readGit: boolean
+  /** The folders approved for backing up, once the kind was turned on here. */
+  selectionRef?: string
 }
+
+/** A hint on this computer that, once dismissed, does not come back. */
+export type AgentHint = 'intro' | 'auto-delete'
 
 export interface AgentSettings {
   policy: AgentPolicy
   policyToken: string
+  /**
+   * The tools were chosen on this computer, so an empty `enabledTools`
+   * means "none ticked", not "never asked". Absent from an older backend.
+   */
+  toolsChosen?: boolean
+  dismissedHints?: AgentHint[]
 }
 
 export interface AgentSourcesPatch {
@@ -105,6 +138,12 @@ export interface AgentSourcesPatch {
   readGit?: boolean
   /** Only the tools named change. */
   toolChanges?: Partial<Record<AgentToolId, boolean>>
+  /**
+   * Every approved folder after the change (it replaces the set); a folder
+   * not approved before must come from the still-valid `previewId`.
+   */
+  selectedRootIds?: string[]
+  previewId?: string
 }
 
 /** Why a folder could not be read, or was read only in part. */
@@ -275,6 +314,11 @@ export const DATA_KINDS_ERROR_CODES = [
   'root-unreadable',
   'destination-unavailable',
   'cancelled',
+  'kind-off',
+  'task-action-unavailable',
+  'operation-finishing',
+  'record-unavailable',
+  'invalid-cursor',
 ] as const
 export type DataKindsErrorCode = (typeof DATA_KINDS_ERROR_CODES)[number]
 
@@ -320,12 +364,28 @@ export function isStoreDamage(errorOrCode: unknown): boolean {
 
 export const dataKindsClient = {
   list: () => call<DataKindList>('list_data_kinds', { request: {} }),
+  /**
+   * The same list with each kind's size in the archive, which costs more to
+   * work out; Manage data types asks for it after the shell has painted.
+   */
+  listWithSizes: () =>
+    call<DataKindList>('list_data_kinds', {
+      request: { includeArchiveBytes: true },
+    }),
+  /** Opens the conversation store again after it failed; answers the fresh list. */
+  retryAgentStore: () =>
+    call<DataKindList>('retry_agent_store', { request: {} }),
   setState: (kind: DataKindId, state: KindState, expectedPolicyToken: string) =>
     call<KindTransition>('set_data_kind_state', {
       request: { kind, state, expectedPolicyToken },
     }),
   agentSettings: () =>
     call<AgentSettings>('get_agent_settings', { request: {} }),
+  /** Puts a hint away on this computer for good; settings then list it. */
+  dismissAgentHint: (hint: AgentHint) =>
+    call<{ hint: AgentHint; dismissed: true }>('dismiss_agent_hint', {
+      request: { hint },
+    }),
   updateAgentSources: (patch: AgentSourcesPatch) =>
     call<AgentSettings>('update_agent_sources', { request: patch }),
   /** Only checks which folders exist; opens and lists nothing inside them. */

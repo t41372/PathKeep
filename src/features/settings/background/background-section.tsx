@@ -4,11 +4,13 @@
  * sidebar job strip.
  *
  * Order: the controls that govern every queue, then each queue, then the
- * online work, then the data the work produces. Each row owns its own data
+ * online work, then conversation backups (while Agent conversations are
+ * on or paused), then the data the work produces. Each row owns its own data
  * and copy; this file only lays them out.
  */
 import { SettingsGroup, SettingsSection } from '@/components/app/setting-row'
 import { useI18n } from '@/lib/i18n'
+import { ConversationTasks } from './conversation-tasks'
 import { InsightsDataRow, PageDetailsRow } from './derived-data-rows'
 import { LinkPreviewsRow, PageSummariesRow } from './online-work-rows'
 import { AiQueueRow, InsightsQueueRow, QueueControls } from './queue-rows'
@@ -25,6 +27,7 @@ export function BackgroundSection() {
       <AiQueueRow />
       <PageSummariesRow />
       <LinkPreviewsRow />
+      <ConversationTasks />
       <SettingsGroup
         title={t('settingsBackground.data.group')}
         note={t('settingsBackground.data.note')}

@@ -1,6 +1,6 @@
 /**
- * One run of the Agent tools preview for the enable dialog, as a state the
- * dialog draws: walking (with the running count and each folder as it is
+ * One run of the Agent tools preview, as a state a dialog draws (the enable
+ * dialog's, and the backup page's rescan and add-a-folder): walking (with the running count and each folder as it is
  * counted), finished (with the report, and whether it has gone stale),
  * stopped by the person, or failed.
  *
@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   dataKindsClient,
+  type AgentPreviewRequest,
   type PreviewFrame,
   type PreviewReport,
   type RootInventory,
@@ -58,8 +59,15 @@ function applyFrame(state: PreviewState, frame: PreviewFrame): PreviewState {
   }
 }
 
-export function useAgentPreview(active: boolean) {
+const ENABLE: AgentPreviewRequest = { purpose: 'enable' }
+
+/** `request` is read when a walk starts; a new walk starts when its contents change. */
+export function useAgentPreview(
+  active: boolean,
+  request: AgentPreviewRequest = ENABLE,
+) {
   const [run, setRun] = useState(0)
+  const requestKey = JSON.stringify(request)
   const [state, setState] = useState<PreviewState>(WALKING)
   const stream = useRef<AgentPreviewStream | null>(null)
   const stopped = useRef(false)
@@ -77,7 +85,8 @@ export function useAgentPreview(active: boolean) {
     // development double mount, a dialog closed as it opens) walks nothing.
     const start = setTimeout(() => {
       if (!live || stopped.current) return
-      dataKindsClient.previewAgentSources({ purpose: 'enable' }, onFrame).then(
+      const asked = JSON.parse(requestKey) as AgentPreviewRequest
+      dataKindsClient.previewAgentSources(asked, onFrame).then(
         (started) => {
           // Closed or cancelled before the backend answered: stop it at once.
           if (!live || stopped.current) started.close()
@@ -96,7 +105,7 @@ export function useAgentPreview(active: boolean) {
       stream.current?.close()
       stream.current = null
     }
-  }, [active, run])
+  }, [active, run, requestKey])
 
   // A finished preview's ticket lapses (five minutes); after that the
   // folders have to be looked at again before anything is saved.

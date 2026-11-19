@@ -13,14 +13,23 @@
  * it; a click goes to where background work is listed. From the keyboard,
  * ↓ or → moves into the open list and Escape comes back.
  *
- * Responsibilities: drawing the indicator and its list, and their two
- * buttons. Not responsible for: what counts as a task (`use-background-tasks.ts`).
+ * Responsibilities: drawing the indicator and its list, their two
+ * buttons, and Cancel on a conversation backup. Not responsible for: what
+ * counts as a task (`use-background-tasks.ts`).
  */
-import { ChevronRight, CircleAlert, ListChecks, RefreshCw } from 'lucide-react'
+import {
+  ChevronRight,
+  CircleAlert,
+  ListChecks,
+  RefreshCw,
+  X,
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useBackupRunner } from '@/app/backup-runner'
 import { openRun } from '@/features/backup/run-link'
+import { useBackUpEverything } from '@/features/agent-backup/use-back-up-everything'
+import { useTaskControl } from '@/features/agent-backup/use-task-control'
+import { Button } from '@/components/ui/button'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/cn'
@@ -39,6 +48,8 @@ import {
 
 /** Where background work is listed until it has a page of its own. */
 const TASKS_PATH = '/settings/background'
+/** The same, scrolled to conversation backups (`settings/background/conversation-tasks.tsx`). */
+const CONVERSATION_TASKS_PATH = '/settings/background?show=conversations'
 const OPEN_DELAY_MS = 180
 const CLOSE_DELAY_MS = 220
 
@@ -79,6 +90,34 @@ function Ring({ value }: { value: number | null }) {
   )
 }
 
+/** Cancel on a conversation backup, while the backend offers it. */
+function CancelTask({
+  task,
+}: {
+  task: NonNullable<BackgroundTask['kindTask']>
+}) {
+  const { t } = useI18n()
+  const control = useTaskControl()
+  if (!task.actions.includes('cancel')) return null
+  const name = t(
+    task.trigger === 'enable'
+      ? 'agentTasks.names.firstSave'
+      : 'agentTasks.names.backup',
+  )
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="-my-1 size-6 shrink-0 text-muted-foreground"
+      aria-label={t('agentTasks.actions.cancelLabel', { name })}
+      disabled={control.busy !== null}
+      onClick={() => void control.send(task, 'cancel')}
+    >
+      <X aria-hidden className="size-3.5" />
+    </Button>
+  )
+}
+
 function TaskRow({ task }: { task: BackgroundTask }) {
   const { t } = useI18n()
   const status = task.preparing
@@ -87,7 +126,10 @@ function TaskRow({ task }: { task: BackgroundTask }) {
       ? `${Math.round(task.percent)}%`
       : null
   return (
-    <li className="flex flex-col gap-1.5 px-3 py-2">
+    <li
+      className="flex flex-col gap-1.5 px-3 py-2"
+      data-task={task.kindTask ? 'agent-history' : task.id}
+    >
       <div className="flex items-baseline justify-between gap-3 text-[13px]">
         <span className="font-medium">{task.name}</span>
         {status && (
@@ -95,6 +137,7 @@ function TaskRow({ task }: { task: BackgroundTask }) {
             {status}
           </span>
         )}
+        {task.kindTask && <CancelTask task={task.kindTask} />}
       </div>
       <Progress
         aria-label={task.name}
@@ -134,8 +177,8 @@ function TaskList({
 }) {
   const { t } = useI18n()
   const navigate = useNavigate()
-  const backup = useBackupRunner()
-  const { running, queued, failedRun } = tasks
+  const everything = useBackUpEverything()
+  const { running, queued, failedRun, kindAttention } = tasks
   return (
     <>
       <div className="border-b px-3 py-2 text-[12px] font-semibold text-muted-foreground">
@@ -150,7 +193,7 @@ function TaskList({
           ))}
         </ul>
       )}
-      {(queued > 0 || failedRun !== null) && (
+      {(queued > 0 || failedRun !== null || kindAttention > 0) && (
         <div className="flex flex-col items-start gap-1 border-t px-3 py-2 text-[12px] text-muted-foreground">
           {queued > 0 && (
             <span>{t('spaces.tasks.queued', { count: queued })}</span>
@@ -168,14 +211,27 @@ function TaskList({
               {t('spaces.tasks.needsLook', { count: 1 })}
             </button>
           )}
+          {kindAttention > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose()
+                void navigate(CONVERSATION_TASKS_PATH)
+              }}
+              className="flex items-center gap-1 text-red hover:underline"
+            >
+              <CircleAlert className="size-3.5" aria-hidden />
+              {t('agentTasks.rail.needsLook', { count: kindAttention })}
+            </button>
+          )}
         </div>
       )}
       <button
         type="button"
-        disabled={backup.running}
+        disabled={everything.browsingRunning}
         onClick={() => {
           onClose()
-          void backup.run()
+          everything.run()
         }}
         className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-[13px] hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
       >
@@ -221,14 +277,14 @@ export function TaskIndicator() {
     setOpen(false)
   }
 
-  const { running, failedRun } = tasks
+  const { running, failedRun, kindAttention } = tasks
   const known = running.every((task) => task.percent !== null)
   const overall =
     running.length > 0 && known
       ? running.reduce((sum, task) => sum + (task.percent ?? 0), 0) /
         running.length
       : null
-  const attention = failedRun !== null ? 1 : 0
+  const attention = (failedRun !== null ? 1 : 0) + kindAttention
   const label = running.length
     ? t('spaces.tasks.running', { count: running.length })
     : attention
