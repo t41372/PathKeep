@@ -94,7 +94,6 @@
       "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/intelligence.db"
     ],
     "pkreadmodeljade": [
-      "derived/agent-history-read-model.db",
       "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent-history-read-model.db"
     ],
     "pksearchelm": [

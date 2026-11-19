@@ -236,6 +236,32 @@ impl Store {
         }
         Ok(Maintenance { store: self, workers })
     }
+    /// Bind a reader-repair trial to a consistent live pair. Browsing jobs and
+    /// conversation readers share the worker guard while these files are copied.
+    pub fn copy_admitted_conversations(&self, root: &Path) -> Result<()> {
+        crate::worker::check_caller()?;
+        let _writers =
+            self.conversation_writes.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let workers = self.workers();
+        if !self.is_open() {
+            return Err(Error::Closed);
+        }
+        self.conversation_availability().map_err(Error::unavailable)?;
+        self.seal_if_available(&workers)?;
+        for role in [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel] {
+            let (_, worker) = workers.iter().find(|(db, _)| *db == role).ok_or(Error::Closed)?;
+            check_identity(role, worker, self.paths.get(role))?;
+            worker.maintenance(|engine| crate::copy::checkpoint(engine, "main"))?;
+        }
+        self.copy_conversation_members(root)?;
+        for (role, worker) in
+            workers.iter().filter(|(db, _)| crate::opening::conversation_role(*db))
+        {
+            check_identity(*role, worker, self.paths.get(*role))?;
+        }
+        self.conversation_availability().map_err(Error::unavailable)
+    }
+
     /// Drain requests already admitted at the time of damage. The long file copy
     /// holds a shared worker guard so browsing reads and writes can continue.
     pub fn copy_quarantined_conversations(&self, root: &Path) -> Result<()> {
@@ -262,7 +288,7 @@ impl Store {
         Ok(())
     }
 
-    fn copy_opaque_members(&self, root: &Path) -> Result<()> {
+    fn copy_conversation_members(&self, root: &Path) -> Result<()> {
         for db in Db::ALL.into_iter().filter(|db| crate::opening::conversation_role(*db)) {
             for suffix in vault_layout::database_spec(db)
                 .companions
@@ -299,7 +325,7 @@ impl Store {
                 stale.push(*db);
             }
         }
-        self.copy_opaque_members(root)?;
+        self.copy_conversation_members(root)?;
         // Normally there is one displaced generation. A second external replacement
         // after a retry must not overwrite the earlier handle's bytes.
         let retired = self.retired_files.lock().unwrap();

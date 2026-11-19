@@ -81,7 +81,7 @@ pub(super) fn snapshot_paused(
     finish_snapshot(vault, target)
 }
 
-fn finish_snapshot(vault: &Vault, target: &Path) -> Result<()> {
+pub(super) fn finish_snapshot(vault: &Vault, target: &Path) -> Result<()> {
     finish_snapshot_at(vault.paths(), target)
 }
 

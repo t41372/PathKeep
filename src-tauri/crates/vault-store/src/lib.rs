@@ -56,6 +56,8 @@ pub struct Store {
     workers: RwLock<Vec<(Db, worker::Workers)>>,
     /// Serializes attempts to add workers. Ordinary reads never take this lock.
     adding: Mutex<()>,
+    /// Freeze just the conversation writers while copying an admitted pair for reader repair.
+    conversation_writes: RwLock<()>,
     retired_files: Mutex<Vec<(u64, Db, worker::HeldFiles)>>,
     conversation_generation: std::sync::atomic::AtomicU64,
     held_publisher: std::sync::OnceLock<Box<HeldPublisher>>,
@@ -158,6 +160,8 @@ impl Store {
             // Preservation may drain the group, so check before taking its workers guard.
             self.preserve_observed_displacements()?;
         }
+        let _write = (!read && opening::conversation_role(db))
+            .then(|| self.conversation_writes.read().unwrap_or_else(PoisonError::into_inner));
         let workers = self.workers();
         let worker = &workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1;
         if !self.pair_seals || !opening::conversation_role(db) {

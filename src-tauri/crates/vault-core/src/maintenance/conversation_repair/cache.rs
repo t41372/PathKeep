@@ -149,6 +149,7 @@ mod tests {
             .publish_for(
                 0,
                 Prepared {
+                    reader_only: false,
                     stage,
                     preview,
                     relative_copy: Default::default(),

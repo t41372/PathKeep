@@ -11,7 +11,8 @@ async fn invoke(
     request: Value,
 ) -> Value {
     let wire = json!({"request":request});
-    let response = dispatch_command(state, name, wire.clone()).await.unwrap();
+    let response =
+        dispatch_command(state, name, wire.clone()).await.unwrap_or_else(|e| panic!("{name}: {e}"));
     examples[name] = json!({"request":wire,"response":response});
     response
 }
@@ -75,15 +76,37 @@ fn conversation_backup_json_examples_match_dispatch() {
         b"{\"type\":\"session\",\"version\":1000,\"id\":\"one\",\"cwd\":\"/synthetic\"}\n",
     )
     .unwrap();
+    let chrome = tempdir().unwrap();
+    std::fs::create_dir(chrome.path().join("Default")).unwrap();
+    std::fs::write(
+        chrome.path().join("Local State"),
+        r#"{"profile":{"info_cache":{"Default":{"name":"Fixture"}}}}"#,
+    )
+    .unwrap();
+    rusqlite::Connection::open(chrome.path().join("Default/History"))
+        .unwrap()
+        .execute_batch("CREATE TABLE urls(id INTEGER PRIMARY KEY,url TEXT)")
+        .unwrap();
     unsafe {
         std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, chrome.path());
     }
     let state =
         DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
     ready_block_on(async {
-        dispatch_command(&state, "initialize_archive", json!({"config":test_config()}))
-            .await
+        // The example later pauses conversation backups, leaving browsing as the sole active kind.
+        let snapshot = dispatch_command(&state, "app_snapshot", json!({})).await.unwrap();
+        let profile = snapshot["browserProfiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["profileId"] == "chrome:Default")
             .unwrap();
+        let config = vault_core::AppConfig {
+            selected_profile_ids: vec![profile["profileId"].as_str().unwrap().into()],
+            ..test_config()
+        };
+        dispatch_command(&state, "initialize_archive", json!({"config":config})).await.unwrap();
         let observe = state.events.observe();
         let settings =
             dispatch_command(&state, "get_agent_settings", json!({"request":{}})).await.unwrap();

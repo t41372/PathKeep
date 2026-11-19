@@ -3,6 +3,7 @@
 //! the envelope are never installation members of a conversation repair.
 
 pub(crate) mod cache;
+mod reader;
 mod schema;
 mod source;
 use super::{InstalledArchive, copy_databases, install, snapshot};
@@ -66,14 +67,15 @@ fn config(root: &Path, key: Option<&DataKey>, required: &[Db]) -> Result<vault_s
 }
 
 fn service(store: Arc<Store>, root: &Path, key: Option<&DataKey>) -> Result<Archive> {
+    Ok(Archive::from_store(store, resources(root, key))?)
+}
+
+fn resources(root: &Path, key: Option<&DataKey>) -> AgentHistoryResources {
     let index = ArtifactId::AgentHistorySearch;
-    Ok(Archive::from_store(
-        store,
-        AgentHistoryResources {
-            search_path: vault_layout::path(root, index),
-            search_key: key.map(|k| k.derive(vault_layout::spec(index).file_key.unwrap())),
-        },
-    )?)
+    AgentHistoryResources {
+        search_path: vault_layout::path(root, index),
+        search_key: key.map(|k| k.derive(vault_layout::spec(index).file_key.unwrap())),
+    }
 }
 
 fn count(store: &Store) -> Result<String> {
@@ -206,6 +208,7 @@ fn rebuild(
 }
 
 struct Prepared {
+    reader_only: bool,
     stage: tempfile::TempDir,
     preview: ConversationRepairPreview,
     relative_copy: PathBuf,
@@ -255,7 +258,9 @@ fn prepare(
     );
     let shared = shared_identity(vault)?;
     vault.store().preserve_observed_displacements()?;
-    let failure = vault.conversation_availability().err().context("conversation-repair-healthy")?;
+    let Err(failure) = vault.conversation_availability() else {
+        return reader::prepare(vault, source, shared, cancel);
+    };
     if failure.cause.access_refused() {
         return Err(vault_store::Error::AccessUnavailable(failure).into());
     }
@@ -489,16 +494,7 @@ fn prepare(
         &policy,
         &conversations,
     ))?;
-    let copies = Path::new(vault_layout::spec(ArtifactId::NativeSnapshots).path.relative());
-    let mut sequence = 0u64;
-    let (token, relative_copy) = loop {
-        let token = crate::utils::sha256_hex(&serde_json::to_vec(&(&decision, sequence))?);
-        let relative = copies.join(format!("before-agent-repair-{token}"));
-        if !install::exists(&vault.paths().app_root.join(&relative))? {
-            break (token, relative);
-        }
-        sequence += 1;
-    };
+    let (token, relative_copy) = copy_destination(vault, &decision)?;
     let preview = ConversationRepairPreview {
         action,
         copy_path: from_copy.as_ref().map(|c| c.path.clone()),
@@ -519,6 +515,7 @@ fn prepare(
     };
     let staged_identity = Some(stage_binding(stage.path())?);
     Ok(Prepared {
+        reader_only: false,
         stage,
         preview,
         relative_copy,
@@ -529,6 +526,19 @@ fn prepare(
         shared_identity: shared,
         held_identity,
     })
+}
+
+fn copy_destination(vault: &Vault, decision: &[u8]) -> Result<(String, PathBuf)> {
+    let copies = Path::new(vault_layout::spec(ArtifactId::NativeSnapshots).path.relative());
+    let mut sequence = 0u64;
+    loop {
+        let token = crate::utils::sha256_hex(&serde_json::to_vec(&(&decision, sequence))?);
+        let relative = copies.join(format!("before-agent-repair-{token}"));
+        if !install::exists(&vault.paths().app_root.join(&relative))? {
+            return Ok((token, relative));
+        }
+        sequence += 1;
+    }
 }
 
 /// Opens and verifies private copies. A preview never installs its trial generation.
@@ -607,6 +617,7 @@ pub fn install_conversation_repair(
     let _op = crate::archive::ArchiveOpGate::acquire(vault.paths());
     ensure!(Arc::ptr_eq(vault.store(), &verified.owner), "conversation-repair-preview-stale");
     let Prepared {
+        reader_only,
         stage,
         preview,
         relative_copy,
@@ -637,13 +648,21 @@ pub fn install_conversation_repair(
     }
     crate::config::save_copy_config(paths, stage.path(), &settings)?;
     let mut pause = vault.pause_store()?;
-    ensure!(vault.conversation_availability().is_err(), "conversation-repair-healthy");
+    if reader_only {
+        ensure!(vault.conversation_availability().is_ok(), "conversation-repair-preview-stale");
+    } else {
+        ensure!(vault.conversation_availability().is_err(), "conversation-repair-healthy");
+    }
     let mut members = files().collect::<Vec<_>>();
     members.extend([
         PathBuf::from(vault_layout::spec(ArtifactId::Config).path.relative()),
-        PathBuf::from(vault_layout::spec(ArtifactId::AgentHistorySearch).path.relative()),
         relative_copy.clone(),
     ]);
+    if !reader_only {
+        members.push(PathBuf::from(
+            vault_layout::spec(ArtifactId::AgentHistorySearch).path.relative(),
+        ));
+    }
     let mut expected = members
         .iter()
         .filter(|p| !files().any(|role| role == **p))
@@ -655,7 +674,27 @@ pub fn install_conversation_repair(
     }
     expected.insert(relative_copy.clone(), None);
     let displaced = stage.path().join(&relative_copy);
-    snapshot::snapshot_paused(vault, &mut pause, &displaced)?;
+    pause.snapshot(&displaced)?;
+    if reader_only {
+        // The ordinary snapshot has checkpointed main files. Bind and keep the
+        // exact companions too, as for an opaque repair of an unavailable pair.
+        for role in ROLES {
+            let main = vault_layout::database_path(role);
+            for suffix in vault_layout::database_spec(role)
+                .companions
+                .suffixes(CompanionUse::Install)
+                .iter()
+                .filter(|s| !s.is_empty())
+            {
+                let member = PathBuf::from(format!("{main}{suffix}"));
+                let path = paths.app_root.join(&member);
+                if path.try_exists()? {
+                    vault_store::copy_archive_file(role.into(), &path, &displaced.join(member))?;
+                }
+            }
+        }
+    }
+    snapshot::finish_snapshot(vault, &displaced)?;
     ensure!(
         identities(&displaced)? == originals
             && member_identity(&displaced, Path::new(vault_layout::HELD_CONVERSATIONS))?

@@ -61,6 +61,10 @@ fn restore_recovers_evidence_intelligence_and_ask_and_keeps_the_replaced_generat
         );
         let snapshot = safety_snapshot();
         let vault = fixture.vault();
+        assert_eq!(
+            store_marker(&vault, Db::AgentHistoryReadModel).as_deref(),
+            Some("pkreadmodeljade")
+        );
         for db in [
             Db::Archive,
             Db::SourceEvidence,
@@ -80,7 +84,7 @@ fn restore_recovers_evidence_intelligence_and_ask_and_keeps_the_replaced_generat
         vault_worker::delete_ai_conversation(&vault, "lifecycle-chat").unwrap();
         let before = observe(&fixture.root, Some(&vault), &format!("restore-before-{encrypted}"));
         assert_eq!(before["unknown"], serde_json::json!([]));
-        assert_eq!(before, expected(&format!("restore-before-{encrypted}")));
+        assert_restore_observation(before, "before", encrypted);
         let report = vault_worker::run_full_archive_restore(
             &fixture.session,
             encrypted.then_some(NEW_PASSWORD),
@@ -93,7 +97,7 @@ fn restore_recovers_evidence_intelligence_and_ask_and_keeps_the_replaced_generat
         let restored = fixture.vault();
         let actual = observe(&fixture.root, Some(&restored), &format!("restore-after-{encrypted}"));
         assert_eq!(actual["unknown"], serde_json::json!([]));
-        assert_eq!(actual, expected(&format!("restore-after-{encrypted}")));
+        assert_restore_observation(actual, "after", encrypted);
         assert_eq!(store_marker(&restored, Db::Archive).as_deref(), Some("pkarchiveamber"));
         assert_eq!(store_marker(&restored, Db::SourceEvidence).as_deref(), Some("pkevidencebirch"));
         assert_eq!(
@@ -123,4 +127,17 @@ fn restore_recovers_evidence_intelligence_and_ask_and_keeps_the_replaced_generat
             std::path::Path::new(&report.quarantine_dir).join("archive/history-vault.db").is_file()
         );
     }
+}
+
+fn assert_restore_observation(mut actual: serde_json::Value, phase: &str, encrypted: bool) {
+    // observe() saves the complete raw census. In plaintext the test's UPDATE
+    // can leave the old value in free space or overwrite it. The live row and
+    // the copy's marker are checked independently of that storage-engine detail.
+    if !encrypted {
+        actual["markers"]["pkreadmodeljade"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|p| p != "derived/agent-history-read-model.db");
+    }
+    assert_eq!(actual, expected(&format!("restore-{phase}-{encrypted}")));
 }

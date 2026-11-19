@@ -1,6 +1,7 @@
 //! Exercises repair races, offline publication and partial salvage with real archives.
 //! Pair membership and layout admission have independent scenarios.
 use super::*;
+use agent_history::read_model::ReaderPublication;
 use vault_core::maintenance::{
     preview_conversation_repair as preview, repair_conversations as execute,
 };
@@ -618,40 +619,19 @@ fn round3_immutable_verification_precedes_lease() {
     fs::remove_dir_all(big).unwrap();
     let raw:i64=f.vault().store().read(Db::AgentHistoryEvidence,|s|s.query_one("SELECT sum(byte_len) FROM ah_revisions WHERE state='complete' AND bytes_retained=1",(),|r|Ok(r.get(0)?))).unwrap();
     assert!(raw >= 16 * 1024 * 1024);
-    let (v, id) = {
-        let v = f.vault();
-        let id: i64 = v
-            .store()
-            .read(Db::AgentHistoryReadModel, |s| {
-                s.query_one(
-                    "SELECT revision_id FROM ah_sessions WHERE harness='pi' LIMIT 1",
-                    (),
-                    |r| Ok(r.get(0)?),
-                )
-            })
-            .unwrap();
-        f.session.close_vault().unwrap();
-        rusqlite::Connection::open(evidence(&f))
-            .unwrap()
-            .execute("UPDATE ah_revisions SET digest='bad' WHERE id=?1", [id])
-            .unwrap();
-        (f.reopen(false), id)
-    };
-    v.agent_history().unwrap().write_raw(id, &mut std::io::sink()).unwrap_err();
-    let clock = std::rc::Rc::new(std::cell::Cell::new(None));
-    let begin = clock.clone();
-    vault_core::fault_inject::once_at("conversation-salvage-start", move || {
-        begin.set(Some(std::time::Instant::now()))
-    });
-    vault_core::fault_inject::once_at("conversation-salvage-finished", move || {
-        eprintln!(
-            "verified evidence transfer and model rebuild {:?}",
-            clock.get().unwrap().elapsed()
-        )
+    let v = f.vault();
+    let (pi, other) = damage_pi_reader(&v);
+    assert_reader_isolated(&v, &pi, &other);
+    let (live, parked, healthy) = (v.clone(), pi.clone(), other.clone());
+    vault_core::fault_inject::once_at("conversation-repair-preparing", move || {
+        assert_reader_isolated(&live, &parked, &healthy);
     });
     let prepare = std::time::Instant::now();
     let plan = preview(&v, None, None).unwrap();
     let prepare = prepare.elapsed();
+    assert_eq!(plan.action, "rebuild");
+    assert_eq!(plan.conversations, "1");
+    assert_reader_isolated(&v, &pi, &other);
     let verified = std::rc::Rc::new(std::cell::Cell::new(false));
     let flag = verified.clone();
     vault_core::fault_inject::once_at("conversation-repair-verified", move || flag.set(true));
@@ -663,7 +643,7 @@ fn round3_immutable_verification_precedes_lease() {
     });
     vault_core::fault_inject::once_at("conversation-repair-lease-end", move || {
         eprintln!(
-            "retained {raw} bytes; salvage preview {prepare:?}, lease {:?}",
+            "retained {raw} bytes; reader repair preview {prepare:?}, lease {:?}",
             clock.get().unwrap().elapsed()
         )
     });
@@ -673,6 +653,7 @@ fn round3_immutable_verification_precedes_lease() {
         |_| {},
     )
     .unwrap();
+    assert_reader_repaired(&f.vault(), &pi, &other);
 }
 
 #[cfg(unix)]
@@ -798,38 +779,105 @@ fn round3_close_refused_until_the_only_handle_is_durable() {
     );
 }
 
-#[test]
-fn round3_an_empty_older_model_does_not_cancel_the_evidence_inventory() {
-    for missing_mapping in [false, true] {
-        let f = Fixture::new(false);
-        let _corpus = Corpus::seed(&f);
-        let pi = sessions(&f.vault().agent_history().unwrap())["pi"]["revision_id"]
-            .as_str()
-            .unwrap()
-            .parse::<i64>()
-            .unwrap();
-        f.session.close_vault().unwrap();
-        rusqlite::Connection::open(evidence(&f))
-            .unwrap()
-            .execute("UPDATE ah_revisions SET digest='damaged' WHERE id=?1", [pi])
-            .unwrap();
-        rusqlite::Connection::open(
-            f.root.join(vault_layout::database_path(Db::AgentHistoryReadModel)),
-        )
-        .unwrap()
-        .execute("DELETE FROM ah_sessions", [])
+// Damage a published reader version while its retained transcript remains intact.
+fn damage_pi_reader(v: &Vault) -> (String, Vec<ReaderPublication>) {
+    let archive = v.agent_history().unwrap();
+    let ids = v
+        .store()
+        .read(Db::AgentHistoryReadModel, |s| {
+            s.query(
+                "SELECT harness,conversation_id FROM ah_sessions WHERE conversation_current=1",
+                (),
+                |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?)),
+            )
+        })
         .unwrap();
-        if missing_mapping {
-            rusqlite::Connection::open(evidence(&f))
-                .unwrap()
-                .execute("DELETE FROM ah_source_conversations WHERE revision_id=?1", [pi])
-                .unwrap();
-        }
-        let v = f.reopen(false);
-        assert!(v.agent_history().unwrap().write_raw(pi, &mut std::io::sink()).is_err());
+    let pi = ids.iter().find(|(tool, _)| tool == "pi").unwrap().1.clone();
+    let other = ids
+        .into_iter()
+        .filter(|(_, id)| id != &pi)
+        .map(|(_, id)| archive.reader_header(&id).unwrap())
+        .collect();
+    let damaged = pi.clone();
+    v.store().write(Db::AgentHistoryReadModel,vault_store::Priority::Interactive,move |s| {
+        assert_eq!(s.execute("UPDATE ah_reader_version SET digest='invalid' WHERE token=(SELECT version FROM ah_reader_member m JOIN ah_reader_head h ON h.publication=m.publication WHERE h.conversation=?1 AND m.source=h.current_source)",[damaged.as_str()])?,1);
+        s.execute("INSERT OR REPLACE INTO ah_reader_dirty VALUES(?1,lower(hex(randomblob(16))))",[damaged])?;
+        Ok(())
+    }).unwrap();
+    (pi, other)
+}
+
+fn assert_reader_isolated(v: &Vault, pi: &str, other: &[ReaderPublication]) {
+    v.conversation_availability().unwrap();
+    let archive = v.agent_history().unwrap();
+    assert_eq!(archive.reader_header(pi).unwrap_err().code(), "reader_rebuild_required");
+    for healthy in other {
+        assert_eq!(
+            archive.reader_header(&healthy.conversation_id).unwrap().publication,
+            healthy.publication
+        );
+    }
+}
+
+fn assert_reader_repaired(v: &Vault, pi: &str, other: &[ReaderPublication]) {
+    v.conversation_availability().unwrap();
+    let archive = v.agent_history().unwrap();
+    let head = archive.reader_header(pi).unwrap();
+    let rows = archive.reader_window(&head, None, 0, 4, &Default::default()).unwrap();
+    assert!(rows.iter().flat_map(|row| &row.parts).any(|part| part.text == "pianswerneedle"));
+    for healthy in other {
+        assert_eq!(
+            archive.reader_header(&healthy.conversation_id).unwrap().publication,
+            healthy.publication
+        );
+    }
+    assert!(
+        preview(v, None, None).unwrap_err().to_string().contains("conversation-repair-healthy")
+    );
+}
+
+#[test]
+fn reader_repair_recovers_a_parked_conversation_and_keeps_healthy_publications() {
+    for encrypted in [false, true] {
+        let f = Fixture::new(encrypted);
+        let corpus = Corpus::seed(&f);
+        assert!(
+            preview(&f.vault(), None, None)
+                .unwrap_err()
+                .to_string()
+                .contains("conversation-repair-healthy")
+        );
+        let (pi, other) = damage_pi_reader(&f.vault());
+        f.session.close_vault().unwrap();
+        let v = f.reopen(encrypted);
+        assert_reader_isolated(&v, &pi, &other);
+        let parked = v
+            .store()
+            .read(Db::AgentHistoryReadModel, |s| {
+                s.query_one("SELECT count(*) FROM ah_reader_parked", (), |r| Ok(r.get::<i64>(0)?))
+            })
+            .unwrap();
+        assert_eq!(parked, 1);
+        let kinds =
+            serde_json::to_value(vault_worker::data_kinds::list(&f.session).unwrap()).unwrap();
+        assert_eq!(kinds["kinds"][1]["availability"], "available");
+        let superseded = preview(&v, None, None).unwrap();
+        v.store()
+            .write(Db::AgentHistoryReadModel, vault_store::Priority::Interactive, |s| {
+                s.execute("UPDATE ah_reader_parked SET ticket=lower(hex(randomblob(16)))", ())
+            })
+            .unwrap();
+        let stale = execute(&v, None, None, &superseded.token, Default::default()).err().unwrap();
+        assert!(stale.to_string().contains("conversation-repair-preview-stale"), "{stale:#}");
+        assert_reader_isolated(&v, &pi, &other);
         let plan = preview(&v, None, None).unwrap();
-        assert_eq!(plan.conversations, "3");
-        assert_eq!(plan.conversations_only_in_copy.as_deref(), (!missing_mapping).then_some("1"));
+        assert_eq!(plan.action, "rebuild");
+        assert_eq!(plan.conversations, "1");
+        assert_eq!(plan.conversations_recovered_whole.as_deref(), Some("1"));
+        assert_reader_isolated(&v, &pi, &other);
+        let installed = execute(&v, None, None, &plan.token, Default::default()).unwrap();
+        assert_reader_repaired(&installed.vault, &pi, &other);
+        corpus.check(&installed.vault, encrypted.then_some(PASSWORD));
     }
 }
 

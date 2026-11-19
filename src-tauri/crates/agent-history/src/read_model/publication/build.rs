@@ -325,41 +325,7 @@ impl Archive {
             })?;
             let Some(id) = next else { break };
             conversation = id;
-            let mut after = String::new();
-            loop {
-                job.cancel.check().map_err(|_| Error::Cancelled)?;
-                let (id, key) = (conversation.clone(), after.clone());
-                let batch = self.store.read(DB, move |tx| {
-                    tx.query(
-                        "SELECT id,projection_id,revision_id,parser_version FROM ah_sessions
-                         WHERE conversation_id=?1 AND id>?2 ORDER BY id LIMIT 128",
-                        params![id, key],
-                        |row| {
-                            Ok(ProjectionAttempt {
-                                source_id: row.get(0)?,
-                                id: row.get(1)?,
-                                revision_id: row.get(2)?,
-                                parser_version: row.get(3)?,
-                            })
-                        },
-                    )
-                })?;
-                if batch.is_empty() {
-                    break;
-                }
-                for attempt in batch {
-                    after.clone_from(&attempt.source_id);
-                    if let Err(error) = self.repair_reader_version(&attempt, job) {
-                        // Only the active scan can own a repairing version of this parser attempt.
-                        self.store.write(DB,Priority::Batch,move|tx|tx.execute(
-                            "UPDATE ah_reader_version SET state='retired' WHERE attempt=?1 AND state='repairing'",
-                            [attempt.id]))?;
-                        self.jobs.request_collection();
-                        return Err(error);
-                    }
-                    count += 1;
-                }
-            }
+            count += self.rebuild_conversation_versions(&conversation, job)?;
             let _guard =
                 self.publication_gate.lock().map_err(|_| pages::invalid("publication lock"))?;
             // A damaged dependency in another group stays parked until its turn.
@@ -389,6 +355,50 @@ impl Archive {
             }
         }
         self.collect_reader_garbage(&job.cancel)?;
+        Ok(count)
+    }
+
+    pub(super) fn rebuild_conversation_versions(
+        &self,
+        conversation: &str,
+        job: &JobControl,
+    ) -> Result<u64> {
+        let mut count = 0;
+        let mut after = String::new();
+        loop {
+            job.cancel.check().map_err(|_| Error::Cancelled)?;
+            let (id, key) = (conversation.to_owned(), after.clone());
+            let batch = self.store.read(DB, move |tx| {
+                tx.query(
+                    "SELECT id,projection_id,revision_id,parser_version FROM ah_sessions
+                         WHERE conversation_id=?1 AND id>?2 ORDER BY id LIMIT 128",
+                    params![id, key],
+                    |row| {
+                        Ok(ProjectionAttempt {
+                            source_id: row.get(0)?,
+                            id: row.get(1)?,
+                            revision_id: row.get(2)?,
+                            parser_version: row.get(3)?,
+                        })
+                    },
+                )
+            })?;
+            if batch.is_empty() {
+                break;
+            }
+            for attempt in batch {
+                after.clone_from(&attempt.source_id);
+                if let Err(error) = self.repair_reader_version(&attempt, job) {
+                    // Only the active scan can own a repairing version of this parser attempt.
+                    self.store.write(DB,Priority::Batch,move|tx|tx.execute(
+                            "UPDATE ah_reader_version SET state='retired' WHERE attempt=?1 AND state='repairing'",
+                            [attempt.id]))?;
+                    self.jobs.request_collection();
+                    return Err(error);
+                }
+                count += 1;
+            }
+        }
         Ok(count)
     }
 

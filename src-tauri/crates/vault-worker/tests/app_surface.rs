@@ -253,6 +253,8 @@ fn debug_agent_delays_apply_inside_the_native_loops() {
     if std::env::var_os("PATHKEEP_DELAY_TEST_CHILD").is_none() {
         assert!(
             std::process::Command::new(std::env::current_exe().unwrap())
+                // A parallel fixture may have temporarily changed the parent process cwd.
+                .current_dir(env!("CARGO_MANIFEST_DIR"))
                 .args(["--exact", name])
                 .env("PATHKEEP_DELAY_TEST_CHILD", "1")
                 .env("PATHKEEP_TEST_AGENT_PREVIEW_ENTRY_DELAY_US", "60000")

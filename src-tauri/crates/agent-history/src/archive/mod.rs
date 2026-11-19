@@ -97,38 +97,7 @@ impl Archive {
         cancel: &vault_store::CancelToken,
     ) -> Result<Self> {
         cancel.check().map_err(|_| Error::Cancelled)?;
-        let root = fs::canonicalize(store.owner()?.root())?;
-        for role in [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel] {
-            let encrypted = store.database_encrypted(role).ok_or_else(|| {
-                Error::InvalidArchive(format!("missing conversation role {role:?}"))
-            })?;
-            if encrypted != resources.search_key.is_some() {
-                return Err(Error::InvalidInput(
-                    "search and conversation databases require the same encryption mode".into(),
-                ));
-            }
-        }
-        if resources
-            .search_key
-            .as_ref()
-            .is_some_and(|key| key.purpose() != vault_crypto::KeyPurpose::AgentHistorySearchIndex)
-        {
-            return Err(Error::InvalidInput("incorrect conversation search key purpose".into()));
-        }
-        let jobs = Arc::new(lifetime::Jobs::new(store.clone()));
-        let archive = Self {
-            store,
-            search_path: resources.search_path,
-            search_key: Mutex::new(resources.search_key.map(Arc::new)),
-            jobs,
-            root,
-            search_gate: Mutex::new(()),
-            initial_search: Default::default(),
-            reader_finalization_pending: AtomicBool::new(false),
-            state_mirror_pending: AtomicBool::new(false),
-            state_gate: Mutex::new(()),
-            publication_gate: Mutex::new(()),
-        };
+        let archive = Self::bind_store(store, resources)?;
         let evidence = |e| archive.recovery_error(Db::AgentHistoryEvidence, e);
         let model = |e| archive.recovery_error(Db::AgentHistoryReadModel, e);
         archive.recover_unfinished_revisions().map_err(evidence)?;
@@ -168,6 +137,43 @@ impl Archive {
         // Replay touches both databases and marks failures at the individual request.
         archive.synchronize_user_state()?;
         Ok(archive)
+    }
+
+    /// A private reader repair uses the same owned handles without running backup
+    /// recovery, mark replay, or any other evidence writer on the staged pair.
+    pub(crate) fn bind_store(store: Arc<Store>, resources: AgentHistoryResources) -> Result<Self> {
+        let root = fs::canonicalize(store.owner()?.root())?;
+        for role in [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel] {
+            let encrypted = store.database_encrypted(role).ok_or_else(|| {
+                Error::InvalidArchive(format!("missing conversation role {role:?}"))
+            })?;
+            if encrypted != resources.search_key.is_some() {
+                return Err(Error::InvalidInput(
+                    "search and conversation databases require the same encryption mode".into(),
+                ));
+            }
+        }
+        if resources
+            .search_key
+            .as_ref()
+            .is_some_and(|key| key.purpose() != vault_crypto::KeyPurpose::AgentHistorySearchIndex)
+        {
+            return Err(Error::InvalidInput("incorrect conversation search key purpose".into()));
+        }
+        let jobs = Arc::new(lifetime::Jobs::new(store.clone()));
+        Ok(Self {
+            store,
+            search_path: resources.search_path,
+            search_key: Mutex::new(resources.search_key.map(Arc::new)),
+            jobs,
+            root,
+            search_gate: Mutex::new(()),
+            initial_search: Default::default(),
+            reader_finalization_pending: AtomicBool::new(false),
+            state_mirror_pending: AtomicBool::new(false),
+            state_gate: Mutex::new(()),
+            publication_gate: Mutex::new(()),
+        })
     }
 
     /// Identifies the explicitly selected archive without exposing keys or source data.

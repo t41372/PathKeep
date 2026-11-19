@@ -109,6 +109,7 @@ impl Store {
             workers: RwLock::default(),
             ownership: Mutex::new(Some(lock)),
             adding: Mutex::default(),
+            conversation_writes: RwLock::default(),
             retired_files: Default::default(),
             conversation_generation: Default::default(),
             held_publisher: Default::default(),
