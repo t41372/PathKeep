@@ -33,7 +33,11 @@ import {
 import { backdropDragRegion } from '@/components/app/drag-region'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
-import { hasMacOverlayTitlebar, isMacOsHost } from '@/lib/runtime'
+import {
+  hasMacOverlayTitlebar,
+  isMacOsHost,
+  shortcutLabel,
+} from '@/lib/runtime'
 import { spacePagePath } from '@/lib/spaces'
 import { useTheme } from '@/lib/theme'
 import { useCurrentSpace, useSlideDirection } from './current-space'
@@ -194,10 +198,16 @@ export function NavRail({
       <Divider className="mb-1" />
       <TaskIndicator />
       <RailLink to="/ask" icon={MessageCircle} label={t('shell.nav.ask')} />
-      <RailButton label={t('shell.nav.palette')} onClick={onOpenPalette}>
+      <RailButton
+        label={t('shell.nav.palette', { keys: shortcutLabel('K') })}
+        onClick={onOpenPalette}
+      >
         <Command className="size-[17px]" />
       </RailButton>
-      <RailButton label={t('shell.nav.lock')} onClick={onLock}>
+      <RailButton
+        label={t('shell.nav.lock', { keys: shortcutLabel('L') })}
+        onClick={onLock}
+      >
         <Lock className="size-[17px]" />
       </RailButton>
       <RailButton

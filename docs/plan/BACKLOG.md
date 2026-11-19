@@ -363,8 +363,8 @@
 
 - [ ] **WORK-UI-SMALL-FINDINGS-2026-11-14** — `WORK-WINDOW-FRAME-EVERY-SCREEN` 時 Codex 指出、讀程式碼確認的小問題，與外框無關
   - ~~對話框角落的關閉按鈕，給螢幕閱讀器的文字寫死英文「Close」~~ 2026-11-18 改好：對話框、它的 footer 與側欄（`sheet.tsx`）都用 `common.close`。
-  - 舊格式升級畫面在 `try` 之前就訂閱進度（`status-screens.tsx:155-158`）。訂閱失敗時「執行中」不會被清掉，畫面停在進度條上。
-  - Windows、Linux 上也寫 macOS 的快捷鍵：指令面板「Lock PathKeep」旁的 `⌘L`（`command-palette.tsx:125`），導航列提示「Command palette (⌘K)」「Lock PathKeep (⌘L)」（`messages/shell.ts`，三種語言）。那兩個平台是 Ctrl+K、Ctrl+L；上一頁 / 下一頁已經分開寫。2026-11-14 在 Linux 實機的截圖上看到。
+  - ~~舊格式升級畫面在 `try` 之前就訂閱進度，訂閱失敗時「執行中」不會被清掉~~ 2026-11-18 改好：訂閱移進 `try`。沒有測試（要讓訂閱失敗才重現）。
+  - ~~Windows、Linux 上也寫 macOS 的快捷鍵（指令面板的 `⌘L`、導航列提示的 `⌘K`、`⌘L`）~~ 2026-11-18 改好：照平台寫成 `Ctrl+K`、`Ctrl+L`（`runtime.ts` 的 `shortcutLabel`），`window-frame.spec.ts` 在兩種平台上各檢查一次。
   - 過時的註解：`worker_bridge/archive.rs:18-21` 說 dev bridge 送不了升級進度，`dev_ipc_bridge/dispatch.rs` 其實有送；`desktop_integration/quit.rs:22` 寫 tao 0.35，鎖檔是 0.37.2。
 
 - [ ] **WORK-RECLASSIFY-STALL** — 14.4M 上改一個網站的類別，建置卡在第一頁之前；修好後仍要 16 分鐘（2026-10-13 `WORK-SCALE-BENCH-RERUN` 找到）

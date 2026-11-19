@@ -155,8 +155,11 @@ export function UpgradeScreen() {
     if (!snapshot) return
     setRunning(true)
     setError(null)
-    const unsubscribe = await subscribeToArchiveUpgradeProgress(setProgress)
+    // Inside the try: if listening for progress fails, the screen must come
+    // back from "running" and say so, not sit on a bar that never moves.
+    let unsubscribe: (() => void) | undefined
     try {
+      unsubscribe = await subscribeToArchiveUpgradeProgress(setProgress)
       session.enter(
         await archiveClient.initializeArchive(
           snapshot.config,

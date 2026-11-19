@@ -86,6 +86,13 @@ test('linux: the main window, a dialog over it and App Lock keep one set of wind
   await openHome(page)
   await expectWindowButtons(page)
   await expectDragsAt(page, titleStrip(page))
+  // The rail names its shortcuts by the keys this keyboard has.
+  await expect(
+    page.getByRole('button', { name: 'Command palette (Ctrl+K)' }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Lock PathKeep (Ctrl+L)' }),
+  ).toBeVisible()
   await page.screenshot({ path: test.info().outputPath('home-linux.png') })
 
   // The command palette is a modal dialog: the rest of the window stops
@@ -159,6 +166,12 @@ test('macos: the main window and App Lock drag from the window background', asyn
   const page = await desktopWindow(browser, 'macos')
   await openHome(page)
   await expectNoWindowButtons(page)
+  await expect(
+    page.getByRole('button', { name: 'Command palette (⌘K)' }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Lock PathKeep (⌘L)' }),
+  ).toBeVisible()
   await expectDragsAt(page, [
     { x: 540, y: 4, where: 'margin above the panel' },
     { x: 1076, y: 400, where: 'margin right of the panel' },

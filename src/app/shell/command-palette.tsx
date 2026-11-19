@@ -46,6 +46,7 @@ import { useTheme } from '@/lib/theme'
 import { useBackupRunner } from '../backup-runner'
 import { useCurrentSpace, useSwitchSpace } from './current-space'
 import { SpaceTile } from './space-switcher'
+import { shortcutLabel } from '@/lib/runtime'
 
 interface PaletteItem {
   id: string
@@ -137,7 +138,7 @@ export function CommandPalette({
         id: 'lock',
         icon: Lock,
         label: t('shell.palette.lock'),
-        hint: '⌘L',
+        hint: shortcutLabel('L'),
         run: () => (close(), onLock()),
       },
       {
@@ -168,7 +169,7 @@ export function CommandPalette({
     <CommandDialog
       open={open}
       onOpenChange={(next) => (next ? onOpenChange(true) : close())}
-      title={t('shell.nav.palette')}
+      title={t('shell.nav.palette', { keys: shortcutLabel('K') })}
       description={t('shell.palette.placeholder')}
       shouldFilter={false}
       className="sm:max-w-xl"

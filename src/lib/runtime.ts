@@ -206,3 +206,12 @@ export function hasMacOverlayTitlebar() {
 export function drawsWindowControls() {
   return windowFrame() === 'drawn'
 }
+
+/**
+ * How a shortcut with the platform's main modifier is written for the person
+ * reading it: `⌘K` on macOS, `Ctrl+K` on Windows and Linux, where there is no
+ * ⌘ key. The shortcuts themselves accept either (`app-frame.tsx`).
+ */
+export function shortcutLabel(key: string) {
+  return isMacOsHost() ? `⌘${key}` : `Ctrl+${key}`
+}
