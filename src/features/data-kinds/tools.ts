@@ -3,7 +3,8 @@
  * every screen writes a tool the same way (`agent-history.md`: each tool
  * by its own icon and name, never an abbreviation).
  *
- * Responsibilities: the id → name and icon map. Not responsible for:
+ * Responsibilities: the id → name and icon map, and the name of a folder
+ * whose path does not say what it is. Not responsible for:
  * which tools exist on this computer (the backend's `detect_data_sources`),
  * their order (`AGENT_TOOLS`), or drawing them (`tool-badge.tsx`).
  * Icon provenance: `src/assets/harness-icons/README.md`.
@@ -42,4 +43,20 @@ export function toolName(id: AgentToolId): MessageKey {
 export function inToolOrder(ids: Iterable<AgentToolId>): AgentToolId[] {
   const set = new Set(ids)
   return AGENT_TOOLS.filter((id) => set.has(id))
+}
+
+/**
+ * What a tool folder is, when its path does not say it. The Claude desktop
+ * app keeps its local Cowork sessions in a folder named `Claude` in the
+ * system's app-data folder (`~/Library/Application Support/Claude`,
+ * `~/.config/Claude`, `%APPDATA%\Claude`), which the backend reads as
+ * Claude Code; Claude Code's own folder is `.claude`.
+ */
+export function folderLabel(
+  tool: AgentToolId,
+  path: string | null | undefined,
+): MessageKey | undefined {
+  if (tool !== 'claude-code' || !path) return undefined
+  const name = path.split(/[\\/]/).filter(Boolean).pop()
+  return name === 'Claude' ? 'dataKinds.folders.claudeDesktop' : undefined
 }

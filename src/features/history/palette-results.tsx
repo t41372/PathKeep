@@ -3,12 +3,16 @@
  * page, each opening History on that visit; above them, the note that the
  * search index is still catching up when it is.
  *
- * Responsibilities: the search and its rows. Not responsible for the group
- * around them or the "Search … for …" row after them, which the palette
- * draws for every space (`src/app/shell/command-palette.tsx`).
+ * Responsibilities: the search, its rows and the group around them, with
+ * the "Search … for …" row the palette hands in last. Not responsible for
+ * that row itself (`src/app/shell/command-palette.tsx`).
  */
 import { useQuery } from '@tanstack/react-query'
-import { CommandItem, CommandShortcut } from '@/components/ui/command'
+import {
+  CommandGroup,
+  CommandItem,
+  CommandShortcut,
+} from '@/components/ui/command'
 import { Favicon } from '@/components/app/favicon'
 import { SearchCoverageNotice } from '@/components/app/search-coverage'
 import { explorerClient } from '@/lib/backend-client/explorer'
@@ -16,7 +20,12 @@ import { useFormat } from '@/lib/i18n'
 import { queryKeys } from '@/lib/query'
 import { spacePath, type PaletteResultsProps } from '@/lib/spaces'
 
-export default function PaletteResults({ term, open }: PaletteResultsProps) {
+export default function PaletteResults({
+  term,
+  open,
+  heading,
+  searchRow,
+}: PaletteResultsProps) {
   const format = useFormat()
   const visits = useQuery({
     queryKey: [...queryKeys.archiveData, 'palette', term],
@@ -32,7 +41,7 @@ export default function PaletteResults({ term, open }: PaletteResultsProps) {
   })
 
   return (
-    <>
+    <CommandGroup heading={heading}>
       {/* An index still catching up: these six can't be the whole answer. */}
       <SearchCoverageNotice
         status={visits.data?.searchState ?? null}
@@ -63,6 +72,7 @@ export default function PaletteResults({ term, open }: PaletteResultsProps) {
           </CommandShortcut>
         </CommandItem>
       ))}
-    </>
+      {searchRow}
+    </CommandGroup>
   )
 }

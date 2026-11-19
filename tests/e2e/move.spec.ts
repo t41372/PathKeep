@@ -12,13 +12,31 @@
  * kept as a safety copy, can't be checked, the import still finishes and says
  * why, and the copy is listed as not checked yet (restore.spec restores it).
  *
+ * And what the file does not carry, after the move (the second test):
+ * - the folders approved for Agent conversations on this computer: one
+ *   more folder is approved after the file is made, so the file does not
+ *   hold this computer's approvals. After the move the kind is still on,
+ *   with nothing to back up (`sourceReviewRequired`): the backup page asks
+ *   to choose the folders again, without "Back up now", and "Choose
+ *   folders…" opens the look at the folders; Manage data types says it too;
+ * - links to browsing backups made before it (`browsing:{origin}/{id}`): the
+ *   archive's ledger starts again, so such a link says the backup is not in
+ *   the archive instead of opening whichever backup now has that number.
+ *
  * Runs in its own project after `change` (app lock is on, passcode 4826):
- * opening the file replaces the archive and its password.
+ * opening the file replaces the archive and its password. The two tests run
+ * in order; the second needs what the first did.
  */
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
+import {
+  addAgentFolder,
+  agentKindState,
+  openBackupPage,
+} from './support/agent-backup'
+import { enableDialog, waitForPreview } from './support/agent-tools'
 import {
   backend,
   fixture,
@@ -28,6 +46,20 @@ import {
 import { zipBytes, zipEntries } from './support/zip-file'
 
 const FILE_PASSWORD = 'moving day, 2026'
+
+test.describe.configure({ mode: 'serial' })
+
+/** A browsing backup's link from before the move, for the second test. */
+let linkBeforeMove: string | undefined
+
+/** The newest browsing backup's public reference. */
+async function newestBrowsingRunRef() {
+  const page = await backend<{ items: { runRef: string }[] }>(
+    'list_archive_runs',
+    { request: { space: 'browsing', includeArchiveWide: false, limit: 1 } },
+  )
+  return page.items[0]?.runRef
+}
 
 async function visitTotal() {
   const dashboard = await backend<{ totalVisits: number }>(
@@ -136,6 +168,15 @@ test('a moved archive opens only with the password chosen at export', async ({
   await expect(page.getByText(/^Saved /)).toBeVisible({ timeout: 120_000 })
   await expect(exporting).toHaveCount(0)
 
+  // After the file is made: a link to a browsing backup, and one more Agent
+  // folder approved here, which the file does not hold.
+  linkBeforeMove = await newestBrowsingRunRef()
+  expect(linkBeforeMove).toMatch(/^browsing:[0-9a-f]+\/\d+$/)
+  expect((await agentKindState())?.state).toBe('on')
+  await addAgentFolder(page, 'pi', join(fixture().agents.home, 'pi-elsewhere'))
+  await page.goto('/#/settings/storage')
+  await unlockIfAsked(page, FILE_PASSWORD)
+
   // The same file from a newer PathKeep: refused at the check, saying what to do.
   const newer = join(dir, 'pathkeep-move-newer.pathkeep')
   madeByNewerVersion(file, newer)
@@ -206,4 +247,55 @@ test('a moved archive opens only with the password chosen at export', async ({
   await expect(
     page.getByRole('heading', { name: 'Your archive is encrypted' }),
   ).toBeHidden()
+})
+
+test('after the move, this computer chooses its folders again, and older links say so', async ({
+  page,
+}, testInfo) => {
+  expect(linkBeforeMove, 'the first test ran').toBeDefined()
+
+  // On, with no folder approved here: choose them again.
+  expect(await agentKindState()).toMatchObject({
+    state: 'on',
+    hasBackupSource: false,
+    sourceReviewRequired: true,
+  })
+  await openBackupPage(page)
+  await expect(
+    page.getByText('Choose the folders to back up again', { exact: true }),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Back up now' })).toHaveCount(0)
+  await expect(
+    page.getByText(
+      'Nothing on this computer is backed up. Set up backup to choose which tools to keep.',
+    ),
+  ).toBeVisible()
+  await testInfo.attach('the backup page after the move', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  })
+  await page.getByRole('button', { name: 'Choose folders…' }).click()
+  await expect(enableDialog(page)).toBeVisible()
+  await waitForPreview(page)
+  await page.keyboard.press('Escape')
+  await expect(enableDialog(page)).toHaveCount(0)
+
+  await page.goto('/#/settings/kinds')
+  await expect(
+    page.getByRole('region', { name: 'Agent conversations', exact: true }),
+  ).toContainText(
+    'On, but nothing on this computer is chosen to back up, so nothing is backed up. Everything saved is still here.',
+  )
+
+  // A browsing backup's link from before: not in this archive.
+  await openBackupPage(page, `?run=${encodeURIComponent(linkBeforeMove!)}`)
+  const sheet = page.getByRole('dialog')
+  await expect(sheet).toContainText('This backup isn’t in the archive.')
+  await testInfo.attach('a link from before the move', {
+    body: await sheet.screenshot(),
+    contentType: 'image/png',
+  })
+  await expect(
+    backend('get_archive_run', { request: { runRef: linkBeforeMove } }),
+  ).rejects.toThrow(/record-unavailable/)
 })

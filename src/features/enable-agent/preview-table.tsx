@@ -14,6 +14,7 @@ import type { RootInventory } from '@/lib/backend-client/data-kinds'
 import { cn } from '@/lib/cn'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { ToolBadge } from '@/features/data-kinds/tool-badge'
+import { folderLabel } from '@/features/data-kinds/tools'
 import {
   conversationFiles,
   rowNote,
@@ -49,6 +50,7 @@ function FolderRow({ row }: { row: RootInventory }) {
   const note = rowNote(row)
   const counted = row.readable && row.countBasis !== 'unavailable'
   const subagents = subagentFiles(row.counts)
+  const label = folderLabel(row.tool, row.path)
   return (
     <tr
       data-tool={row.tool}
@@ -58,6 +60,9 @@ function FolderRow({ row }: { row: RootInventory }) {
         <ToolBadge id={row.tool} />
       </td>
       <td className="max-w-[300px]">
+        {label && (
+          <span className="block text-[13px] font-medium">{t(label)}</span>
+        )}
         <span className="font-mono text-xs [overflow-wrap:anywhere] text-muted-foreground">
           {row.path}
         </span>

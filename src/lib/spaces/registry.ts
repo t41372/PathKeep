@@ -24,7 +24,7 @@ import {
   House,
   type LucideIcon,
 } from 'lucide-react'
-import { lazy, type ComponentType } from 'react'
+import { lazy, type ComponentType, type ReactNode } from 'react'
 import type { DataKindId, KindState } from '@/lib/backend-client/data-kinds'
 import type { MessageKey } from '@/lib/i18n'
 import {
@@ -36,12 +36,20 @@ import {
 
 type Screen = () => Promise<{ default: ComponentType }>
 
-/** What a space shows in ⌘K once two or more characters are typed. */
+/**
+ * What a space shows in ⌘K once two or more characters are typed: its own
+ * group, under `heading`, with its rows and then `searchRow`. A group with
+ * no rows and no search row is not drawn at all (an empty heading would be
+ * left otherwise: the palette does its own matching).
+ */
 export interface PaletteResultsProps {
   /** The debounced words, at least two characters. */
   term: string
   /** Closes the palette and goes to `to`. */
   open: (to: string) => void
+  heading: string
+  /** "Search … for …", or `null` for a space whose list cannot search. */
+  searchRow: ReactNode
 }
 
 export interface SpacePage {
@@ -104,12 +112,13 @@ export interface Space extends DataSpace {
   /** One line for the switcher's menu, loaded when the menu opens. */
   Status: ComponentType
   /**
-   * ⌘K's results group for this space, and its "Search in" row. A space
-   * whose records cannot be searched yet has none.
+   * ⌘K's results group for this space, and its "Search in" row unless
+   * `searchRow` is false (a space whose list page cannot search yet).
    */
   palette?: {
     heading: MessageKey
     Results: ComponentType<PaletteResultsProps>
+    searchRow?: boolean
   }
 }
 
@@ -179,10 +188,11 @@ const browsing = {
 /**
  * Agent conversations. Its pages are insights, records, projects and
  * backup (`data-spaces-tradeoff.md` §4.1); this build has the backup page,
- * so for now it is also where the space opens and its list page, and ⌘K
- * has no conversation results for it. Insights, records and projects come
- * with the conversation read model: insights goes first (where the space
- * opens), records becomes `listPage` with ⌘K's results and "Search in".
+ * so for now it is also where the space opens and its list page. ⌘K finds
+ * its sources and recent backups, with no "Search in" row (the backup page
+ * does not search). Insights, records and projects come with the
+ * conversation read model: insights goes first (where the space opens),
+ * records becomes `listPage`, and ⌘K finds conversations and searches them.
  */
 const agent = {
   id: 'agent',
@@ -204,6 +214,11 @@ const agent = {
   listPage: 'backup',
   backupPage: 'backup',
   Status: lazy(() => import('@/features/agent-backup/agent-status')),
+  palette: {
+    heading: 'spaces.agent.name',
+    Results: lazy(() => import('@/features/agent-backup/palette-results')),
+    searchRow: false,
+  },
 } as const satisfies Space
 
 /** Every kind of data PathKeep can keep, in the switcher's order. */

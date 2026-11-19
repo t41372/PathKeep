@@ -43,8 +43,13 @@ export type CountUnit = 'visits' | 'source-files'
 
 /** Which part of a kind's storage failed to open. */
 export type KindFailureRole = 'evidence' | 'read-model' | 'shared'
+/**
+ * When the failure was found: while opening the store (`preflight` …
+ * `recover`), or later, while the window was open and a read (`read`) or a
+ * save (`write`) met it.
+ */
 export type KindFailureStage =
-  'preflight' | 'open' | 'key-check' | 'migrate' | 'recover'
+  'preflight' | 'open' | 'key-check' | 'migrate' | 'recover' | 'read' | 'write'
 export type KindFailureReason =
   | 'archive-store-missing'
   | 'wrong-key'
@@ -392,7 +397,8 @@ export function dataKindsErrorCode(
 /**
  * The engine's causes for a kind's own store that will not open. By then the
  * archive itself is open, so each one, `wrong-key` included, means that one
- * file can no longer be read: damage, never a wrong password.
+ * file can no longer be read: damage, never a wrong password. A store that
+ * goes bad while the window is open answers `conversation-repair-required`.
  */
 const STORE_DAMAGE_CODES: ReadonlySet<string> = new Set([
   'kind-unavailable',
@@ -400,6 +406,7 @@ const STORE_DAMAGE_CODES: ReadonlySet<string> = new Set([
   'integrity-failed',
   'archive-store-missing',
   'schema-too-new',
+  'conversation-repair-required',
 ])
 
 /** Whether a failed command, or a preview's `error` frame, reports a damaged or unreadable store. */

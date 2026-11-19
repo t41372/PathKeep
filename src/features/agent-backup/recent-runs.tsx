@@ -23,15 +23,10 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import type { ArchiveRun } from '@/lib/backend-client/agent-backup'
 import { cn } from '@/lib/cn'
-import {
-  useFormat,
-  useI18n,
-  type MessageKey,
-  type Translator,
-} from '@/lib/i18n'
+import { useFormat, useI18n } from '@/lib/i18n'
 import { useAgentRuns, wireNumber } from '@/lib/queries/agent-backup'
 import { useRunParam } from './run-param'
-import { runSummaryText, runTook } from './words'
+import { runLine, runTook } from './words'
 
 function hasWarnings(run: ArchiveRun) {
   return wireNumber(run.warningCount) > 0 || run.result === 'partial'
@@ -56,28 +51,6 @@ export function RunResultIcon({ result }: { result: string }) {
       )}
     />
   )
-}
-
-const archiveWork: Record<string, MessageKey> = {
-  doctor: 'agentBackup.runs.archive.doctor',
-  retention_prune: 'agentBackup.runs.archive.retention_prune',
-  rekey: 'agentBackup.runs.archive.rekey',
-  archive_restore: 'agentBackup.runs.archive.archive_restore',
-}
-
-/** What the run did, in this space's terms. */
-function runLine(t: Translator, run: ArchiveRun) {
-  if (run.scope !== 'agent-history')
-    return t(archiveWork[run.operation] ?? 'agentBackup.runs.archive.other')
-  if (run.result === 'running') return t('agentBackup.runs.result.running')
-  if (run.result === 'failed') return t('agentBackup.runs.result.failed')
-  const did =
-    'newRoots' in run.summary
-      ? runSummaryText(t, run.summary, t('dataKinds.listSeparator'))
-      : ''
-  return run.result === 'interrupted'
-    ? `${t('agentBackup.runs.result.interrupted')} · ${did}`
-    : did
 }
 
 function RunRow({ run }: { run: ArchiveRun }) {

@@ -1,6 +1,7 @@
 /**
  * The words for a kind whose storage will not open, from what the backend
- * reports: which file failed (role) and when that was found (stage).
+ * reports: which file failed (role) and when that was found (stage: while
+ * opening it, or later, while reading or saving conversations).
  *
  * Whatever the backend's reason, it is said one way: the file is damaged or
  * cannot be read. By the time a kind is listed the archive is open, so even
@@ -26,6 +27,8 @@ const stages: Record<KindFailureStage, MessageKey> = {
   'key-check': 'dataKinds.damage.stages.keyCheck',
   migrate: 'dataKinds.damage.stages.migrate',
   recover: 'dataKinds.damage.stages.recover',
+  read: 'dataKinds.damage.stages.read',
+  write: 'dataKinds.damage.stages.write',
 }
 
 /** The sentences for one failure; a role or stage this build does not know falls back to plain words. */

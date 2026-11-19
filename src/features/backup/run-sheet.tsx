@@ -19,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { auditClient } from '@/lib/backend-client/audit'
 import { describeError } from '@/lib/errors'
-import { messages, useFormat, useI18n } from '@/lib/i18n'
+import { messages, useFormat, useI18n, type MessageKey } from '@/lib/i18n'
 import { queryKeys } from '@/lib/query'
 import type { AuditArtifact, AuditRunDetail } from '@/lib/types'
 import { PathLine } from './path-actions'
@@ -76,6 +76,21 @@ function ArtifactBlock({ artifact }: { artifact: AuditArtifact }) {
   )
 }
 
+/**
+ * Who or what started a run, for every trigger the ledger writes: a person
+ * (`manual`, also for whole-archive work such as a password change or a
+ * restore), the scheduler, the conversion of an older archive, an app
+ * asking over MCP, and the archive's own first row. One from an older
+ * PathKeep that is none of these says it was not recorded.
+ */
+const triggerWords = new Map<string, MessageKey>([
+  ['manual', 'backup.runs.detail.triggers.manual'],
+  ['schedule', 'backup.runs.detail.triggers.schedule'],
+  ['conversion', 'backup.runs.detail.triggers.conversion'],
+  ['external', 'backup.runs.detail.triggers.external'],
+  ['compat', 'backup.runs.detail.triggers.compat'],
+])
+
 function Summary({
   detail,
   notes,
@@ -86,10 +101,6 @@ function Summary({
   const { t } = useI18n()
   const format = useFormat()
   const { run } = detail
-  const trigger =
-    detail.trigger === 'manual' || detail.trigger === 'schedule'
-      ? detail.trigger
-      : null
   const safety = detail.artifacts.find(
     (artifact) => artifact.reason === SAFETY_REASON,
   )
@@ -111,9 +122,10 @@ function Summary({
           {runDuration(run, t) ?? '—'}
         </Fact>
         <Fact label={t('backup.runs.detail.trigger')}>
-          {trigger
-            ? t(`backup.runs.detail.triggers.${trigger}`)
-            : detail.trigger}
+          {t(
+            triggerWords.get(detail.trigger) ??
+              'backup.runs.detail.triggers.unknown',
+          )}
           {detail.dueOnly && (
             <span className="block text-xs text-muted-foreground">
               {t('backupRuns.dueOnly')}

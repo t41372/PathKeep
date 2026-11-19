@@ -5,11 +5,47 @@
  * and refreshed by invalidating a key, instead of each screen keeping its own
  * copy and refetching on every mount. After a backup or import finishes, the
  * backup runner invalidates `archiveData`, which refreshes everything derived
- * from the archive in one pass.
+ * from the archive in one pass. A read that meets a damaged store asks for
+ * the kinds list again (`noticeStoreDamage`).
  */
-import { QueryClient } from '@tanstack/react-query'
+import {
+  MutationCache,
+  QueryCache,
+  QueryClient,
+  type QueryKey,
+} from '@tanstack/react-query'
+import { isStoreDamage } from './backend-client/data-kinds'
+
+let kindsAskedAgain = false
+
+/**
+ * A kind's store that goes bad while the window is open: the read or the
+ * change that met it fails with a damage code, and the kinds list (kept
+ * until something changes it) is read again, so the screens show the damage
+ * instead of a failing card. The backend also announces such a change (the
+ * kinds-changed event); this catches what that misses. Once per tick, and
+ * never for the list itself, which would ask for itself again. Queries and
+ * mutations come here on their own; a command called directly (a password
+ * or encryption change) calls this from its own failure.
+ */
+export function noticeStoreDamage(error: unknown, key?: QueryKey) {
+  if (!isStoreDamage(error)) return
+  if (key?.[0] === 'archive' && key[1] === 'data-kinds') return
+  if (kindsAskedAgain) return
+  kindsAskedAgain = true
+  setTimeout(() => {
+    kindsAskedAgain = false
+    void queryClient.invalidateQueries({ queryKey: queryKeys.dataKinds })
+  }, 0)
+}
 
 export const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) => noticeStoreDamage(error, query.queryKey),
+  }),
+  mutationCache: new MutationCache({
+    onError: (error) => noticeStoreDamage(error),
+  }),
   defaultOptions: {
     queries: {
       // Archive reads change only after a backup/import, which invalidates

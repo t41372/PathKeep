@@ -3,10 +3,14 @@
  * record. Groups, in order:
  * - Go to: every page of every space that is on, written
  *   `{space} · {page}`, then Ask and Settings;
- * - Actions;
+ * - Actions: "Back up now" backs up every kind that is on (as "Back up
+ *   everything now" does); with two or more spaces on, each also has its
+ *   own, which backs up only that kind, also while it is paused, like its
+ *   backup page's button;
  * - Switch to: the other spaces, when two or more are on;
  * - from two typed characters, each space's own results (registry
- *   `palette`), ending in a row that searches its list page for the words.
+ *   `palette`), ending in a row that searches its list page for the words
+ *   when that page can search.
  *
  * Not responsible for: what a space's results are or how they are found;
  * each space brings its own.
@@ -43,6 +47,8 @@ import {
   type Space,
 } from '@/lib/spaces'
 import { useTheme } from '@/lib/theme'
+import { useBackUpEverything } from '@/features/agent-backup/use-back-up-everything'
+import { useStartAgentBackup } from '@/features/agent-backup/use-start-backup'
 import { useBackupRunner } from '../backup-runner'
 import { useCurrentSpace, useSwitchSpace } from './current-space'
 import { SpaceTile } from './space-switcher'
@@ -69,6 +75,8 @@ export function CommandPalette({
   const navigate = useNavigate()
   const { resolved, setPreference } = useTheme()
   const backup = useBackupRunner()
+  const everything = useBackUpEverything()
+  const agentBackup = useStartAgentBackup()
   const current = useCurrentSpace()
   const switchTo = useSwitchSpace()
   const [query, setQuery] = useState('')
@@ -118,13 +126,28 @@ export function CommandPalette({
         run: () => go('/settings'),
       },
     ]
+    // One kind on its own, like its backup page's "Back up now".
+    const spaceBackups: PaletteItem[] =
+      on.length > 1
+        ? on.map((space) => ({
+            id: `backup:${space.id}`,
+            icon: space.icon,
+            label: t('shell.palette.backupSpace', { space: t(space.name) }),
+            run: () => {
+              close()
+              if (space.kind === 'agent-history') void agentBackup.start()
+              else void backup.run({ kindSpecific: true })
+            },
+          }))
+        : []
     const actionItems: PaletteItem[] = [
       {
         id: 'backup',
         icon: RefreshCw,
         label: t('shell.palette.backupNow'),
-        run: () => (close(), void backup.run()),
+        run: () => (close(), everything.run()),
       },
+      ...spaceBackups,
       {
         id: 'theme',
         icon: resolved === 'dark' ? Sun : Moon,
@@ -163,7 +186,17 @@ export function CommandPalette({
     }
     // `go` and `close` only close over stable setters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, t, resolved, backup.run, onLock, current.id, on])
+  }, [
+    query,
+    t,
+    resolved,
+    backup.run,
+    everything.run,
+    agentBackup.start,
+    onLock,
+    current.id,
+    on,
+  ])
 
   return (
     <CommandDialog
@@ -235,7 +268,7 @@ export function CommandPalette({
   )
 }
 
-/** A space's own results, then the row that searches its list page. */
+/** A space's own group: its results, then the row that searches its list page. */
 function SpaceResults({
   space,
   palette,
@@ -249,11 +282,9 @@ function SpaceResults({
 }) {
   const { t } = useI18n()
   const { Results } = palette
-  return (
-    <CommandGroup heading={t(palette.heading)}>
-      <Suspense fallback={null}>
-        <Results term={term} open={go} />
-      </Suspense>
+  const heading = t(palette.heading)
+  const searchRow =
+    palette.searchRow === false ? null : (
       <CommandItem
         value={`search:${space.id}`}
         onSelect={() => go(spaceSearchPath(space, term))}
@@ -263,7 +294,15 @@ function SpaceResults({
           {t('spaces.palette.search', { space: t(space.name), query: term })}
         </span>
       </CommandItem>
-    </CommandGroup>
+    )
+  return (
+    <Suspense
+      fallback={
+        searchRow && <CommandGroup heading={heading}>{searchRow}</CommandGroup>
+      }
+    >
+      <Results term={term} open={go} heading={heading} searchRow={searchRow} />
+    </Suspense>
   )
 }
 

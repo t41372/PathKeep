@@ -13,6 +13,7 @@
  */
 import type {
   AgentRunSummary,
+  ArchiveRun,
   FormatNotice,
   KindTask,
   SourceAvailability,
@@ -306,4 +307,26 @@ export function runTook(t: Translator, durationMs: number | undefined) {
     minutes: Math.floor(seconds / 60),
     seconds: Math.round(seconds % 60),
   })
+}
+
+const archiveWork: Record<string, MessageKey> = {
+  doctor: 'agentBackup.runs.archive.doctor',
+  retention_prune: 'agentBackup.runs.archive.retention_prune',
+  rekey: 'agentBackup.runs.archive.rekey',
+  archive_restore: 'agentBackup.runs.archive.archive_restore',
+}
+
+/** What a run did, in this space's terms: the run list and ⌘K. */
+export function runLine(t: Translator, run: ArchiveRun) {
+  if (run.scope !== 'agent-history')
+    return t(archiveWork[run.operation] ?? 'agentBackup.runs.archive.other')
+  if (run.result === 'running') return t('agentBackup.runs.result.running')
+  if (run.result === 'failed') return t('agentBackup.runs.result.failed')
+  const did =
+    'newRoots' in run.summary
+      ? runSummaryText(t, run.summary, t('dataKinds.listSeparator'))
+      : ''
+  return run.result === 'interrupted'
+    ? `${t('agentBackup.runs.result.interrupted')} · ${did}`
+    : did
 }

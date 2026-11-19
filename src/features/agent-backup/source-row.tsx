@@ -42,7 +42,7 @@ import { useFormat, useI18n, type MessageKey } from '@/lib/i18n'
 import { useArchiveRun, wireNumber } from '@/lib/queries/agent-backup'
 import { isMacOsHost } from '@/lib/runtime'
 import { ToolBadge } from '@/features/data-kinds/tool-badge'
-import { toolName } from '@/features/data-kinds/tools'
+import { folderLabel, toolName } from '@/features/data-kinds/tools'
 import type { ToolRow } from './source-rows'
 import { availabilityText, isProblem, noteText } from './words'
 
@@ -118,6 +118,26 @@ function SourceNotes({ row }: { row: ToolRow }) {
       </ul>
     </section>
   )
+}
+
+/**
+ * What a folder is, when its path does not say it (the Claude desktop
+ * app's); nothing otherwise, and the path then says it.
+ */
+function FolderName({
+  root,
+  className,
+}: {
+  root: AgentSource
+  className?: string
+}) {
+  const { t } = useI18n()
+  const label = folderLabel(root.tool, root.path)
+  return label ? (
+    <span className={cn('font-medium text-foreground', className)}>
+      {t(label)}
+    </span>
+  ) : null
 }
 
 function LastBackup({ runRef }: { runRef: string | undefined }) {
@@ -257,11 +277,17 @@ export function SourceRow({
                   <FolderOpen />
                   <span className="flex flex-col">
                     {t(revealLabel())}
-                    {folders.length > 1 && (
-                      <span className="font-mono text-[11px] text-muted-foreground">
-                        {root.path}
-                      </span>
-                    )}
+                    {folders.length > 1 &&
+                      (folderLabel(root.tool, root.path) ? (
+                        <FolderName
+                          root={root}
+                          className="text-[11px] font-normal text-muted-foreground"
+                        />
+                      ) : (
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          {root.path}
+                        </span>
+                      ))}
                   </span>
                 </DropdownMenuItem>
               ))}
@@ -287,6 +313,7 @@ export function SourceRow({
             )}
             {folders.map((root) => (
               <span key={root.rootId} className="flex flex-col gap-0.5">
+                <FolderName root={root} />
                 <span className="font-mono text-[11.5px] [overflow-wrap:anywhere]">
                   {t('agentBackup.sources.reads', { path: root.path! })}
                 </span>

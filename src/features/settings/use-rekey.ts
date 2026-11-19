@@ -12,7 +12,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback } from 'react'
 import { securityClient } from '@/lib/backend-client/security'
-import { queryKeys } from '@/lib/query'
+import { noticeStoreDamage, queryKeys } from '@/lib/query'
 import type { RekeyOutcome, RekeyRequest } from '@/lib/types'
 import { waitForNextPaint } from '@/lib/wait-for-next-paint'
 
@@ -52,10 +52,17 @@ export function useRekey() {
       const remember = mode !== 'decrypt' && keepInKeychain
       // Let the busy state paint before the long rewrite starts.
       await waitForNextPaint()
-      const outcome = await securityClient.executeRekey({
-        ...rekeyRequest(mode, secrets),
-        rememberInKeychain: remember,
-      })
+      const outcome = await securityClient
+        .executeRekey({
+          ...rekeyRequest(mode, secrets),
+          rememberInKeychain: remember,
+        })
+        .catch((error: unknown) => {
+          // A conversation store found damaged on the way: the screens
+          // show it without a restart.
+          noticeStoreDamage(error)
+          throw error
+        })
       if (outcome.snapshot) {
         client.setQueryData(queryKeys.snapshot, outcome.snapshot)
       } else {

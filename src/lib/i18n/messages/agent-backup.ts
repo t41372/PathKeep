@@ -175,6 +175,9 @@ export const agentBackup = defineMessages({
       title: 'Rescan {name}',
       body: 'PathKeep looks at the folder again and counts what is in it now. It doesn’t back anything up.',
     },
+    palette: {
+      run: 'Backup at {time}',
+    },
     renew: {
       title: 'Look at {name}’s folder again',
       body: 'The folder at {path} isn’t the one you approved: it was deleted and made again, or another disk is there now. PathKeep looks at it and only counts files; it backs it up only once you approve it again.',
@@ -431,6 +434,9 @@ export const agentBackup = defineMessages({
       title: '重新扫描 {name}',
       body: 'PathKeep 重新看一次这个文件夹，数一数现在里面有什么。它不备份任何东西。',
     },
+    palette: {
+      run: '{time} 的备份',
+    },
     renew: {
       title: '再看一次 {name} 的文件夹',
       body: '{path} 这个文件夹已经不是你核准的那一个：它被删掉又重建了，或者现在接的是另一个磁盘。PathKeep 会看一下，只数文件；要等你再核准一次才会备份它。',
@@ -686,6 +692,9 @@ export const agentBackup = defineMessages({
     rescan: {
       title: '重新掃描 {name}',
       body: 'PathKeep 重新看一次這個資料夾，數一數現在裡面有什麼。它不備份任何東西。',
+    },
+    palette: {
+      run: '{time} 的備份',
     },
     renew: {
       title: '再看一次 {name} 的資料夾',

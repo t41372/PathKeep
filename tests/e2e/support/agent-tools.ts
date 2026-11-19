@@ -22,6 +22,7 @@ import type {
   AgentRoot,
   AgentTool,
 } from '../../../scripts/fixtures/synthetic-agents.mjs'
+import { resolveDesktopBridgeEnv } from '../../../scripts/pathkeep-dev-desktop-bridge.mjs'
 import { unlockIfLocked } from './app'
 import { backend, fixture } from './fixture'
 
@@ -58,10 +59,17 @@ const ROOT_TOOL: Record<AgentRoot, AgentTool> = {
 
 const LOOKS_LIKE_CONVERSATION = new Set(['conversation', 'empty', 'audit'])
 
+/** The folders whose rows name them, as English shows it. */
+const FOLDER_LABELS: Partial<Record<AgentRoot, string>> = {
+  'claude-desktop': 'Claude desktop app (local Cowork sessions)',
+}
+
 export interface ExpectedFolder {
   root: AgentRoot
   tool: AgentTool
   name: string
+  /** What the folder is, over its path, when the path does not say it. */
+  label?: string
   path: string
   conversationFiles: number
   subagentFiles: number
@@ -80,6 +88,7 @@ export function expectedFolders(): ExpectedFolder[] {
         root,
         tool,
         name: TOOL_NAMES[tool],
+        label: FOLDER_LABELS[root],
         path: agents.roots[root],
         conversationFiles: facts.files.filter((file) =>
           LOOKS_LIKE_CONVERSATION.has(file.kind),
@@ -189,7 +198,7 @@ export async function waitForPreview(page: Page) {
 export async function expectFolderRow(page: Page, folder: ExpectedFolder) {
   const cells = folderRow(page, folder.path).getByRole('cell')
   await expect(cells.nth(0)).toHaveText(folder.name)
-  await expect(cells.nth(1)).toHaveText(folder.path)
+  await expect(cells.nth(1)).toHaveText(`${folder.label ?? ''}${folder.path}`)
   const files = folder.conversationFiles.toLocaleString('en-US')
   const subagents = `plus ${folder.subagentFiles} subagent file${folder.subagentFiles === 1 ? '' : 's'}`
   await expect(cells.nth(2)).toHaveText(
@@ -241,4 +250,28 @@ export async function resetAgentSettings() {
       toolChanges: Object.fromEntries(TOOL_ORDER.map((tool) => [tool, true])),
     },
   })
+}
+
+export interface PreviewFrame {
+  type: string
+  payload: { rows?: unknown[]; byTool?: object; code?: string }
+}
+
+/**
+ * A preview run through the backend, the way the window starts one, with
+ * its frames read to the end over the bridge
+ * (`/previews/{streamId}/events`, one reader, closed after the last frame).
+ */
+export async function previewFrames(request: object): Promise<PreviewFrame[]> {
+  const { devIpcUrl } = resolveDesktopBridgeEnv(process.env)
+  const started = await backend<{ streamId: string }>('preview_agent_sources', {
+    request,
+  })
+  const response = await fetch(
+    `${devIpcUrl}/previews/${encodeURIComponent(started.streamId)}/events`,
+  )
+  return (await response.text())
+    .split('\n')
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => JSON.parse(line.slice('data:'.length)) as PreviewFrame)
 }

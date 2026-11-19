@@ -21,6 +21,9 @@ export const dataKinds = defineMessages({
       pi: 'Pi',
       deepseek: 'DeepSeek Harness',
     },
+    folders: {
+      claudeDesktop: 'Claude desktop app (local Cowork sessions)',
+    },
     listSeparator: ', ',
     off: {
       title: '“{name}” is off',
@@ -113,6 +116,8 @@ export const dataKinds = defineMessages({
         keyCheck: 'Found while reading it.',
         migrate: 'Found while updating it for this version of PathKeep.',
         recover: 'Found while recovering it after an interruption.',
+        read: 'Found while reading saved conversations.',
+        write: 'Found while saving conversations.',
       },
       notAffected: 'Browsing history is not affected.',
       retry: 'Try again',
@@ -129,6 +134,9 @@ export const dataKinds = defineMessages({
       codex: 'Codex',
       pi: 'Pi',
       deepseek: 'DeepSeek Harness',
+    },
+    folders: {
+      claudeDesktop: 'Claude 桌面应用（本机的 Cowork 会话）',
     },
     listSeparator: '、',
     off: {
@@ -216,6 +224,8 @@ export const dataKinds = defineMessages({
         keyCheck: '在读取它时发现的。',
         migrate: '在把它更新到这一版 PathKeep 时发现的。',
         recover: '在中断后恢复它时发现的。',
+        read: '在读取已存下的对话时发现的。',
+        write: '在保存对话时发现的。',
       },
       notAffected: '浏览记录不受影响。',
       retry: '再试一次',
@@ -232,6 +242,9 @@ export const dataKinds = defineMessages({
       codex: 'Codex',
       pi: 'Pi',
       deepseek: 'DeepSeek Harness',
+    },
+    folders: {
+      claudeDesktop: 'Claude 桌面應用程式（本機的 Cowork 工作階段）',
     },
     listSeparator: '、',
     off: {
@@ -318,6 +331,8 @@ export const dataKinds = defineMessages({
         keyCheck: '在讀取它時發現的。',
         migrate: '在把它更新到這一版 PathKeep 時發現的。',
         recover: '在中斷後復原它時發現的。',
+        read: '在讀取已存下的對話時發現的。',
+        write: '在保存對話時發現的。',
       },
       notAffected: '瀏覽紀錄不受影響。',
       retry: '再試一次',

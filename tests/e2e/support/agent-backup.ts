@@ -9,13 +9,19 @@
  * what a tool holds is its conversations and their subagents as the
  * generator wrote them, after whatever the mutators did.
  */
+import { mkdirSync } from 'node:fs'
 import { expect, type Page } from '@playwright/test'
 import type {
   AgentTool,
   SyntheticAgents,
 } from '../../../scripts/fixtures/synthetic-agents.mjs'
 import { unlockIfLocked } from './app'
-import { enableDialog, toolTick, waitForPreview } from './agent-tools'
+import {
+  TOOL_NAMES,
+  enableDialog,
+  toolTick,
+  waitForPreview,
+} from './agent-tools'
 import { backend } from './fixture'
 
 export interface WireRun {
@@ -307,10 +313,93 @@ export async function chooseAndStart(
   ).toBeVisible()
 }
 
+export interface WireKindRow {
+  kind: string
+  state: string
+  hasBackupSource?: boolean
+  sourceReviewRequired?: boolean
+}
+
+/** Each kind's state as the backend has it, and the token to change one. */
+export function dataKinds() {
+  return backend<{ kinds: WireKindRow[]; policyToken: string }>(
+    'list_data_kinds',
+    { request: {} },
+  )
+}
+
 /** Agent conversations' state as the backend has it. */
 export async function agentKindState() {
-  const list = await backend<{
-    kinds: { kind: string; state: string; hasBackupSource?: boolean }[]
-  }>('list_data_kinds', { request: {} })
-  return list.kinds.find((row) => row.kind === 'agent-history')
+  return (await dataKinds()).kinds.find((row) => row.kind === 'agent-history')
+}
+
+/** Sets a kind's state through the backend, as another window would. */
+export async function setKindState(kind: string, state: string) {
+  const { policyToken } = await dataKinds()
+  return backend('set_data_kind_state', {
+    request: { kind, state, expectedPolicyToken: policyToken },
+  })
+}
+
+/** Switches Agent tools on or off through the backend, as another window would. */
+export async function setAgentTools(tools: readonly AgentTool[], on: boolean) {
+  const { policyToken } = await backend<{ policyToken: string }>(
+    'get_agent_settings',
+    { request: {} },
+  )
+  return backend('update_agent_sources', {
+    request: {
+      expectedToken: policyToken,
+      toolChanges: Object.fromEntries(tools.map((tool) => [tool, on])),
+    },
+  })
+}
+
+/** The newest browsing backup in the app's snapshot. */
+export async function lastBrowsingRun() {
+  const snapshot = await backend<{
+    recentRuns: { id: number; status: string }[]
+  }>('app_snapshot')
+  return snapshot.recentRuns[0]
+}
+
+/** Waits until a browsing backup newer than `previous` has ended. */
+export async function waitForBrowsingRunAfter(previous: number | undefined) {
+  await expect
+    .poll(
+      async () => {
+        const now = await lastBrowsingRun()
+        return (
+          now !== undefined && now.id !== previous && now.status !== 'running'
+        )
+      },
+      { timeout: 120_000, intervals: [1_000] },
+    )
+    .toBe(true)
+}
+
+/**
+ * "Add another folder…" on the backup page: `path` (made here, empty) for
+ * `tool`, looked at, then added. Changes which folders this computer has
+ * approved, and switches the tool on.
+ */
+export async function addAgentFolder(
+  page: Page,
+  tool: AgentTool,
+  path: string,
+) {
+  mkdirSync(path, { recursive: true })
+  await openBackupPage(page)
+  await page.getByRole('button', { name: 'Add another folder…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Add another folder' })
+  await dialog.getByLabel('Folder', { exact: true }).fill(path)
+  await dialog.getByLabel('It holds conversations of').click()
+  await page
+    .getByRole('option', { name: TOOL_NAMES[tool], exact: true })
+    .click()
+  await dialog.getByRole('button', { name: 'Look at it' }).click()
+  await dialog
+    .getByRole('button', { name: 'Add', exact: true })
+    .click({ timeout: 60_000 })
+  await expect(dialog).toBeHidden()
 }

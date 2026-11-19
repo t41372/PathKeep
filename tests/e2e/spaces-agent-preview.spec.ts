@@ -15,8 +15,11 @@
  * - stopping a preview while it runs leaves the dialog usable: it says what
  *   happened, and the next preview finishes with the same numbers. The
  *   stop reaches the backend with the stream's id;
- * - with no tool folder on this computer the dialog says so, where it
- *   looked, and finds them again on "Check again";
+ * - with no tool folder on this computer the backend's preview finishes
+ *   with no rows at all (`rows: []`, a successful empty report), and the
+ *   dialog says nothing was found, not that the preview failed, lists
+ *   where it looked (from the presence check, since there are no rows),
+ *   and finds them again on "Check again";
  * - a folder PathKeep cannot read says why; a tool with another folder it
  *   can read can still be ticked, and one without cannot (POSIX only);
  * - the ticks and the `.git` switch are kept as device settings: they come
@@ -52,6 +55,7 @@ import {
   folderRow,
   hideAllToolFolders,
   openEnableDialog,
+  previewFrames,
   previewTable,
   resetAgentSettings,
   TOOL_ORDER,
@@ -250,11 +254,20 @@ test('with no tool folder on this computer the dialog says so, and finds them ag
 }, testInfo) => {
   const restore = hideAllToolFolders()
   try {
+    // A successful report with nothing in it, not an error.
+    const frames = await previewFrames({ purpose: 'enable' })
+    const last = frames.at(-1)
+    expect(last?.type).toBe('finished')
+    expect(last?.payload.rows).toEqual([])
+    expect(last?.payload.byTool).toEqual({})
+
     await openEnableDialog(page)
     const dialog = enableDialog(page)
     await expect(
       dialog.getByText('No Agent tool folders on this computer'),
     ).toBeVisible({ timeout: 60_000 })
+    await expect(dialog.getByText('The preview didn’t finish')).toHaveCount(0)
+    await expect(dialog.getByRole('alert')).toHaveCount(0)
     await expect(dialog.getByText('Looked in:')).toBeVisible()
     for (const folder of expectedFoldersWhileHidden()) {
       await expect(dialog.getByText(folder, { exact: true })).toBeVisible()

@@ -84,7 +84,16 @@ function Footer({ sourceBytes }: { sourceBytes: string }) {
   return (
     <div className="flex flex-col gap-1.5 px-1 text-[13px] text-muted-foreground">
       <span>{t('agentBackup.footer.all')}</span>
-      <span className="tabular">
+      <span
+        className="tabular"
+        data-archive-size={
+          bytes !== undefined
+            ? 'counted'
+            : sizes.isError || sizes.data
+              ? 'unknown'
+              : 'counting'
+        }
+      >
         {before}
         {bytes !== undefined ? (
           <span className="animate-in duration-200 fade-in-0">

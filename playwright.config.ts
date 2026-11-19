@@ -253,6 +253,20 @@ export default defineConfig({
       ],
       'change',
     ),
+    // What the sources and the kinds' states allow, on the archive the
+    // agent project left: the size after the page, every tool switched
+    // off, the last source of the only kind on, ⌘K. In name order; each
+    // puts back what it changed.
+    project(
+      'agent-sources',
+      [
+        'agent-sources-1-size.spec.ts',
+        'agent-sources-2-tools-off.spec.ts',
+        'agent-sources-3-last-source.spec.ts',
+        'agent-sources-4-palette.spec.ts',
+      ],
+      'agent',
+    ),
     // They kill the app, or let it quit, and the launcher starts it again,
     // behind App Lock.
     project(
@@ -265,7 +279,7 @@ export default defineConfig({
         'semantic-progress.spec.ts',
         'takeout-continue.spec.ts',
       ],
-      'agent',
+      'agent-sources',
     ),
     // Large imports, after the semantic index is built so it does not embed
     // their pages (a project runs its files in name order, so not in restart).

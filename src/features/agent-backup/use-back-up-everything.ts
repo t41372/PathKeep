@@ -6,11 +6,12 @@
  *
  * Responsibilities: starting both; saying, as soon as one is known to
  * have been left out, which kind was skipped because it is paused or has
- * nothing chosen to back up (with the way to its sources), or that nothing
- * was backed up at all (then each reason, off ones too; an off kind alone
- * is no news), once per change; and saying when the conversation backup
- * could not start. Each backup tells its own end (the runner's notice, and
- * `use-backup-notices.ts`).
+ * nothing chosen to back up (with the way to its sources), once per change
+ * (an off kind is no news); and saying when the conversation backup could
+ * not start. Each backup tells its own end (the runner's notice, and
+ * `use-backup-notices.ts`). "Nothing was backed up" is never said: one kind
+ * is always on, and an on kind either runs, fails, or has no source, which
+ * is said.
  */
 import { toast } from 'sonner'
 import { useBackupRunner } from '@/app/backup-runner'
@@ -35,21 +36,16 @@ export function useBackUpEverything() {
     // One notice per press, replaced as the answers come in.
     const id = `back-up-everything-${crypto.randomUUID()}`
     const skips: KindSkip[] = []
-    let waiting = 0
-    let ran = false
     let told = ''
     const tell = () => {
-      const nothing = waiting === 0 && !ran
-      const shown = nothing
-        ? skips
-        : skips.filter((skip) => skip.reason !== 'kind-off')
+      const shown = skips.filter((skip) => skip.reason !== 'kind-off')
       if (shown.length === 0) return
       const lines = shown
         .map((skip) => kindSkipSentence(t, skip))
         .join(t('agentTasks.finished.sentenceJoin'))
       // An answer that changes nothing does not bring the notice back.
-      if (`${nothing}:${lines}` === told) return
-      told = `${nothing}:${lines}`
+      if (lines === told) return
+      told = lines
       const lacking = shown.find((skip) => skip.reason === 'no-source')
       const action = lacking && {
         label: t('shell.backup.skipped.chooseSources'),
@@ -59,22 +55,15 @@ export function useBackUpEverything() {
           )
         },
       }
-      if (nothing)
-        toast(t('shell.backup.skipped.nothing'), {
-          id,
-          description: lines,
-          action,
-        })
-      else toast(lines, { id, action })
+      // A way out stays long enough to be used.
+      const duration = action ? 10_000 : undefined
+      toast(lines, { id, action, duration })
     }
     const answered = (outcome: 'ran' | KindSkip) => {
-      waiting -= 1
-      if (outcome === 'ran') ran = true
-      else skips.push(outcome)
+      if (outcome !== 'ran') skips.push(outcome)
       tell()
     }
 
-    waiting += 1
     void backup.run({ quietSkip: true }).then((outcome) => {
       const reason =
         outcome?.ok && outcome.report.dueSkipped
@@ -89,7 +78,6 @@ export function useBackUpEverything() {
       skips.push({ kind: 'agent-history', reason: 'kind-off' })
       return
     }
-    waiting += 1
     void agentBackupClient
       .start({ type: 'kind', kind: 'agent-history' }, crypto.randomUUID(), true)
       .then((result) => {
