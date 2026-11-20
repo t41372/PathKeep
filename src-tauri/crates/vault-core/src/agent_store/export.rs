@@ -5,6 +5,7 @@
 //! Failure modes: a page title from the web turns into a link or markup of its own, a link
 //! with a script scheme, a suggested name with path separators or characters a file system
 //! refuses.
+use crate::{ConversationCitation, LanguagePreference};
 use crate::{
     Vault,
     models::{
@@ -13,6 +14,7 @@ use crate::{
     },
 };
 use anyhow::Result;
+use std::collections::HashMap;
 use std::fmt::Write as _;
 
 /// The conversation's questions, answers and the pages each answer used, as the person saw
@@ -27,7 +29,32 @@ pub fn conversation_markdown(
     let title = Some(conversation.summary.title.trim())
         .filter(|title| !title.is_empty())
         .unwrap_or(request.labels.untitled.trim());
-    let markdown = render(title, &conversation.messages, &request.labels);
+    let mut titles = HashMap::new();
+    for citation in conversation.messages.iter().flat_map(|m| &m.citations) {
+        if let Some(ConversationCitation::Conversation { conversation_id, .. }) = &citation.target
+            && !titles.contains_key(conversation_id)
+        {
+            let title = vault
+                .agent_history()
+                .and_then(|a| a.citation_title(conversation_id))
+                .ok()
+                .flatten();
+            titles.insert(
+                conversation_id.clone(),
+                title.unwrap_or_else(|| request.labels.untitled.clone()),
+            );
+        }
+    }
+    let heading = match request.labels.conversations_used.as_deref() {
+        Some(label) => label,
+        None if !titles.is_empty() => match crate::load_config(vault.paths())?.preferred_language {
+            LanguagePreference::ZhTw => "引用的對話",
+            LanguagePreference::ZhCn => "引用的对话",
+            _ => "Conversations used",
+        },
+        None => "",
+    };
+    let markdown = render(title, &conversation.messages, &request.labels, heading, &titles);
     let day = chrono::Local::now().format("%Y-%m-%d");
     Ok(Some(ConversationMarkdown {
         file_name: format!("{} {day}.md", file_name_part(title)),
@@ -35,7 +62,13 @@ pub fn conversation_markdown(
     }))
 }
 
-fn render(title: &str, messages: &[AgentMessage], labels: &ConversationExportLabels) -> String {
+fn render(
+    title: &str,
+    messages: &[AgentMessage],
+    labels: &ConversationExportLabels,
+    conversation_heading: &str,
+    titles: &HashMap<String, String>,
+) -> String {
     let mut out = format!("# {}\n", inline(title));
     for message in messages {
         let content = message.content.trim();
@@ -44,10 +77,26 @@ fn render(title: &str, messages: &[AgentMessage], labels: &ConversationExportLab
         }
         let who = if message.role == "user" { &labels.you } else { &labels.assistant };
         let _ = write!(out, "\n## {}\n\n{content}\n", inline(who));
-        if !message.citations.is_empty() {
+        let mut pages = message.citations.iter().filter(|c| c.target.is_none()).peekable();
+        if pages.peek().is_some() {
             let _ = writeln!(out, "\n{}:\n", inline(&labels.pages_used));
-            for (n, citation) in message.citations.iter().enumerate() {
+            for (n, citation) in pages.enumerate() {
                 let _ = writeln!(out, "{}. {}", n + 1, page(citation));
+            }
+        }
+        let mut conversations = message
+            .citations
+            .iter()
+            .filter_map(|c| {
+                let ConversationCitation::Conversation { conversation_id, .. } =
+                    c.target.as_ref()?;
+                titles.get(conversation_id)
+            })
+            .peekable();
+        if conversations.peek().is_some() {
+            let _ = writeln!(out, "\n{}:\n", inline(conversation_heading));
+            for (n, title) in conversations.enumerate() {
+                let _ = writeln!(out, "{}. {}", n + 1, inline(title));
             }
         }
     }

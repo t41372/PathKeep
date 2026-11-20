@@ -178,6 +178,15 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "get_agent_semantic_index" => {
             worker_bridge::get_agent_semantic_index_impl(&state.session, surface_request(payload)?)
         }
+        "preview_free_agent_semantic_index" => {
+            worker_bridge::preview_free_agent_semantic_index_impl(
+                &state.session,
+                surface_request(payload)?,
+            )
+        }
+        "free_agent_semantic_index" => {
+            worker_bridge::free_agent_semantic_index_impl(&state.session, surface_request(payload)?)
+        }
         "control_agent_semantic_index" => worker_bridge::control_agent_semantic_index_impl(
             &state.session,
             surface_request(payload)?,

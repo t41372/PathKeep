@@ -139,6 +139,10 @@ impl CommandError {
     pub(crate) fn from_backend(error: &anyhow::Error) -> Self {
         use vault_store::Error;
         let mut envelope = Self::classified(format!("{error:#}"));
+        if let Some(cause) = error.downcast_ref::<vault_core::AiRefusal>() {
+            envelope.code = Some(cause.code().into());
+            return envelope;
+        }
         if let Some(member) = error.downcast_ref::<vault_core::maintenance::SnapshotMemberFailure>()
         {
             envelope.affected_file = Some(Box::new(AffectedFile::new(&member.path, member.role)));

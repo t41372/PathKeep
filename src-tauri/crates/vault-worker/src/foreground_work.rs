@@ -46,6 +46,8 @@ pub enum ForegroundWork {
     /// vault-core, below this crate, so vault-core keeps this one
     /// (`vault_core::schema_update_running`).
     SchemaUpdate,
+    /// Agent passage indexing is owned by this process until it publishes or stops.
+    AgentSemanticIndex,
 }
 
 /// The work running in a process, oldest first, one entry per run.

@@ -2,7 +2,7 @@
 
 The build reads current normalized records in key order, renders the same typed text parts as lexical search and divides each part into passages of at most 1,024 Unicode scalars. A SHA-256 key lets repeated text share a vector across records and conversations. The in-app static model and the user's OpenAI-compatible provider both receive document inputs for indexing and a query input for retrieval. On an update, unchanged distinct texts reuse the preceding model generation's quantized vectors.
 
-The generation has two page families. Vector pages hold the content key, an f32 scale and signed int8 coordinates. Address pages map each event/chunk pair to its vector number. Pages are compressed before the Agent search role writes them. An encrypted archive authenticates and encrypts each page and the serving manifest. Search scores all serving vectors, fans positive scores back out to passages and checks current visibility, filters and content before delivery. The renderer's scalar offsets are relative to a typed part. The reader opens the physical record carried by the result. [Command and job contracts](../../desktop-command-surface.md#agent-conversation-ai-access)
+The generation has two page families. Vector pages hold the content key, an f32 scale and signed int8 coordinates. Address pages map each event/chunk pair to its vector number. Pages are compressed before the Agent search role writes them. An encrypted archive authenticates and encrypts each page and the serving manifest. Search scores all serving vectors, orders all passage addresses by score and checks current visibility, filters and content before delivery. The renderer's scalar offsets are relative to a typed part. The reader opens the physical record carried by the result. [Command and job contracts](../../desktop-command-surface.md#agent-conversation-ai-access)
 
 ## Linux release calibration
 
@@ -25,4 +25,4 @@ The ranking fixture compares “medical care for an ill dog” with two captured
 | Existing search corpus | 14,400,000 |                3 |       124.847 |      16,216,522 |
 | Distinct user prompts  | 14,400,000 |        3,600,002 |       574.915 |     970,026,069 |
 
-Peak resident memory for the distinct-prompt process, including fixture setup and model loading, was 488,804 KiB. The veterinary passage scored 0.6486 after quantization. The unrelated SQL passage had a float cosine of -0.0056 and fell below the positive-match threshold.
+Peak resident memory for the distinct-prompt process, including fixture setup and model loading, was 488,804 KiB. The veterinary passage scored 0.6486 after quantization. The unrelated SQL passage had a float cosine of -0.0056 and fell below the positive-match threshold used in that measurement. Records now pages through both passages.

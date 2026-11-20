@@ -65,21 +65,26 @@ impl Permit {
 
     fn check(&self) -> Result<()> {
         let current = admitted_config(&self.paths)?;
-        if self.semantic
-            && (!current.agent_viewer.build_semantic_index
-                || vault_core::ensure_ai_capability_enabled(
-                    &current,
-                    vault_core::AiCapability::SemanticIndex,
-                )
-                .is_err())
-        {
-            return Err(Refusal::ScopeDenied.into());
+        if self.semantic {
+            vault_core::ensure_ai_capability_enabled(
+                &current,
+                vault_core::AiCapability::SemanticIndex,
+            )?;
+            if !current.agent_viewer.build_semantic_index {
+                return Err(vault_core::AiRefusal::AgentAccessDisabled.into());
+            }
         }
         self.cancel.check().map_err(|_| Refusal::Cancelled)?;
         if self.expired() {
             return Err(Refusal::Expired.into());
         }
         if current.capture_policy.token() != self.policy {
+            if self.semantic
+                && let Some(v) = self.session.current_vault()
+                && v.agent_visibility(&current.capture_policy)? == vault_core::KindState::Off
+            {
+                return Err(vault_core::AiRefusal::KindOff.into());
+            }
             return Err(Refusal::PolicyChanged.into());
         }
         let generation = self.session.current_vault().map(|v| Arc::downgrade(v.store()));
@@ -374,6 +379,12 @@ fn terminal_error(id: &str, seq: u64, reason: Option<&anyhow::Error>) -> Value {
             reason?
                 .downcast_ref::<vault_core::admission::Refusal>()
                 .map(|error| error.reason.code())
+        })
+        .or_else(|| reason?.downcast_ref::<vault_core::AiRefusal>().map(|e| e.code()))
+        .or_else(|| {
+            reason?.downcast_ref::<vault_store::Error>().and_then(|e| {
+                matches!(e, vault_store::Error::Cancelled { .. }).then_some("cancelled")
+            })
         })
         .or_else(|| reason?.downcast_ref::<agent_history::Error>().map(|e| e.code()))
         .unwrap_or("root-unreadable");

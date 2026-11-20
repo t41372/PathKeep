@@ -3182,3 +3182,5 @@ that held up when checked against the code.
 - Agent 對話的 AI 存取後端已接上三個獨立開關。Ask 只把選中的文字片段與讀取位置交給聊天模型；語意索引採用已選的 embedding 服務或內建 model2vec，向量跟著對話存檔加密；MCP 可搜尋、分頁讀取對話並留下讀取審計。權限測試透過實際 HTTP 請求與 stdio 連線驗證，索引量測使用 Linux release 的 12 萬段合成對話。[命令、工作與串流](../architecture/desktop-command-surface.md#agent-conversation-ai-access)
 
 - Agent 畫面補齊背景任務、初次設定和匯出的後端契約。瀏覽工作的交易提交後通知視窗；「需要你看一下」可按次收起，保留執行紀錄；整個存檔的維護任務也計入側欄。設定草稿在建立存檔前可續填，來源資料夾仍要經過預覽。對話匯出可依 UUID 觀察已寫位元組並取消。[命令與事件](../architecture/desktop-command-surface.md#tasks-first-run-choices-and-export-control)
+
+- Agent 語意搜尋每頁最多 100 段，依相似度與穩定的段落順序繼續取回，零分與負分也能翻到。關閉索引後可預覽並確認釋放已發布的檔案。建置期間退出會詢問，搜尋拒絕原因可區分權限、模型與服務。Ask 的 Markdown 匯出將引用的對話標題與網頁分列。[桌面契約](../architecture/desktop-command-surface.md#agent-conversation-ai-access)

@@ -123,6 +123,18 @@ pub(crate) fn get_agent_semantic_index_impl(
 ) -> Result<Value, CommandError> {
     super::data_kinds::surface_result(vault_worker::data_kinds::semantic::status(s, q))
 }
+pub(crate) fn preview_free_agent_semantic_index_impl(
+    s: &SessionState,
+    q: vault_worker::data_kinds::Empty,
+) -> Result<Value, CommandError> {
+    super::data_kinds::surface_result(vault_worker::data_kinds::semantic::preview_free(s, q))
+}
+pub(crate) fn free_agent_semantic_index_impl(
+    s: &SessionState,
+    q: vault_worker::data_kinds::semantic::Confirm,
+) -> Result<Value, CommandError> {
+    super::data_kinds::surface_result(vault_worker::data_kinds::semantic::free(s, q))
+}
 pub(crate) fn control_agent_semantic_index_impl(
     s: &SessionState,
     q: vault_worker::data_kinds::semantic::Control,

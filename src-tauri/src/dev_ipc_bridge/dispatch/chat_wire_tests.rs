@@ -212,16 +212,55 @@ fn conversation_screen_wire_opens_a_saved_pi_turn_and_reads_its_image() {
         let semantic = dispatch_command(&state, "get_agent_semantic_index", json!({"request":{}}))
             .await
             .unwrap();
-        assert_eq!(semantic, json!({"enabled":false,"serving":null,"job":null}));
-        assert!(
-            dispatch_command(
+        assert_eq!(semantic, json!({"enabled":false,"serving":null,"job":null,"keptBytes":"0"}));
+        let preview =
+            dispatch_command(&state, "preview_free_agent_semantic_index", json!({"request":{}}))
+                .await
+                .unwrap();
+        assert_eq!(preview["keptBytes"], "0");
+        let freed = dispatch_command(
+            &state,
+            "free_agent_semantic_index",
+            json!({"request":{"previewId":preview["previewId"],"confirm":true}}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(freed, json!({"freedBytes":"0","keptBytes":"0"}));
+        let paths = vault_core::project_paths().unwrap();
+        let original = vault_core::load_config(&paths).unwrap();
+        for (master, semantic, grant, code) in [
+            (false, true, true, "ai-disabled"),
+            (true, false, true, "semantic-index-disabled"),
+            (true, true, false, "agent-conversations-access-disabled"),
+            (true, true, true, "embedding-provider-unavailable"),
+            (true, true, true, "kind-off"),
+        ] {
+            let mut config = original.clone();
+            config.ai.enabled = master;
+            config.ai.semantic_index_enabled = semantic;
+            config.agent_viewer.build_semantic_index = grant;
+            config.ai.embedding_providers.push(vault_core::AiProviderConfig {
+                id: "offline-fixture".into(),
+                enabled: false,
+                purpose: vault_core::AiProviderPurpose::Embedding,
+                ..Default::default()
+            });
+            config.ai.embedding_provider_id = Some("offline-fixture".into());
+            if code == "kind-off" {
+                config.capture_policy.explicitly_off = true;
+                config.capture_policy.agent_history = vault_core::KindState::Off;
+            }
+            vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
+            let err = dispatch_command(
                 &state,
                 "control_agent_semantic_index",
-                json!({"request":{"action":"build"}})
+                json!({"request":{"action":"build"}}),
             )
             .await
-            .is_err()
-        );
+            .unwrap_err();
+            assert_eq!(err.code.as_deref(), Some(code), "{err:?}");
+        }
+        vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &original).unwrap();
         let viewer =
             dispatch_command(&state, "get_agent_viewer_preferences", json!({"request":{}}))
                 .await

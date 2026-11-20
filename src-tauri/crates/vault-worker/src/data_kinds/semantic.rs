@@ -1,5 +1,7 @@
 //! Owner-scoped conversation embedding work. The current vector generation remains available
 //! during a rebuild. Provider resolution and all provider calls require live device consent.
+mod pages;
+mod removal;
 use super::{
     Empty, Refusal,
     backups::{self, Events},
@@ -10,6 +12,8 @@ use crate::{
     context::{selected_embedding_provider_runtime, tokio_runtime},
 };
 use anyhow::{Context, Result, ensure};
+pub(super) use pages::search;
+pub use removal::{Confirm, free, preview as preview_free};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -18,6 +22,7 @@ use std::{
     sync::{Arc, Condvar, LazyLock, Mutex},
     time::{Duration, Instant},
 };
+use vault_core::AiRefusal;
 use vault_core::{
     AiCapability, Vault,
     ai::{conversation_vectors as vectors, conversations::consent, select_embedding_provider},
@@ -90,16 +95,17 @@ fn chosen(cfg: &vault_core::AppConfig) -> Option<&vault_core::AiProviderConfig> 
         .find(|p| p.id == id && p.enabled && p.purpose == vault_core::AiProviderPurpose::Embedding)
 }
 pub fn status(s: &VaultSession, _: Empty) -> Result<Value> {
-    let (v, here) = backups::admitted(s, false)?;
+    let (v, here) = backups::admitted(s, true)?;
+    let kept = vectors::kept_index(v.agent_history()?.as_ref())?.bytes.to_string();
     if !here.agent_viewer.build_semantic_index
         || vault_core::ensure_ai_capability_enabled(&here, AiCapability::SemanticIndex).is_err()
     {
-        return Ok(json!({"enabled":false,"serving":null,"job":null}));
+        return Ok(json!({"enabled":false,"keptBytes":kept,"serving":null,"job":null}));
     }
     let cfg = consent(&v, AiCapability::SemanticIndex)?;
     let Some(provider) = chosen(&cfg) else {
         return Ok(
-            json!({"enabled":true,"serving":null,"stale":true,"job":job(&v).map(|j|j.snapshot()),"reason":"embedding-provider-unavailable"}),
+            json!({"enabled":true,"keptBytes":kept,"serving":null,"stale":true,"job":job(&v).map(|j|j.snapshot()),"reason":"embedding-provider-unavailable"}),
         );
     };
     let serving =
@@ -112,7 +118,9 @@ pub fn status(s: &VaultSession, _: Empty) -> Result<Value> {
         }
         None => true,
     };
-    Ok(json!({"enabled":true,"serving":serving,"stale":stale,"job":job(&v).map(|j|j.snapshot())}))
+    Ok(
+        json!({"enabled":true,"keptBytes":kept,"serving":serving,"stale":stale,"job":job(&v).map(|j|j.snapshot())}),
+    )
 }
 pub fn control(s: &VaultSession, q: Control, events: Events) -> Result<Value> {
     let (v, _) = backups::admitted(s, false)?;
@@ -142,9 +150,8 @@ pub(super) fn preferences_changed(s: &VaultSession, enabled: bool, events: Event
     if let Some(v) = s.current_vault().or_else(|| enabled.then(|| s.vault().ok()).flatten()) {
         if enabled {
             update_if_needed(&v, events);
-        } else if let Some(j) = job(&v) {
-            j.cancel.cancel();
-            j.wake.notify_all();
+        } else {
+            revoke(&v.paths().app_root);
         }
     }
 }
@@ -164,13 +171,13 @@ fn authorize_provider(vault: &Vault, runtime: &vault_core::AiProviderRuntime) ->
                 && p.default_model == runtime.config.default_model
                 && p.base_url == runtime.config.base_url
                 && p.dimensions == runtime.config.dimensions),
-        "embedding-provider-changed"
+        AiRefusal::ProviderChanged
     );
     Ok(())
 }
 fn start(v: &Vault, events: Events, force: bool) -> Result<Value> {
     let cfg = consent(v, AiCapability::SemanticIndex)?;
-    let provider = chosen(&cfg).context("embedding-provider-unavailable")?;
+    let provider = chosen(&cfg).ok_or(AiRefusal::ProviderMissing)?;
     let archive = v.agent_history()?;
     if !force
         && let Some(g) = vectors::current(v.agent_history()?.as_ref())?
@@ -180,7 +187,10 @@ fn start(v: &Vault, events: Events, force: bool) -> Result<Value> {
     {
         return Ok(json!({"state":"ready","serving":g}));
     }
-    let runtime = selected_embedding_provider_runtime(&cfg, None)?;
+    let runtime =
+        selected_embedding_provider_runtime(&cfg, None).context(AiRefusal::ProviderMissing)?;
+    let gate = vault_core::ControlGate::acquire(v.paths());
+    authorize_provider(v, &runtime)?;
     let mut jobs = JOBS.lock().unwrap();
     if let Some(j) = jobs.get(&v.paths().app_root)
         && j.owner.ptr_eq(&Arc::downgrade(v.store()))
@@ -196,8 +206,10 @@ fn start(v: &Vault, events: Events, force: bool) -> Result<Value> {
         state: Mutex::new(State { phase: "running", passages: 0, vectors: 0, error: None }),
     });
     let row = j.snapshot();
+    let foreground = crate::foreground_work::begin(crate::ForegroundWork::AgentSemanticIndex);
     jobs.insert(v.paths().app_root.clone(), j.clone());
     drop(jobs);
+    drop(gate);
     let vault = v.clone();
     events(EVENT, row.clone());
     let owner = j.clone();
@@ -209,7 +221,7 @@ fn start(v: &Vault, events: Events, force: bool) -> Result<Value> {
                 Ok(())
             };
             check()?;
-            let engine = select_embedding_provider(vault.paths(), &runtime)?;
+            let engine = engine(&vault, &runtime)?;
             let mut last = Instant::now();
             let rt = tokio_runtime()?;
             loop {
@@ -248,9 +260,16 @@ fn start(v: &Vault, events: Events, force: bool) -> Result<Value> {
         } else {
             "failed"
         };
-        if result.is_err() && s.phase == "failed" {
-            s.error = Some("agent-semantic-build-failed");
+        if let Err(error) = &result
+            && s.phase == "failed"
+        {
+            s.error = Some(
+                error
+                    .downcast_ref::<AiRefusal>()
+                    .map_or("agent-semantic-build-failed", AiRefusal::code),
+            );
         }
+        drop(foreground);
         drop(s);
         events(EVENT, owner.snapshot());
     });
@@ -261,63 +280,14 @@ fn start(v: &Vault, events: Events, force: bool) -> Result<Value> {
     Ok(row)
 }
 
-pub(super) fn search(
-    session: &VaultSession,
-    vault: Vault,
-    q: agent_history::search::ScreenQuery,
-) -> Result<preview::Frames> {
-    if q.query.trim().is_empty()
-        || q.query.len() > 4096
-        || q.roles.is_empty()
-        || q.filters.limit.is_some()
-        || q.filters.cursor.is_some()
-    {
-        return Err(Refusal::InvalidRequest.into());
-    }
-    let cfg = consent(&vault, AiCapability::SemanticIndex)?;
-    let runtime = selected_embedding_provider_runtime(&cfg, None)?;
-    if !vectors::current(vault.agent_history()?.as_ref())?.is_some_and(|g| g.matches(&runtime)) {
-        return Err(Refusal::SemanticNotReady.into());
-    }
-    let a = vault.agent_history()?;
-    let marks = a.search_marks_generation()?;
-    preview::semantic_stream(session, cfg, a, move |archive, cancel, send| {
-        let check = || {
-            cancel.check()?;
-            authorize_provider(&vault, &runtime)?;
-            Ok(())
-        };
-        check()?;
-        let engine = select_embedding_provider(vault.paths(), &runtime)?;
-        send("started", json!({"mode":"semantic"}))?;
-        let ranking = tokio_runtime()?
-            .block_on(vectors::rank(archive, &runtime, &engine, &q.query, cancel, check))?;
-        let mut count = 0;
-        let g = &ranking.generation;
-        for batch in ranking.hits.chunks(128) {
-            check()?;
-            let addresses = batch.iter().map(|h| (h.event, h.chunk)).collect::<Vec<_>>();
-            let mut items = Vec::new();
-            for (i, mut item) in archive.semantic_page(&addresses, &q)? {
-                let h = &batch[i];
-                if !ranking.matches(h, item["text"].as_str().context("missing passage text")?) {
-                    continue;
-                }
-                item["score"] = h.score.into();
-                item["chunk"] = h.chunk.into();
-                items.push(item);
-            }
-            if !items.is_empty() {
-                check()?;
-                count += items.len();
-                send("passages", json!({"items":items}))?;
-            }
-        }
-        check()?;
-        send(
-            "finished",
-            json!({"hits":count,"generation":g.generation,"stale":archive.projection_generation()?!=g.projection || marks!=g.marks}),
-        )
+fn engine(
+    v: &Vault,
+    r: &vault_core::AiProviderRuntime,
+) -> Result<vault_core::ai::AnyEmbeddingProvider> {
+    select_embedding_provider(v.paths(), r).context(if vault_core::ai::runtime_uses_static(r) {
+        AiRefusal::ModelUnavailable
+    } else {
+        AiRefusal::ProviderMissing
     })
 }
 
@@ -343,6 +313,7 @@ pub(super) fn task(v: &Vault) -> Option<Value> {
 }
 
 pub(super) fn revoke(root: &std::path::Path) {
+    pages::forget(root);
     if let Some(j) = JOBS.lock().unwrap().get(root) {
         j.cancel.cancel();
         j.wake.notify_all();

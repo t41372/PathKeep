@@ -646,10 +646,54 @@ pub fn ensure_ai_capability_enabled(
     config: &AppConfig,
     capability: AiCapability,
 ) -> anyhow::Result<()> {
-    if config.ai.enabled && capability.sub_flag_enabled(&config.ai) {
-        return Ok(());
+    if !config.ai.enabled {
+        return Err(AiRefusal::MasterDisabled(capability).into());
     }
-    anyhow::bail!("Enable AI and the {} in Settings.", capability.label())
+    if !capability.sub_flag_enabled(&config.ai) {
+        return Err(AiRefusal::CapabilityDisabled(capability).into());
+    }
+    Ok(())
+}
+
+/// Stable causes shared by command refusals and terminal search frames.
+#[derive(Debug, thiserror::Error)]
+pub enum AiRefusal {
+    #[error("Enable AI and the {} in Settings.", .0.label())]
+    MasterDisabled(AiCapability),
+    #[error("Enable AI and the {} in Settings.", .0.label())]
+    CapabilityDisabled(AiCapability),
+    #[error("agent-conversations-access-disabled")]
+    AgentAccessDisabled,
+    #[error("kind-off")]
+    KindOff,
+    #[error("embedding-provider-unavailable")]
+    ProviderMissing,
+    #[error("embedding-provider-changed")]
+    ProviderChanged,
+    #[error("embedding-service-unavailable")]
+    ServiceUnavailable,
+    #[error("embedding-model-unavailable")]
+    ModelUnavailable,
+}
+impl AiRefusal {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::MasterDisabled(_) => "ai-disabled",
+            Self::CapabilityDisabled(cap) => match cap {
+                AiCapability::Assistant => "assistant-disabled",
+                AiCapability::SemanticIndex => "semantic-index-disabled",
+                AiCapability::Mcp => "mcp-disabled",
+                AiCapability::Skill => "skill-disabled",
+                AiCapability::ContentFetch => "content-fetch-disabled",
+            },
+            Self::AgentAccessDisabled => "agent-conversations-access-disabled",
+            Self::KindOff => "kind-off",
+            Self::ProviderMissing => "embedding-provider-unavailable",
+            Self::ProviderChanged => "embedding-provider-changed",
+            Self::ServiceUnavailable => "embedding-service-unavailable",
+            Self::ModelUnavailable => "embedding-model-unavailable",
+        }
+    }
 }
 
 impl Default for AiSettings {
@@ -1658,6 +1702,7 @@ pub struct ConversationExportLabels {
     pub you: String,
     pub assistant: String,
     pub pages_used: String,
+    pub conversations_used: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

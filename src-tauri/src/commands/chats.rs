@@ -206,6 +206,28 @@ pub(crate) async fn get_agent_semantic_index(
     .await
 }
 #[tauri::command]
+pub(crate) async fn preview_free_agent_semantic_index(
+    state: State<'_, SessionState>,
+    request: Request<vault_worker::data_kinds::Empty>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("preview_free_agent_semantic_index", move || {
+        worker_bridge::preview_free_agent_semantic_index_impl(&session, request.0)
+    })
+    .await
+}
+#[tauri::command]
+pub(crate) async fn free_agent_semantic_index(
+    state: State<'_, SessionState>,
+    request: Request<vault_worker::data_kinds::semantic::Confirm>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("free_agent_semantic_index", move || {
+        worker_bridge::free_agent_semantic_index_impl(&session, request.0)
+    })
+    .await
+}
+#[tauri::command]
 pub(crate) async fn control_agent_semantic_index(
     app: AppHandle,
     state: State<'_, SessionState>,
