@@ -147,6 +147,20 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "list_agent_sources" => {
             worker_bridge::list_agent_sources_impl(&state.session, surface_request(payload)?)
         }
+        "get_agent_insights" => {
+            let frames =
+                worker_bridge::get_agent_insights_impl(&state.session, surface_request(payload)?)?;
+            json_value!(super::preview::register(state, frames))
+        }
+        "get_agent_insights_preferences" => worker_bridge::get_agent_insights_preferences_impl(
+            &state.session,
+            surface_request(payload)?,
+        ),
+        "set_agent_insights_preferences" => worker_bridge::set_agent_insights_preferences_impl(
+            &state.session,
+            surface_request(payload)?,
+            backup_events(state),
+        ),
         "list_agent_projects" => {
             worker_bridge::list_agent_projects_impl(&state.session, surface_request(payload)?)
         }

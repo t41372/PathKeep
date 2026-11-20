@@ -436,6 +436,8 @@ impl Archive {
         let mut cursor = String::new();
         let mut current = None;
         let mut digest = Sha256::new();
+        digest.update(b"agent-insights-facts-v1");
+        digest.update(crate::chats::pricing::VERSION.as_bytes());
         loop {
             cancel.check().map_err(|_| Error::Cancelled)?;
             let facts = self.batch_facts(id, &cursor)?;

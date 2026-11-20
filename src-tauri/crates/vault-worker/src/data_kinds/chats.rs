@@ -72,12 +72,15 @@ pub struct InfoRequest {
 }
 pub fn info(s: &VaultSession, q: InfoRequest) -> Result<Value> {
     admitted(s, |a, _| {
+        let prefs = a.insight_preferences()?;
+        let show = prefs.show_cost && q.show_cost != Some(false);
+        let estimate = prefs.estimate_cost && q.estimate_cost != Some(false);
         let mut info = a.chat_info(&q.id)?;
-        if q.show_cost == Some(false) || q.estimate_cost == Some(false) {
+        if !show || !estimate {
             for field in ["own", "total"] {
                 if let Some(facts) = info[field].as_object_mut() {
                     facts.remove("estimatedUsd");
-                    if q.show_cost == Some(false) {
+                    if !show {
                         facts.remove("recordedUsd");
                     }
                 }
@@ -106,8 +109,14 @@ pub(super) fn cancel_window(root: &std::path::Path, id: &str) {
         c.cancel();
     }
 }
-pub fn window(s: &VaultSession, q: WindowQuery) -> Result<Value> {
-    reader(s, q.request_id.as_deref(), |a, j| a.chat_window(&q, j))
+pub fn window(s: &VaultSession, mut q: WindowQuery) -> Result<Value> {
+    let request = q.request_id.clone();
+    reader(s, request.as_deref(), |a, j| {
+        let prefs = a.insight_preferences()?;
+        q.show_cost = Some(prefs.show_cost && q.show_cost != Some(false));
+        q.estimate_cost = Some(prefs.estimate_cost && q.estimate_cost != Some(false));
+        a.chat_window(&q, j)
+    })
 }
 fn reader(
     s: &VaultSession,

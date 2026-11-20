@@ -126,6 +126,8 @@ fn prune_publication(tx: &Session<'_>, epoch: i64, limit: i64) -> vault_store::R
     };
     let mut changed = 0;
     for table in [
+        "ah_insight_page",
+        "ah_insight_clock_input",
         "ah_chat_response",
         "ah_chat_prompt",
         "ah_chat_line_stats",

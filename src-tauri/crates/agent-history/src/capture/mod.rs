@@ -269,6 +269,7 @@ fn execute(
     }
     archive.ensure_projects()?;
     archive.refresh_project_rollups()?;
+    archive.refresh_insight_hours(&options.cancel)?;
     notify_phase(options, "index", None);
     archive.synchronize_search_with_cancel(&|| options.cancel.check().is_err())?;
     maintenance(archive, options)?;

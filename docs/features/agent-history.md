@@ -272,6 +272,8 @@ Agent 空間的頁面依序是洞察、紀錄、專案、備份。這個空間�
 - **還沒有任何對話**（工具都沒找到對話）：說明 PathKeep 在哪些資料夾找過，連到備份頁。
 - **讀取失敗**：說明讀不到，提供重試。
 
+桌面後端使用瀏覽洞察目前顯示的時區，依區段傳送數字列、圖表與一年日曆。換範圍只需重讀報告。沒有用量樣本時，總數、平均與圖表資料都以 `null` 表示。命令與覆蓋率欄位見 [Agent Insights](../architecture/desktop-command-surface.md#agent-insights)。
+
 ### 3. 紀錄 `#/agent/chats`
 
 紀錄清單和閱讀器已有桌面命令。清單依排序鍵翻頁，閱讀器依選定分支的顯示列、原始紀錄或提問目錄翻頁。兩個畫面的欄位、單位、範例和錯誤代碼見[視窗命令](../architecture/desktop-command-surface.md#conversation-list-and-reader)。目前的專案篩選鍵是工具記錄的工作資料夾。

@@ -5,6 +5,7 @@
 //! core crates. Command functions should stay thin: validate transport-level
 //! types if needed, read session state, and delegate.
 
+mod agent_insights;
 mod ai_chat;
 mod annotations;
 mod app;
@@ -27,7 +28,7 @@ mod update;
 #[cfg(not(test))]
 /// Re-exports the full production command surface for `tauri::generate_handler!`.
 pub(crate) use self::{
-    ai_chat::*, annotations::*, app::*, archive::*, chats::*, data_kinds::*, desktop::*, import::*,
-    intelligence::*, migration::*, projects::*, schedule::*, search::*, security::*, stars::*,
-    support::*, update::*,
+    agent_insights::*, ai_chat::*, annotations::*, app::*, archive::*, chats::*, data_kinds::*,
+    desktop::*, import::*, intelligence::*, migration::*, projects::*, schedule::*, search::*,
+    security::*, stars::*, support::*, update::*,
 };

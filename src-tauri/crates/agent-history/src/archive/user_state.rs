@@ -196,6 +196,7 @@ impl Archive {
                 self.store
                     .write(Db::AgentHistoryReadModel, Priority::Interactive, move |tx| {
                         for (id, star, away, trash, title) in rows {
+                            crate::insights::work::visibility(tx, &id, trash)?;
                             crate::projects::rollups::dirty_conversation(tx, &id)?;
                             tx.execute(
                                 "INSERT INTO ah_user_state VALUES(?1, ?2, ?3, ?4, ?5) ON

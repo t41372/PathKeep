@@ -77,6 +77,22 @@ impl Archive {
     pub(crate) fn ensure_projects(&self) -> Result<()> {
         self.refresh_directory(&mut self.projects.lock().unwrap()).map(drop)
     }
+    /// Insights only needs current chip names and folder presence, even for a large project.
+    pub(crate) fn insight_projects(&self) -> Result<std::collections::HashMap<String, Value>> {
+        let mut cache = self.projects.lock().unwrap();
+        self.refresh_directory(&mut cache)?;
+        let dir = &cache.directory;
+        let mut gone = std::collections::HashMap::<&str, bool>::new();
+        for f in dir.folders.values() {
+            *gone.entry(&f.project).or_insert(true) &= f.observation.exists == Some(false);
+        }
+        Ok(gone
+            .into_iter()
+            .map(|(id, gone)| {
+                (id.into(), json!({"id":id,"name":dir.labels[id],"kind":dir.kinds[id],"gone":gone}))
+            })
+            .collect())
+    }
     fn project_snapshot(&self) -> Result<Arc<Snapshot>> {
         self.ensure_state_visible()?;
         let mut c = self.projects.lock().unwrap();

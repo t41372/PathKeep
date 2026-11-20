@@ -378,6 +378,12 @@ The stamped archive still requires the existing reader floor. PathKeep 0.5.0 ref
 
 Both sets of migrations append after previously assigned positions. PathKeep 0.5.0 refuses the stamped control before opening the conversation roles. A lower-schema development reader uses the newer-database refusal. No standalone project file is installed.
 
+### Agent Insights in revision 1
+
+Evidence stores the remembered range, equivalent-hours reading and two cost switches in `ah_insight_preferences`. They travel with the archive's conversation settings through a copy, move and encryption conversion. Browsing restore keeps the destination conversation evidence. A new model reads the preferences from evidence. Pause and Off retain them, and wipe removes them.
+
+R stores publication-owned, bounded original-work contributions in `ah_insight_page`, with UTC extents and a compact summary. Summary rows record the first and last contributing instants and first metered reply. The input digest includes the Insights fact codec and bundled price version. Upgrade tickets existing conversation heads for restaging. Retiring a publication also collects its Insights pages and `ah_insight_clock_input`. Changed UTC clock hours are queued in `ah_insight_clock_dirty`. `ah_insight_clock_hour` stores elapsed and summed work plus exact concurrency edges for local boundaries. All are rebuildable from retained evidence. Snapshot, move and key conversion carry these tables inside R. Browsing restore keeps R, pause retains read access, Off hides the commands and wipe removes R. Cached report frames exist only in memory. Released 0.5.0 refuses the stamped archive and previous development readers use the newer-schema refusal.
+
 ### Device capture policy in revision 1
 
 The live control stores `capturePolicy`. Its fields are `browsing` and

@@ -151,6 +151,7 @@ impl Archive {
         }
         self.ensure_projects()?;
         self.refresh_project_rollups()?;
+        self.refresh_insight_hours(&options.cancel)?;
         self.synchronize_search()?;
         Ok(())
     }

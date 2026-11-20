@@ -155,6 +155,7 @@ pub(crate) fn stage_summary(
         // by this source. Native identity in the resolved origin proves a copy.
         let mut owned_parser = (m.fork_id.is_some() || unresolved_fork || after >= 0)
             .then(|| Interpreter::new(harness.clone(), child, initial));
+        let mut insight = crate::insights::Writer::new(publication, source);
         let mut displayed = Totals::default();
         let mut display_title = None;
         let mut q=tx.prepare("SELECT e.ordinal,e.kind,e.role,e.timestamp,substr(e.text,1,1024),e.payload,
@@ -183,6 +184,7 @@ pub(crate) fn stage_summary(
             {
                 let (prior, _) = original.record(n, &kind, role.as_deref(), time, &text, &v);
                 if let Some(t) = prior {
+                    insight.turn(tx, &t)?;
                     own.merge(&t.facts);
                 }
             }
@@ -203,6 +205,9 @@ pub(crate) fn stage_summary(
                 )?;
             }
             if let Some(t) = finished {
+                if contributes && owned_parser.is_none() {
+                    insight.turn(tx, &t)?;
+                }
                 turn(tx, publication, source, t, &mut displayed, &mut display_title)?;
             }
             if contributes
@@ -240,7 +245,11 @@ pub(crate) fn stage_summary(
             }
         }
         if let Some(t) = parser.turn.take() {
-            turn(tx, publication, source, t.finish(), &mut displayed, &mut display_title)?;
+            let t = t.finish();
+            if contributes && owned_parser.is_none() {
+                insight.turn(tx, &t)?;
+            }
+            turn(tx, publication, source, t, &mut displayed, &mut display_title)?;
         }
         tx.execute("INSERT INTO ah_chat_attachment
             SELECT ?1,?2,CASE WHEN e.kind='attachment' THEN coalesce(
@@ -253,7 +262,9 @@ pub(crate) fn stage_summary(
         if contributes {
             if let Some(mut original) = owned_parser {
                 if let Some(t) = original.turn.take() {
-                    own.merge(&t.finish().facts);
+                    let t = t.finish();
+                    insight.turn(tx, &t)?;
+                    own.merge(&t.facts);
                 }
                 own.merge(&original.structure);
             } else {
@@ -261,6 +272,7 @@ pub(crate) fn stage_summary(
                 own.merge(&parser.structure);
             }
         }
+        insight.flush(tx)?;
         if (harness != "deepseek" || source == current)
             && let Some(title) = display_title
         {
@@ -304,10 +316,13 @@ pub(crate) fn stage_summary(
     tx.execute("INSERT INTO ah_chat_summary(publication,id,root,parent,harness,folder,title,title_source,started,last_activity,missing,bytes,saved,own,totals,recent_key,start_key,agent_key,tokens_key,turns_key,detail,messages,turns,agent_ms,tokens_total,has_edits,has_pr,project_id)
         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,(SELECT project FROM ah_project_folder WHERE path=?6))",
         params![publication,id,i64::from(root),elected.parent_id.as_deref(),harness,folder,title,title_source,started,last,i64::from(missing),bytes,saved,totals,order_key(last,id),order_key(started,id),order_key(own.agent_ms,id),order_key(own.tokens.map(Tokens::total),id),order_key(Some(own.turns),id),detail.to_string(),own.messages,own.turns,own.agent_ms,own.tokens.map(Tokens::total),i64::from(!own.edited_files.is_empty()),i64::from(!own.pull_requests.is_empty())])?;
+    tx.execute("UPDATE ah_chat_summary SET insight_first_usage=(SELECT min(first_usage) FROM ah_insight_page WHERE publication=?1),insight_first=(SELECT min(lo) FROM ah_insight_page WHERE publication=?1),
+        insight_last=(SELECT max(hi) FROM ah_insight_page WHERE publication=?1) WHERE publication=?1",[publication])?;
     Ok(())
 }
 
 pub(crate) fn switch_summaries(tx: &Session<'_>) -> Result<()> {
+    crate::insights::work::switching(tx)?;
     tx.execute(
         "INSERT OR IGNORE INTO ah_search_dirty SELECT conversation FROM ah_reader_build",
         (),

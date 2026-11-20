@@ -400,29 +400,38 @@ pub(super) fn search_stream(
     q: agent_history::search::ScreenQuery,
 ) -> Result<Frames> {
     q.validate()?;
+    conversation_stream(session, archive, "agent-conversation-search", move |a, c, send| {
+        a.stream_conversations(scope.as_deref(), &q, c, send)
+    })
+}
+
+pub(super) fn conversation_stream(
+    session: &VaultSession,
+    archive: Arc<agent_history::Archive>,
+    name: &str,
+    work: impl FnOnce(
+        &agent_history::Archive,
+        &CancelToken,
+        &mut dyn FnMut(&str, Value) -> agent_history::Result<()>,
+    ) -> agent_history::Result<()>
+    + Send
+    + 'static,
+) -> Result<Frames> {
     let config = admitted_config(&vault_core::project_paths()?)?;
     let view = (Arc::downgrade(&archive), archive.search_marks_generation()?);
-    private_stream(
-        session,
-        config,
-        false,
-        Some(view),
-        "agent-conversation-search",
-        move |permit, send| {
-            let mut failure = None;
-            let result =
-                archive.stream_conversations(scope.as_deref(), &q, &permit.cancel, |ty, p| {
-                    send(ty, p).map_err(|err| {
-                        failure = Some(err);
-                        agent_history::Error::Cancelled
-                    })
-                });
-            if let Some(err) = failure {
-                return Err(err);
-            }
-            Ok(result?)
-        },
-    )
+    private_stream(session, config, false, Some(view), name, move |permit, send| {
+        let mut failure = None;
+        let result = work(&archive, &permit.cancel, &mut |ty, p| {
+            send(ty, p).map_err(|err| {
+                failure = Some(err);
+                agent_history::Error::Cancelled
+            })
+        });
+        if let Some(err) = failure {
+            return Err(err);
+        }
+        Ok(result?)
+    })
 }
 
 type Emit<'a> = dyn FnMut(&str, Value) -> Result<()> + 'a;

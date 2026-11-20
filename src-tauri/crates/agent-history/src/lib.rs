@@ -10,6 +10,7 @@ pub mod capture;
 pub mod chats;
 pub mod error;
 pub mod export;
+pub mod insights;
 pub mod model;
 pub mod projects;
 pub mod query;

@@ -192,6 +192,59 @@ fn conversation_screen_wire_opens_a_saved_pi_turn_and_reads_its_image() {
                 .await
                 .unwrap();
         assert_eq!(renamed["summary"]["project"]["label"], "Wire project");
+        let settings =
+            dispatch_command(&state, "get_agent_insights_preferences", json!({"request":{}}))
+                .await
+                .unwrap();
+        assert_eq!(settings["range"], "all");
+        assert_eq!(settings["showCost"], true);
+        let prefs = dispatch_command(
+            &state,
+            "set_agent_insights_preferences",
+            json!({"request":{"showCost":false,"range":"30d"}}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(prefs["range"], "30d");
+        let info = dispatch_command(
+            &state,
+            "get_agent_conversation_info",
+            json!({"request":{"id":id,"showCost":true}}),
+        )
+        .await
+        .unwrap();
+        assert!(info["own"].get("recordedUsd").is_none());
+        let receipt = dispatch_command(
+            &state,
+            "get_agent_insights",
+            json!({"request":{"range":"all","year":2026}}),
+        )
+        .await
+        .unwrap();
+        let mut frames = crate::dev_ipc_bridge::preview::subscribe(
+            &state,
+            receipt["streamId"].as_str().unwrap(),
+        )
+        .unwrap();
+        let shown_zone =
+            dispatch_command(&state, "get_insights_time_zone", json!({})).await.unwrap()["shown"]
+                .clone();
+        let mut sections = std::collections::BTreeSet::new();
+        while let Some(frame) = frames.next_frame().await {
+            let kind = frame["type"].as_str().unwrap();
+            sections.insert(kind.to_owned());
+            if matches!(kind, "started" | "calendar") {
+                assert_eq!(frame["payload"]["timeZone"], shown_zone);
+            }
+            if kind == "overview" {
+                assert_eq!(frame["payload"]["tokens"]["output"], 2);
+                assert!(frame["payload"].get("cost").is_none());
+            }
+            assert_ne!(kind, "error", "{frame}");
+        }
+        for section in ["started", "overview", "series", "calendar", "breakdowns", "finished"] {
+            assert!(sections.contains(section));
+        }
         let mut examples = examples.into_inner();
         normalize(
             &mut examples,

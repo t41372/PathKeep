@@ -4,6 +4,7 @@ pub mod backups;
 pub mod chats;
 pub mod delivery;
 mod hints;
+pub mod insights;
 pub mod projects;
 mod snapshot;
 pub use hints::{DismissHint, HintAcknowledgement, dismiss_hint};

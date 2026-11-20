@@ -767,3 +767,81 @@ Every action is inside `{"request":{"version":2,"action":…}}`.
 A successful edit emits `pathkeep://agent-projects-changed` with `{version}` and `pathkeep://agent-conversations-changed` with `{id:null,viewToken}`. Refetch project rows on backup completion and when the git-grouping setting changes. Commands use the ordinary retained-conversation admission errors. Invalid cursors, cycles and ineligible folder operations return `invalid_input`. Missing edit targets return `not_found`; a superseded edit version returns `stale_cursor`. Read failures use the archive error envelope.
 
 The Linux scale fixture uses 120,000 published root summaries, including 60,000 in one project across eight working folders. It checks the complete catalogue, the project header, all 50 first-page IDs and the full day count. From `src-tauri` run `cargo test --locked --release -p agent-history --test projects_scale -- --ignored --nocapture`. The output separates one-time membership and rollup preparation from the first read after reopen and 30 warm reads. [Linux measurements and query plans](research/agent-history/validation/projects-linux.jsonl)
+
+## Agent Insights
+
+`get_agent_insights` streams the report for `#/agent/insights`. It uses the **shown** IANA zone from `get_insights_time_zone`, including while browsing Insights is being rebuilt for another zone. The worker reads the clock once for the request.
+
+| Command                          | Example request                                                                                        | Result                                                                                                               |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `get_agent_insights_preferences` | `{"request":{}}`                                                                                       | `{"range":"all","equivalent":"nonstop","showCost":true,"estimateCost":true}` on first use.                           |
+| `set_agent_insights_preferences` | `{"request":{"range":"30d","equivalent":"workdays","estimateCost":false}}`                             | The complete preferences after applying the supplied fields. Other fields retain their values.                       |
+| `get_agent_insights`             | `{"request":{"range":"30d","part":"both","year":2026,"harnesses":["pi","codex"],"projectId":"p-api"}}` | Private stream receipt `{"streamId":"<uuid>","viewToken":"<uuid>"}`. Omit the filters for the whole visible archive. |
+
+On open, request `part:"both"` (the default). A range change needs `part:"report"`; a calendar year step needs `part:"calendar"`. A project or tool change affects both. Range values are `today`, `7d`, `30d`, `90d`, `1y` and `all`. Omitting the range uses the saved preference. Viewing a report leaves the saved range alone; save a range choice through the preferences command. Optional `includeEstimates:false` requests recorded-only totals without saving a setting. The saved cost switches take precedence. The default calendar year is the current year in the shown zone. Tool/project filters belong to the request.
+
+Pass `onEvent` with the Tauri request or subscribe once to `GET /previews/{streamId}/events` on the dev bridge. Cancel a superseded request with `cancel_agent_read({"request":{"requestIdOrStreamId":"<uuid>"}})`. Each frame has `streamId`, decimal-string `sequence`, `type` and `payload`. Replace the section named by its type. Cached sections can arrive in a different order.
+
+| Type                 | Payload                                                                                                                                                                                                              |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `started`            | `{"range":"30d","year":2026,"today":"2026-11-20","timeZone":"America/New_York","firstBackupRunning":false,"viewToken":"18:3"}`. The payload token identifies the archive view; the receipt identifies this delivery. |
+| `progress`           | `{"phase":"pages","done":512}`. Counts describe rows, hours, pages or roots processed in the named phase (`conversations`, `hours`, `pages`, `totals`).                                                              |
+| `work`               | Early unfiltered work chart, when needed. `{"unit":"day","buckets":[{"bucketStart":1794286800000,"bucketEnd":1794373200000,"busyMs":600000,"summedMs":720000}]}`. The final `series` supplies the complete chart.    |
+| `overview`           | KPI totals, cost, coverage and pool sizes. Example below.                                                                                                                                                            |
+| `calendar`           | Daily union and year facts for the selected year with the tool/project filters applied. Independent of report range.                                                                                                 |
+| `series`             | Work, presence, token series and coverage for every chronological bucket, including empty buckets.                                                                                                                   |
+| `breakdowns`         | Project, harness, conversation, model, tool-call and edit cards, plus the hour-of-week matrix.                                                                                                                       |
+| `finished`           | `{"newerViewAvailable":false}`. True indicates the archive advanced during delivery. Refresh on the next catalogue notification.                                                                                     |
+| `cancelled`, `error` | `{"code":"cancelled"}` or a stable failure code. Discard the superseded or failed stream's provisional sections.                                                                                                     |
+
+Example overview:
+
+```json
+{
+  "agentBusyMs": 1680000,
+  "agentSummedMs": 2400000,
+  "concurrency": 1.4285714285714286,
+  "presentMs": 1380000,
+  "timedHumanMessages": 2,
+  "undatedHumanMessages": 0,
+  "conversationCount": 2,
+  "subagentCount": 0,
+  "projectCount": 1,
+  "recordedDurationConversations": 1,
+  "derivedDurationConversations": 1,
+  "mixedDurationConversations": 0,
+  "unknownDurationConversations": 0,
+  "tokens": { "input": 14, "cacheWrite": 0, "cacheRead": 0, "output": 3 },
+  "conversationsWithUsage": 1,
+  "averageTokensPerMeasuredConversation": 17,
+  "usageCoverageNote": null,
+  "cost": {
+    "totalUsd": 0.012027,
+    "recordedUsd": 0.012,
+    "estimatedUsd": 0.000027,
+    "availableEstimatedUsd": 0.000027,
+    "recordedConversations": 1,
+    "estimatedConversations": 1,
+    "bothConversations": 1,
+    "unpricedConversations": 1,
+    "includeEstimates": true,
+    "priceTableVersion": "standard-text-2026-11-20"
+  },
+  "savedRoots": 2,
+  "visibleRoots": 2,
+  "scopeRoots": 2
+}
+```
+
+- All times and durations use milliseconds. Elapsed work is the union of root turn intervals. Summed work adds their clipped durations and already includes the time during which their subagents ran. For recorded elapsed time the interval starts at the known start, or ends at the known end when only that end is available. Derived time comes from the reader's turn boundaries. Concurrency is the ratio of summed to elapsed work when elapsed time is positive.
+- Presence joins genuine human prompts across the selected roots at gaps of at most 15 minutes. Its final tail ends at the last prompt's turn end, capped at 15 minutes. A prompt without a known end adds no invented tail. The range includes the overlap of a cluster that began before it.
+- `conversationCount` counts distinct active root trees; `subagentCount` counts distinct contributing descendants. Put-away roots participate. Trashing a conversation excludes its subtree. Project attribution uses the root's current project. `savedRoots` includes trash; `visibleRoots` excludes it; `scopeRoots` also applies the request filters, before time selection. For no matching turns, render the empty state and retain the year section. Use existing `get_agent_overview` first-backup/task status and searched folders for the first-save and empty-archive messages.
+- Four-way token amounts count original native usage, including counter deltas, once and at reply time. The `tokens` object is **null** without a measurement. A measured all-zero object counts toward coverage. The average divides only by roots with measured usage. The optional `usageCoverageNote:{harness,firstUsageAt}` refers to the earliest measured reply saved for that tool in the selected pool when a majority of missing roots predate it.
+- Costs are USD. A recorded amount takes precedence per response. Remaining priced usage uses the answering model's bundled four-way tariff. Local and unpriced models remain unknown. Recorded and estimated conversation counts can overlap. A root with no usage or an unpriced usage sample contributes to `unpricedConversations`. Switching estimates off excludes the estimate from the total; `availableEstimatedUsd` supplies the struck-through row. With `showCost:false` the entire cost field is omitted. The reader respects the same saved switches.
+- `series` has `unit,modelKeys,otherModelCount,buckets`. Each bucket has half-open `bucketStart,bucketEnd`, `busyMs,summedMs,presentMs`, `tokens`, `tokensByHarness` (map), `tokensByModel` (array aligned with `modelKeys`), `otherModelTokens`, `conversationCount` and `conversationsWithUsage`. All token series retain the four separate counts for the cache-read toggle. Missing map entries and null samples are unknown. Hours use actual elapsed local hours, days split at local midnight, weeks start Monday, and all-time uses months. The first and last buckets can be partial.
+- `breakdowns.hourOfWeek[hour][weekday]` counts timestamped human messages; Monday is 0. `byHarness` and the top eight `topProjects` give root counts, known summed time and usage, with duration/usage coverage. Project cards include the current project chip and harnesses. `longest` contains up to six roots with known in-range duration and gives ID, effective title and its source, harness, project, in-range turns and milliseconds. `models` contains up to seven rows ordered by measured tokens; each root's primary model has the most measured output in its own contributing turns. A child's tokens stay with its own model. An empty series model key or null model name means unidentified. Project, tool and model limits apply only to displayed rankings.
+- `toolCalls:{total,top}` counts native call names by harness, including agent launches; ten rows are shown. Successful structured edits supply `linesAdded,linesRemoved,conversationsWithEdits,editsWithUnknownLineCounts`. Unknown line totals remain null if every edit has unknown counts. Shell output is excluded.
+- `calendar` includes `year,currentYear,firstYearWithData,timeZone`; `days:[{day,busyMs,active,future}]` and `months:[{month,busyMs,future}]`; `busyMs,activeDays,timedActiveDays,elapsedDays,averageBusyMs,longestStreak,streakStart,streakEnd,busiestDay,busiestMonth`. Days are ISO local dates; months are 1–12. Future values and unknown work on active days are null. A past empty day has zero work. The average uses active days with measured time; peaks and streak dates are nullable. Calendar links pass that local date to Records.
+- A preference update emits `pathkeep://agent-insights-preferences-changed` with the complete preference object. Refresh on changes to the shown zone, conversation view or project assignments. `list_agent_projects` supplies the project picker. Invalid inputs return `invalid_input` or `invalid-request` for malformed envelopes. The stream also uses the conversation admission, cancellation, stale-view, storage and reader-rebuild error codes.
+
+The release fixture consumes preferences, the work chart, year, KPI and wall sections on a fresh archive handle, then changes only the report range. It checks the 30-day and all-time root, four-way usage and clock totals against the generated corpus. From `src-tauri` run `cargo test --release --locked -p agent-history --lib insights_120000_roots -- --ignored --nocapture`. [Linux measurements](research/agent-history/validation/insights-linux.jsonl)

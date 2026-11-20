@@ -1,7 +1,7 @@
 //! Standard text-token price estimates in USD. Native charges take precedence.
 //! Unknown model IDs and unsupported cache tiers remain unpriced.
 use super::facts::Tokens;
-pub(super) const VERSION: &str = "standard-text-2026-11-20";
+pub(crate) const VERSION: &str = "standard-text-2026-11-20";
 pub(super) fn estimate(model: Option<&str>, t: Tokens, hour_write: i64) -> Option<f64> {
     let (input, write, read, output): (f64, f64, f64, f64) = match model? {
         "claude-sonnet-4-6" | "claude-sonnet-4-5" | "claude-sonnet-4-5-20250929" => {

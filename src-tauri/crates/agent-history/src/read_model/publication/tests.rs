@@ -703,6 +703,7 @@ fn upgrade_recovers_the_parent_from_the_elected_child_descriptor() {
             migrations.truncate(
                 migrations.len()
                     - crate::projects::schema::MODEL.len()
+                    - crate::insights::MODEL.len()
                     - crate::chats::schema::TABLES.len()
                     - 1
                     - schema::TABLES.len()

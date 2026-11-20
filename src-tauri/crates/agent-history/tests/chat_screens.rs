@@ -110,6 +110,25 @@ fn streamed_responses_are_charged_once_children_roll_up_and_forks_own_only_their
     assert_eq!(rows.iter().find(|r| r["id"] != parent["id"]).unwrap()["tokensTotal"], 12);
 }
 
+fn insights_tokens(a: &Archive) -> Value {
+    let mut observed = Value::Null;
+    a.agent_insights(
+        &Default::default(),
+        "UTC",
+        native::EPOCH,
+        &Default::default(),
+        &Default::default(),
+        |ty, p| {
+            if ty == "overview" {
+                observed = p["tokens"].clone();
+            }
+            Ok(())
+        },
+    )
+    .unwrap();
+    observed
+}
+
 #[test]
 fn codex_cumulative_usage_follows_the_retained_cut_and_counts_abandoned_work_once() {
     let t = tempfile::tempdir().unwrap();
@@ -143,6 +162,7 @@ fn codex_cumulative_usage_follows_the_retained_cut_and_counts_abandoned_work_onc
     let rows = all(&a);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["tokensTotal"], 212);
+    assert_eq!(insights_tokens(&a), json!({"input":120,"cacheRead":70,"cacheWrite":0,"output":22}));
     let i = a.chat_info(rows[0]["id"].as_str().unwrap()).unwrap();
     assert_eq!(i["own"]["tokens"], json!({"input":120,"cacheRead":70,"cacheWrite":0,"output":22}));
     assert_eq!(
@@ -229,6 +249,7 @@ fn deepseek_seeded_child_owns_only_work_after_the_last_inherited_marker() {
     let rows = all(&a);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["tokensTotal"], 19);
+    assert_eq!(insights_tokens(&a), json!({"input":11,"cacheRead":5,"cacheWrite":0,"output":3}));
     let info = a.chat_info(rows[0]["id"].as_str().unwrap()).unwrap();
     assert_eq!(info["subagentTokens"], 7);
     assert_eq!(info["own"]["messages"], 1);

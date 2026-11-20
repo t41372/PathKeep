@@ -141,21 +141,27 @@ pub(crate) struct Turn {
     #[serde(skip)]
     recorded_ms: Option<i64>,
     #[serde(skip)]
-    edits: BTreeMap<String, Value>,
+    pub(crate) edits: BTreeMap<String, (Option<i64>, Value)>,
+    #[serde(skip)]
+    pub(crate) named_calls: Vec<(Option<i64>, String)>,
+    #[serde(skip)]
+    pub(crate) answering_models: BTreeMap<String, (Option<i64>, String)>,
+    #[serde(skip)]
+    pub(crate) prompt_at: Option<i64>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Response {
     pub ordinal: i64,
     pub at: Option<i64>,
-    estimated_usd: Option<f64>,
-    tokens: Tokens,
+    pub(crate) estimated_usd: Option<f64>,
+    pub(crate) tokens: Tokens,
     #[serde(rename = "reasoningTokens")]
     reasoning: Option<i64>,
     #[serde(rename = "recordedUsd")]
-    usd: Option<f64>,
+    pub(crate) usd: Option<f64>,
     duration_ms: Option<i64>,
-    model: Option<String>,
+    pub(crate) model: Option<String>,
 }
 impl Turn {
     pub(crate) fn wire(&self) -> Value {
@@ -177,7 +183,7 @@ impl Turn {
                 *self.facts.models.entry(m.clone()).or_default() += r.tokens.output;
             }
         }
-        for edit in self.edits.values() {
+        for (_, edit) in self.edits.values() {
             for path in edit["files"].as_array().into_iter().flatten().filter_map(Value::as_str) {
                 self.facts.edited_files.insert(path.to_string());
             }
@@ -288,6 +294,7 @@ impl Interpreter {
                 ordinal: n,
                 last_ordinal: n,
                 footer_ordinal: n,
+                prompt_at: if prompt { time } else { None },
                 prompt: prompt.then(|| {
                     text.lines().take(2).collect::<Vec<_>>().join("\n").chars().take(240).collect()
                 }),
@@ -414,7 +421,15 @@ impl Interpreter {
             .and_then(Value::as_str)
             .map(String::from)
             .or_else(|| self.model.clone());
+        let response_key = || {
+            m["responseId"]
+                .as_str()
+                .or(m["id"].as_str())
+                .map(str::to_owned)
+                .unwrap_or_else(|| n.to_string())
+        };
         if assistant && let Some(m) = &model {
+            t.answering_models.insert(response_key(), (time, m.clone()));
             t.model = Some(m.clone());
             t.facts.models.entry(m.clone()).or_default();
         }
@@ -435,11 +450,7 @@ impl Interpreter {
             _ => (None, None),
         };
         if let Some(tokens) = amount {
-            let key = m["responseId"]
-                .as_str()
-                .or(m["id"].as_str())
-                .map(str::to_owned)
-                .unwrap_or_else(|| n.to_string());
+            let key = response_key();
             let usd = u.pointer("/cost/total").and_then(Value::as_f64).or(v["costUSD"].as_f64());
             let local = m["provider"]
                 .as_str()
@@ -472,10 +483,15 @@ impl Interpreter {
         }
         let ops = super::operations::record(&mut t.facts, kind, v, content, codex, deep);
         for op in &ops {
+            if op["kind"] == "call"
+                && let Some(name) = op["name"].as_str()
+            {
+                t.named_calls.push((time, name.into()));
+            }
             if let Some(edit) = op.get("edit") {
                 let key =
                     op["callId"].as_str().map(str::to_owned).unwrap_or_else(|| format!("#{n}"));
-                t.edits.insert(key, edit.clone());
+                t.edits.insert(key, (time, edit.clone()));
             }
             if matches!(op["status"].as_str(), Some("error" | "denied"))
                 && let Some(id) = op["callId"].as_str()

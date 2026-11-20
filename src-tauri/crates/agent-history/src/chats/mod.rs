@@ -7,7 +7,7 @@ mod info;
 pub(crate) mod list;
 mod mirrors;
 mod operations;
-mod pricing;
+pub(crate) mod pricing;
 mod publish;
 mod reader;
 pub(crate) mod schema;
