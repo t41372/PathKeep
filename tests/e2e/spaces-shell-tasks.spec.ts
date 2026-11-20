@@ -32,6 +32,7 @@ import {
   browsingRunGroup,
   expectIdleIndicator,
   idleIndicatorName,
+  needsLookText,
   railAttention,
   taskIndicator,
   taskRow,
@@ -51,15 +52,22 @@ test('the keyboard reaches the indicator’s list and comes back', async ({
   await page.goto('/#/browsing/insights')
   await unlockIfLocked(page)
   const indicator = taskIndicator(page)
-  await expect(indicator).toHaveAccessibleName(
-    idleIndicatorName(await railAttention()),
-  )
+  const attention = await railAttention()
+  await expect(indicator).toHaveAccessibleName(idleIndicatorName(attention))
   await indicator.focus()
   const list = taskList(page)
   await expect(list).toBeVisible()
 
-  // The list is drawn outside the rail, so ↓ is the way in.
+  // The list is drawn outside the rail, so ↓ is the way in, to its first
+  // button: what needs a look when anything does (an earlier spec's backup
+  // that ended short), then "Back up everything now".
   await page.keyboard.press('ArrowDown')
+  if (attention > 0) {
+    await expect(
+      list.getByRole('button', { name: needsLookText(attention) }),
+    ).toBeFocused()
+    await page.keyboard.press('Tab')
+  }
   await expect(
     list.getByRole('button', { name: 'Back up everything now' }),
   ).toBeFocused()
