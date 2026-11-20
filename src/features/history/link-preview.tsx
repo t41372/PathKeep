@@ -182,7 +182,7 @@ export function LinkPreview({
           )}
           {state === 'off' && (
             <Link
-              to="/settings/general"
+              to="/settings/browsing"
               className="shrink-0 rounded text-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               {t('historyPage.preview.turnOn')}

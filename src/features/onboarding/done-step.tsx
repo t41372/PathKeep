@@ -1,20 +1,26 @@
 /**
- * Step 7: a summary of every choice, then the stages that carry them out
+ * Step 8: a summary of every choice, then the stages that carry them out
  * with live backup progress, errors in place, and the result.
  *
+ * With browsing history the only kind chosen, the first backup shows as
+ * it always has (the shared progress card, "Done. N visits saved."). With
+ * Agent conversations chosen, it shows one line per kind instead, each in
+ * its own unit (`first-backups.tsx`).
  * Not responsible for running the stages (see `use-finish-setup.ts`).
  */
 import {
+  Bot,
   Check,
+  Earth,
   Folder,
   Globe,
+  Layers,
   Lock,
   Minus,
   RefreshCw,
   Sparkles,
   X,
   type LucideIcon,
-  Earth,
 } from 'lucide-react'
 import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
@@ -24,31 +30,49 @@ import {
   leftOutOtherThanSafari,
   skippedSafariForFullDiskAccess,
 } from '@/features/backup/run-codes'
+import { toolName } from '@/features/data-kinds/tools'
+import type { AgentToolId, DataKindId } from '@/lib/backend-client/data-kinds'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
-import type { Draft } from './draft'
+import { spaceOfKind } from '@/lib/spaces'
+import { readableSelection, type Draft } from './draft'
+import { KindProgress, KindResults } from './first-backups'
 import { InlineError } from './inline-error'
 import { skippable, type FinishState, type Stage } from './use-finish-setup'
 
 export function DoneStep({
   draft,
+  kinds,
+  agentTools,
   stages,
   finish,
   onRetry,
   onSkip,
+  onOpenBackup,
 }: {
   draft: Draft
+  kinds: DataKindId[]
+  /** The ticked Agent tools PathKeep can read. */
+  agentTools: AgentToolId[]
   stages: Stage[]
   finish: FinishState
   onRetry: () => void
   onSkip: () => void
+  onOpenBackup: (kind: DataKindId) => void
 }) {
   const { t } = useI18n()
+  const onlyBrowsing = kinds.length === 1 && kinds[0] === 'browsing'
+  const backingUp = finish.current === 'backup' && finish.status === 'running'
 
   return (
     <>
-      <Summary draft={draft} keychain={stages.includes('keychain')} />
+      <Summary
+        draft={draft}
+        kinds={kinds}
+        agentTools={agentTools}
+        keychain={stages.includes('keychain')}
+      />
       {finish.status !== 'idle' && (
         <ol
           className="flex animate-rise flex-col gap-2.5"
@@ -59,9 +83,12 @@ export function DoneStep({
           ))}
         </ol>
       )}
-      {finish.current === 'backup' && finish.status === 'running' && (
-        <ProgressCard />
-      )}
+      {backingUp &&
+        (onlyBrowsing ? (
+          <ProgressCard />
+        ) : (
+          <KindProgress kinds={kinds} runs={finish.runs} />
+        ))}
       {finish.status === 'failed' && finish.error && (
         <InlineError
           title={t(`onboarding.done.failed.${finish.error.stage}`)}
@@ -82,24 +109,62 @@ export function DoneStep({
           }
         />
       )}
-      {finish.status === 'done' && <Result draft={draft} finish={finish} />}
+      {finish.status === 'done' && (
+        <Result
+          draft={draft}
+          kinds={kinds}
+          finish={finish}
+          onOpenBackup={onOpenBackup}
+        />
+      )}
     </>
   )
 }
 
-function Summary({ draft, keychain }: { draft: Draft; keychain: boolean }) {
+function Summary({
+  draft,
+  kinds,
+  agentTools,
+  keychain,
+}: {
+  draft: Draft
+  kinds: DataKindId[]
+  agentTools: AgentToolId[]
+  keychain: boolean
+}) {
   const { t, locale } = useI18n()
   const snapshot = useSnapshot()
+  const list = useMemo(
+    () => new Intl.ListFormat(locale, { type: 'conjunction' }),
+    [locale],
+  )
   const browsers = useMemo(() => {
-    const chosen = new Set(draft.selectedProfileIds)
-    const names = snapshot.browserProfiles
-      .filter((profile) => chosen.has(profile.profileId))
-      .map((profile) => `${profile.browserName} (${profile.profileName})`)
-    return new Intl.ListFormat(locale, { type: 'conjunction' }).format(names)
-  }, [draft.selectedProfileIds, locale, snapshot.browserProfiles])
+    const names = readableSelection(draft, snapshot).map(
+      (profile) => `${profile.browserName} (${profile.profileName})`,
+    )
+    return t('onboarding.done.browsersValue', {
+      count: names.length,
+      names: list.format(names),
+    })
+  }, [draft, list, snapshot, t])
+  const tools = t('onboarding.done.agentValue', {
+    count: agentTools.length,
+    names: list.format(agentTools.map((tool) => t(toolName(tool)))),
+  })
+  const browsing = kinds.includes('browsing')
 
   const rows: { icon: LucideIcon; label: string; value: string }[] = [
-    { icon: Globe, label: t('onboarding.done.browsers'), value: browsers },
+    {
+      icon: Layers,
+      label: t('onboarding.done.kinds'),
+      value: list.format(kinds.map((kind) => t(spaceOfKind(kind)!.name))),
+    },
+    ...(browsing
+      ? [{ icon: Globe, label: t('onboarding.done.browsers'), value: browsers }]
+      : []),
+    ...(kinds.includes('agent-history')
+      ? [{ icon: Bot, label: t('onboarding.done.agentTools'), value: tools }]
+      : []),
     {
       icon: Folder,
       label: t('onboarding.done.location'),
@@ -128,12 +193,16 @@ function Summary({ draft, keychain }: { draft: Draft; keychain: boolean }) {
       value: t(`onboarding.ai.${draft.ai}.title`),
     },
     // Link previews are fetched from each site by default; say so before the
-    // first backup starts them, not only in Settings.
-    {
-      icon: Earth,
-      label: t('onboarding.done.online'),
-      value: t('onboarding.done.onlineValue'),
-    },
+    // first backup starts them, not only in Settings. Only browsing goes online.
+    ...(browsing
+      ? [
+          {
+            icon: Earth,
+            label: t('onboarding.done.online'),
+            value: t('onboarding.done.onlineValue'),
+          },
+        ]
+      : []),
   ]
 
   return (
@@ -204,12 +273,31 @@ function StageRow({ stage, finish }: { stage: Stage; finish: FinishState }) {
   )
 }
 
-function Result({ draft, finish }: { draft: Draft; finish: FinishState }) {
+function Result({
+  draft,
+  kinds,
+  finish,
+  onOpenBackup,
+}: {
+  draft: Draft
+  kinds: DataKindId[]
+  finish: FinishState
+  onOpenBackup: (kind: DataKindId) => void
+}) {
   const { t } = useI18n()
-  const report = finish.report
+  const skipped = finish.skipped.includes('backup')
+  const browsing = finish.runs.browsing
+  const report = browsing?.status === 'ended' ? browsing.report : null
+  const onlyBrowsing = kinds.length === 1 && kinds[0] === 'browsing'
+  const allEnded = kinds.every(
+    (kind) =>
+      (kind === 'browsing' ? finish.runs.browsing : finish.runs.agent)
+        ?.status === 'ended',
+  )
   const safariSkipped = report ? skippedSafariForFullDiskAccess(report) : false
   // A first backup that saved some browsers and not others finishes setup, and says so.
   const leftOut = report ? leftOutOtherThanSafari(report) : false
+
   return (
     <div
       role="status"
@@ -217,10 +305,23 @@ function Result({ draft, finish }: { draft: Draft; finish: FinishState }) {
     >
       <span className="flex items-center gap-2 font-medium">
         <Check className="size-4 text-green" strokeWidth={2.5} aria-hidden />
-        {report
-          ? t('onboarding.done.saved', { count: report.run?.newVisits ?? 0 })
-          : t('onboarding.done.skippedBackup')}
+        {skipped
+          ? t('onboarding.done.skippedBackup')
+          : onlyBrowsing
+            ? t('onboarding.done.saved', { count: report?.run?.newVisits ?? 0 })
+            : t(
+                allEnded
+                  ? 'onboarding.done.allDone'
+                  : 'onboarding.done.finished',
+              )}
       </span>
+      {!skipped && !onlyBrowsing && (
+        <KindResults
+          kinds={kinds}
+          runs={finish.runs}
+          onOpenBackup={onOpenBackup}
+        />
+      )}
       {safariSkipped && (
         <span className="text-muted-foreground">
           {t('onboarding.done.safariSkipped')}
@@ -229,6 +330,11 @@ function Result({ draft, finish }: { draft: Draft; finish: FinishState }) {
       {leftOut && (
         <span className="text-muted-foreground">
           {t('onboarding.done.partial')}
+        </span>
+      )}
+      {finish.browsingStillOn && (
+        <span className="text-muted-foreground">
+          {t('onboarding.done.browsingStillOn')}
         </span>
       )}
       {draft.ai === 'local' &&

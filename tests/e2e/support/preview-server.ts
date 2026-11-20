@@ -13,8 +13,12 @@ import path from 'node:path'
 /** Relative to the repository, where Playwright runs; the config names `ca.pem` to the backend. */
 const TLS = path.resolve('tests/e2e/support/tls')
 
-/** The visits `link-preview.spec` adds to Chrome's history, for `wipe.spec` to count. */
-export const PREVIEW_VISIT_COUNT = 2
+/**
+ * The visits `link-preview.spec` adds to Chrome's history, for `wipe.spec`
+ * to count: two pages whose previews are fetched, and one backed up while
+ * previews are off.
+ */
+export const PREVIEW_VISIT_COUNT = 3
 
 export interface Response {
   status?: number

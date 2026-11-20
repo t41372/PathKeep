@@ -38,8 +38,8 @@ export type AgentToolId = (typeof AGENT_TOOLS)[number]
  */
 export type WireCount = string
 
-/** What `archiveCount` counts: browsing counts visits, Agent conversations count source files. */
-export type CountUnit = 'visits' | 'source-files'
+/** What `archiveCount` counts: browsing counts visits, Agent conversations count conversations (trash included). */
+export type CountUnit = 'visits' | 'conversations'
 
 /** Which part of a kind's storage failed to open. */
 export type KindFailureRole = 'evidence' | 'read-model' | 'shared'
@@ -325,14 +325,20 @@ export interface PreviewReport {
   rows: RootInventory[]
   totals: InventoryCounts
   byTool: Partial<Record<AgentToolId, ToolInventory>>
-  /** An estimate, not a measurement: see `estimateBasis`. */
+  /**
+   * An estimate, not a measurement: the growth of each archive role per
+   * source byte, measured on Linux release builds, for ordinary files and
+   * for files the tool compressed itself (`research/agent-history/
+   * preview-growth.md`). The three role estimates add up to it.
+   */
   estimatedArchiveBytes: WireCount
   estimateBasis: {
     method: string
     nativeCompressedBytes: WireCount
     ordinaryBytes: WireCount
-    derivedAllowanceBytes: WireCount
-    overheadAllowanceBytes: WireCount
+    evidenceBytes: WireCount
+    readModelBytes: WireCount
+    indexBytes: WireCount
   }
   /** Free space on the disk the conversations would be saved to. */
   availableBytes: WireCount

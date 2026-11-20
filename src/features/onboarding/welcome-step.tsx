@@ -1,17 +1,62 @@
 /**
- * Step 1: why PathKeep exists. Browsers' default retention against
- * PathKeep's, and three promises. Static content; nothing is read yet.
+ * Step 1: why PathKeep exists. How long browsers and Agent tools keep
+ * things by default against PathKeep's forever, and three promises. Static
+ * content; nothing is read yet.
  */
 import { Copy, HardDrive, Search, type LucideIcon } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { BrandMark } from '@/components/app/brand-mark'
+import { ToolIcon } from '@/features/data-kinds/tool-badge'
 import { BrowserIcon } from '@/lib/browser-icons'
 import { useI18n, type MessageKey } from '@/lib/i18n'
 
-const retention: { name: string; keep: MessageKey; width: string }[] = [
-  { name: 'Chrome', keep: 'onboarding.welcome.days90', width: '8%' },
-  { name: 'Arc', keep: 'onboarding.welcome.days90', width: '8%' },
-  { name: 'Safari', keep: 'onboarding.welcome.year', width: '32%' },
-  { name: 'Firefox', keep: 'onboarding.welcome.bySize', width: '55%' },
+const browser = (name: string) => (
+  <BrowserIcon browserName={name} className="size-5" decorative />
+)
+
+/** Shortest first; the bar is roughly how long each keeps things. */
+const retention: {
+  name: string
+  icon: ReactNode
+  keep: MessageKey
+  width: string
+}[] = [
+  {
+    name: 'Claude Code',
+    icon: <ToolIcon id="claude-code" />,
+    keep: 'onboarding.welcome.claudeCode',
+    width: '3%',
+  },
+  {
+    name: 'Chrome',
+    icon: browser('Google Chrome'),
+    keep: 'onboarding.welcome.days90',
+    width: '8%',
+  },
+  {
+    name: 'Arc',
+    icon: browser('Arc'),
+    keep: 'onboarding.welcome.days90',
+    width: '8%',
+  },
+  {
+    name: 'Safari',
+    icon: browser('Safari'),
+    keep: 'onboarding.welcome.year',
+    width: '32%',
+  },
+  {
+    name: 'Firefox',
+    icon: browser('Firefox'),
+    keep: 'onboarding.welcome.bySize',
+    width: '55%',
+  },
+  {
+    name: 'Codex',
+    icon: <ToolIcon id="codex" />,
+    keep: 'onboarding.welcome.codex',
+    width: '64%',
+  },
 ]
 
 const promises: { icon: LucideIcon; key: 'local' | 'originals' | 'search' }[] =
@@ -32,28 +77,28 @@ export function WelcomeStep() {
         <ul className="flex flex-col gap-3.5">
           {retention.map((row) => (
             <li key={row.name} className="flex items-center gap-3">
-              <BrowserIcon
-                browserName={row.name === 'Chrome' ? 'Google Chrome' : row.name}
-                className="size-5"
-                decorative
-              />
-              <span className="w-20 text-[13px]">{row.name}</span>
+              <span className="flex size-5 shrink-0 items-center justify-center">
+                {row.icon}
+              </span>
+              <span className="w-24 shrink-0 text-[13px]">{row.name}</span>
               <span className="h-2 flex-1 overflow-hidden rounded bg-muted">
                 <span
                   className="block h-full rounded bg-foreground/75"
                   style={{ width: row.width }}
                 />
               </span>
-              <span className="w-24 text-right font-mono text-xs whitespace-nowrap text-muted-foreground">
+              <span className="w-[168px] shrink-0 text-right font-mono text-xs text-muted-foreground">
                 {t(row.keep)}
               </span>
             </li>
           ))}
           <li className="flex items-center gap-3 border-t pt-3">
             <BrandMark className="size-5" />
-            <span className="w-20 text-[13px] font-semibold">PathKeep</span>
+            <span className="w-24 shrink-0 text-[13px] font-semibold">
+              PathKeep
+            </span>
             <span className="h-2 flex-1 rounded bg-brand" />
-            <span className="w-24 text-right font-mono text-xs font-medium text-brand">
+            <span className="w-[168px] shrink-0 text-right font-mono text-xs font-medium text-brand">
               {t('onboarding.welcome.forever')}
             </span>
           </li>

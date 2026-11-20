@@ -141,7 +141,7 @@ test('delete all data previews, deletes, and returns to onboarding', async ({
 
   await expect(
     page.getByRole('heading', {
-      name: 'Your browser is deleting your history',
+      name: 'Keep what gets deleted automatically',
     }),
   ).toBeVisible({
     timeout: 60_000,

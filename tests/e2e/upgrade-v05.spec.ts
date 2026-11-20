@@ -135,7 +135,7 @@ test('a data folder made by PathKeep 0.5.0 opens with all its data', async ({
   await dialog.getByRole('button', { name: 'Delete forever' }).click()
   await expect(
     page.getByRole('heading', {
-      name: 'Your browser is deleting your history',
+      name: 'Keep what gets deleted automatically',
     }),
   ).toBeVisible({ timeout: 60_000 })
   expect(existsSync(path.join(root(), 'config.json'))).toBe(false)

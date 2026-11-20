@@ -117,7 +117,6 @@ export const settingsBackground = defineMessages({
     summaries: {
       title: 'Page summaries',
       off: 'Off. Turn on “Page summaries” in General to fetch short summaries of pages you visited.',
-      openGeneral: 'General settings',
       stored_one: '{count} page summarized.',
       stored_other: '{count} pages summarized.',
       fetch: 'Fetch now',
@@ -341,7 +340,6 @@ export const settingsBackground = defineMessages({
     summaries: {
       title: '网页摘要',
       off: '已关闭。在“通用”中开启“网页摘要”，即可抓取你访问过网页的简短摘要。',
-      openGeneral: '通用设置',
       stored_one: '已为 {count} 个网页生成摘要。',
       stored_other: '已为 {count} 个网页生成摘要。',
       fetch: '立即抓取',
@@ -561,7 +559,6 @@ export const settingsBackground = defineMessages({
     summaries: {
       title: '網頁摘要',
       off: '已關閉。在「一般」中開啟「網頁摘要」，即可抓取你造訪過網頁的簡短摘要。',
-      openGeneral: '一般設定',
       stored_one: '已為 {count} 個網頁產生摘要。',
       stored_other: '已為 {count} 個網頁產生摘要。',
       fetch: '立即抓取',

@@ -45,6 +45,7 @@ import {
   ToolCallsCard,
   TopProjectsCard,
 } from './work-cards'
+import { HomeAlerts } from '@/features/home/alerts-list'
 import { PendingCard } from './pending-card'
 import { YearSection } from './year-section'
 import { windowKey } from './words'
@@ -118,6 +119,7 @@ export default function AgentInsightsPage() {
           )
         }
       />
+      <HomeAlerts space="agent" />
       {report.started?.firstBackupRunning && (
         <p className="animate-rise -mt-2 text-[13px] text-muted-foreground">
           {t('agentInsights.firstBackup')}

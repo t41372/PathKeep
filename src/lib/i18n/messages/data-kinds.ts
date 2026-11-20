@@ -64,8 +64,8 @@ export const dataKinds = defineMessages({
       count: {
         visits_one: '{count} visit',
         visits_other: '{count} visits',
-        sourceFiles_one: '{count} source file',
-        sourceFiles_other: '{count} source files',
+        conversations_one: '{count} conversation',
+        conversations_other: '{count} conversations',
       },
       sources: 'Sources: {list}',
       sourcesNone: 'Sources: none found on this computer',
@@ -183,8 +183,8 @@ export const dataKinds = defineMessages({
       count: {
         visits_one: '{count} 次浏览',
         visits_other: '{count} 次浏览',
-        sourceFiles_one: '{count} 个来源文件',
-        sourceFiles_other: '{count} 个来源文件',
+        conversations_one: '{count} 段对话',
+        conversations_other: '{count} 段对话',
       },
       sources: '来源：{list}',
       sourcesNone: '来源：这台电脑上没有找到',
@@ -298,8 +298,8 @@ export const dataKinds = defineMessages({
       count: {
         visits_one: '{count} 次瀏覽',
         visits_other: '{count} 次瀏覽',
-        sourceFiles_one: '{count} 個來源檔案',
-        sourceFiles_other: '{count} 個來源檔案',
+        conversations_one: '{count} 段對話',
+        conversations_other: '{count} 段對話',
       },
       sources: '來源：{list}',
       sourcesNone: '來源：這台電腦上沒有找到',

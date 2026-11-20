@@ -59,12 +59,25 @@ test('semantic search turned on before the first visit says nothing is indexed y
     await page.goto('/')
     await expect(
       page.getByRole('heading', {
-        name: 'Your browser is deleting your history',
+        name: 'Keep what gets deleted automatically',
       }),
     ).toBeVisible()
     await page.getByRole('button', { name: 'Get started' }).click()
+    // Browsing history only: Agent conversations, found and so ticked, are
+    // unticked, as the specs after this one expect them off.
     await expect(
-      page.getByRole('heading', { name: 'Which browsers should we back up?' }),
+      page.getByRole('heading', { name: 'What should PathKeep keep?' }),
+    ).toBeVisible()
+    const agentKind = page.getByRole('checkbox', {
+      name: 'Agent conversations',
+      exact: true,
+    })
+    await expect(agentKind).toBeChecked()
+    await agentKind.click()
+    await expect(agentKind).not.toBeChecked()
+    await page.getByRole('button', { name: 'Continue' }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Here’s what PathKeep found' }),
     ).toBeVisible()
     for (const checkbox of await page.getByRole('checkbox').all()) {
       const name =
@@ -187,7 +200,7 @@ test('semantic search turned on before the first visit says nothing is indexed y
     await dialog.getByRole('button', { name: 'Delete forever' }).click()
     await expect(
       page.getByRole('heading', {
-        name: 'Your browser is deleting your history',
+        name: 'Keep what gets deleted automatically',
       }),
     ).toBeVisible({ timeout: 60_000 })
   } finally {

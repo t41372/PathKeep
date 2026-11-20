@@ -79,6 +79,31 @@ export const agentReader = defineMessages({
       revealWindows: 'Show in File Explorer',
       revealLinux: 'Show in file manager',
       revealFailed: 'Couldn’t open the folder',
+      revealFileFailed: 'Couldn’t show the file',
+      export: 'Export',
+    },
+    export: {
+      markdown: 'Markdown',
+      markdownHint: 'Easy to read and share; tool calls fold into one line',
+      html: 'HTML',
+      htmlHint: 'One file that looks like it does here',
+      jsonl: 'JSON Lines',
+      jsonlHint: 'The cleaned-up events, for programs to read',
+      originals: 'Original files',
+      originalsHint:
+        'What {tool} wrote, as it wrote it, subagent files included',
+      running: 'Exporting as {format}…',
+      busy: 'Exporting…',
+      done: 'Exported as {format}',
+      failed: 'Couldn’t export this conversation',
+      reasons: {
+        changed:
+          'The conversation changed while it was being exported. Export it again.',
+        destination:
+          'PathKeep doesn’t save exports into its own archive or into a tool’s folder. Choose another place.',
+        missing:
+          'Some of what PathKeep saved for this conversation can’t be read, so nothing was written.',
+      },
     },
     rename: {
       title: 'Rename',
@@ -254,6 +279,29 @@ export const agentReader = defineMessages({
       revealWindows: '在文件资源管理器中显示',
       revealLinux: '在文件管理器中显示',
       revealFailed: '没能打开文件夹',
+      revealFileFailed: '没能显示这个文件',
+      export: '导出',
+    },
+    export: {
+      markdown: 'Markdown',
+      markdownHint: '好读、好分享；工具调用折成一行',
+      html: 'HTML',
+      htmlHint: '单个文件，跟这里看到的一样',
+      jsonl: 'JSON Lines',
+      jsonlHint: '整理过的事件，给程序读',
+      originals: '原始文件',
+      originalsHint: '{tool} 写的原样，含 subagent 文件',
+      running: '正在导出为 {format}…',
+      busy: '正在导出…',
+      done: '已导出为 {format}',
+      failed: '没能导出这段对话',
+      reasons: {
+        changed: '导出的时候这段对话有了变化。请再导出一次。',
+        destination:
+          'PathKeep 不把导出的文件存进自己的存档或工具的文件夹。请换一个地方。',
+        missing:
+          'PathKeep 为这段对话保存的部分内容读不了，所以什么都没有写入。',
+      },
     },
     rename: {
       title: '改名',
@@ -423,6 +471,29 @@ export const agentReader = defineMessages({
       revealWindows: '在檔案總管顯示',
       revealLinux: '在檔案管理員顯示',
       revealFailed: '沒能打開資料夾',
+      revealFileFailed: '沒能顯示這個檔案',
+      export: '匯出',
+    },
+    export: {
+      markdown: 'Markdown',
+      markdownHint: '好讀、好分享；工具呼叫摺成一行',
+      html: 'HTML',
+      htmlHint: '單一檔案，跟這裡看到的一樣',
+      jsonl: 'JSON Lines',
+      jsonlHint: '整理過的事件，給程式讀',
+      originals: '原始檔案',
+      originalsHint: '{tool} 寫的原樣，含 subagent 檔',
+      running: '正在匯出成 {format}…',
+      busy: '正在匯出…',
+      done: '已匯出成 {format}',
+      failed: '沒能匯出這段對話',
+      reasons: {
+        changed: '匯出的時候這段對話有了變化。請再匯出一次。',
+        destination:
+          'PathKeep 不把匯出的檔案存進自己的存檔或工具的資料夾。請換一個地方。',
+        missing:
+          'PathKeep 替這段對話存下的部分內容讀不了，所以什麼都沒有寫入。',
+      },
     },
     rename: {
       title: '改名',

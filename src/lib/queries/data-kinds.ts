@@ -27,6 +27,11 @@ export function useDataKinds() {
   })
 }
 
+/** One kind's state (on, paused, off), or undefined until the states are known. */
+export function useKindState(kind: DataKindId) {
+  return useDataKinds().data?.kinds.find((row) => row.kind === kind)?.state
+}
+
 function refetchPolicy() {
   void queryClient.invalidateQueries({ queryKey: queryKeys.dataKinds })
   void queryClient.invalidateQueries({ queryKey: queryKeys.agentSettings })

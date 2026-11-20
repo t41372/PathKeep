@@ -26,11 +26,13 @@ export function partTokens(
 
 /**
  * `[open, setOpen]` for a fold holding `tokens`: open on its own while the
- * current occurrence is in it and has not been seen yet.
+ * current occurrence is in it and has not been seen yet. Until the person
+ * opens or closes it, it follows `byDefault` (a reader preference can
+ * change while the fold is on screen).
  */
-export function useReveal(tokens: readonly string[]) {
+export function useReveal(tokens: readonly string[], byDefault = false) {
   const target = useContext(FindTargetContext)
-  const [open, setOpen] = useState(false)
+  const [choice, setChoice] = useState<boolean | null>(null)
   const [seen, setSeen] = useState<number | null>(null)
   const inside =
     target !== null &&
@@ -39,7 +41,7 @@ export function useReveal(tokens: readonly string[]) {
     seen !== target.occurrence
   if (inside) {
     setSeen(target.occurrence)
-    setOpen(true)
+    setChoice(true)
   }
-  return [open || inside, setOpen] as const
+  return [(choice ?? byDefault) || inside, setChoice] as const
 }

@@ -160,9 +160,16 @@ function callTokens(calls: ToolCall[]) {
   )
 }
 
-export function ToolGroup({ calls }: { calls: ToolCall[] }) {
+export function ToolGroup({
+  calls,
+  unfolded = false,
+}: {
+  calls: ToolCall[]
+  /** Starts open (Settings › Agent conversations: tool calls not folded). */
+  unfolded?: boolean
+}) {
   const { t } = useI18n()
-  const [open, setOpen] = useReveal(callTokens(calls))
+  const [open, setOpen] = useReveal(callTokens(calls), unfolded)
   if (calls.length === 0) return null
   const counts = new Map<string, number>()
   for (const call of calls) {

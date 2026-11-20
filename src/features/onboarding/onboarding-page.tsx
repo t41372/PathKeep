@@ -1,10 +1,14 @@
 /**
- * First-run setup: seven steps from welcome to the first backup, then hand
+ * First-run setup: eight steps from welcome to the first backup, then hand
  * off to the main app.
  *
  * Responsible for: the window layout (step list, progress bar, language and
- * theme), moving between steps, holding the draft, and saving the browser
- * choice so an interrupted setup resumes with it.
+ * theme), moving between steps, holding the draft (which kinds of data,
+ * which of their sources, and the rest), the walk of the Agent tool folders
+ * the later steps share, and saving the browser choice so an interrupted
+ * setup resumes with it. The kinds and Agent tools chosen can't be saved
+ * before the archive exists; an interrupted setup starts from what this
+ * computer has again.
  * Not responsible for: what each step shows (the `*-step.tsx` files) or
  * creating the archive (see `use-finish-setup.ts`).
  */
@@ -24,30 +28,49 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
+import { inToolOrder } from '@/features/data-kinds/tools'
+import {
+  dataKindsClient,
+  type DataKindId,
+} from '@/lib/backend-client/data-kinds'
 import { cn } from '@/lib/cn'
 import { describeError } from '@/lib/errors'
 import { languageNames, supportedLanguages, useI18n } from '@/lib/i18n'
+import { queryKeys } from '@/lib/query'
 import { currentSnapshot, useSaveConfig, useSnapshot } from '@/lib/queries/app'
+import { useDetectedSources } from '@/lib/queries/data-kinds'
 import { hasMacOverlayTitlebar, isMacOsHost } from '@/lib/runtime'
+import { spaceBackupPath } from '@/lib/spaces'
 import { useTheme } from '@/lib/theme'
 import type { LanguagePreference } from '@/lib/types'
 import { AiStep } from './ai-step'
-import { BrowsersStep } from './browsers-step'
 import { DoneStep } from './done-step'
 import {
   backgroundCanUnlock,
   canContinue,
+  chosenKinds,
   initialDraft,
+  kindsLackingSource,
   steps,
   type Draft,
+  type StepContext,
 } from './draft'
 import { EncryptionStep } from './encryption-step'
 import { InlineError } from './inline-error'
+import { KindsStep } from './kinds-step'
 import { ScheduleStep } from './schedule-step'
+import { SourcesStep } from './sources-step'
 import { useSchedulePreview } from './use-schedule-preview'
 import { StorageStep } from './storage-step'
+import {
+  chosenReadableTools,
+  chosenTools,
+  useAgentSources,
+} from './use-agent-sources'
 import { stagesFor, useFinishSetup } from './use-finish-setup'
 import { WelcomeStep } from './welcome-step'
+
+const AGENT_KINDS: DataKindId[] = ['agent-history']
 
 const pad = (value: number) => String(value).padStart(2, '0')
 
@@ -65,6 +88,25 @@ export default function OnboardingPage() {
     isMacOsHost() ? 'onboarding.where.mac' : 'onboarding.where.other',
   )
 
+  // Only whether the tool folders are there; nothing inside is opened.
+  const detection = useDetectedSources(AGENT_KINDS)
+  const kinds = chosenKinds(draft, snapshot, {
+    settled: !detection.isPending,
+    detected: detection.data,
+  })
+  const agentChosen = kinds?.includes('agent-history') ?? false
+  // Walked once the sources step is reached; the later steps read the same walk.
+  const agent = useAgentSources(
+    agentChosen && index >= steps.indexOf('sources'),
+  )
+  const agentTools = chosenTools(draft, agent)
+  const agentReadable = chosenReadableTools(draft, agent)
+  const context: StepContext = {
+    snapshot,
+    kinds,
+    agentReadable: agentChosen ? agentReadable : [],
+  }
+
   const preview = useSchedulePreview(
     draft.frequency,
     index >= steps.indexOf('schedule'),
@@ -77,9 +119,12 @@ export default function OnboardingPage() {
       }),
     [draft, preview.data?.applySupported, snapshot.keyringStatus.available],
   )
-  const finish = useFinishSetup(draft, stages)
+  const finish = useFinishSetup(draft, stages, {
+    kinds: kinds ?? [],
+    agentTools: agentReadable ?? [],
+  })
   const locked = finish.state.status !== 'idle'
-  const ready = canContinue(step, draft, snapshot)
+  const ready = canContinue(step, draft, context)
 
   const update = (patch: Partial<Draft>) =>
     setDraft((current) => ({ ...current, ...patch }))
@@ -89,22 +134,56 @@ export default function OnboardingPage() {
     setIndex(next)
   }
 
+  function toggleKind(kind: DataKindId) {
+    if (!kinds) return
+    update({
+      kinds: kinds.includes(kind)
+        ? kinds.filter((item) => item !== kind)
+        : [...kinds, kind].sort((a, b) =>
+            a === b ? 0 : a === 'browsing' ? -1 : 1,
+          ),
+    })
+  }
+
+  /** Opens the app, with the kinds' states as they are now, so it lands in a space that is on. */
+  async function enterApp() {
+    await client
+      .fetchQuery({
+        queryKey: queryKeys.dataKinds,
+        queryFn: dataKindsClient.list,
+        staleTime: 0,
+      })
+      .catch(() => undefined)
+    session.enter(currentSnapshot(client))
+  }
+
+  function openBackup(kind: DataKindId) {
+    window.location.hash = spaceBackupPath(
+      kind === 'browsing' ? 'browsing' : 'agent',
+    )
+    void enterApp()
+  }
+
   async function next() {
     if (!ready) return
-    if (step === 'browsers') {
-      try {
-        await save.mutateAsync((config) => ({
-          ...config,
-          selectedProfileIds: draft.selectedProfileIds,
-        }))
-      } catch (error) {
-        setSaveError(describeError(error, 'save_config'))
-        return
+    // What was shown is the choice from here on, whatever a later check finds.
+    if (step === 'kinds' && kinds) update({ kinds })
+    if (step === 'sources') {
+      if (agentChosen) update({ agentTools: inToolOrder(agentTools) })
+      if (kinds?.includes('browsing')) {
+        try {
+          await save.mutateAsync((config) => ({
+            ...config,
+            selectedProfileIds: draft.selectedProfileIds,
+          }))
+        } catch (error) {
+          setSaveError(describeError(error, 'save_config'))
+          return
+        }
       }
     }
     if (step !== 'done') return go(index + 1)
-    if (finish.state.status === 'done')
-      return session.enter(currentSnapshot(client))
+    if (finish.state.status === 'done') return enterApp()
     if (finish.state.status === 'idle') finish.start()
   }
 
@@ -146,7 +225,10 @@ export default function OnboardingPage() {
             style={{ width: `${((index + 1) / steps.length) * 100}%` }}
           />
         </div>
-        <StepScroller index={index}>
+        <StepScroller
+          index={index}
+          wide={step === 'sources' && (kinds?.length ?? 0) > 1}
+        >
           <header className="flex flex-col gap-2.5">
             <span className="font-mono text-xs font-medium text-brand">
               {pad(index + 1)} / {pad(steps.length)}
@@ -160,19 +242,48 @@ export default function OnboardingPage() {
             </h1>
             <p className="text-[15px] leading-relaxed text-pretty text-muted-foreground">
               {t(`onboarding.steps.${step}.body`, { where })}
+              {(step === 'encryption' || step === 'schedule') && (
+                <>
+                  <br />
+                  {t(`onboarding.steps.${step}.note`)}
+                </>
+              )}
             </p>
           </header>
 
           {step === 'welcome' && <WelcomeStep />}
-          {step === 'browsers' && (
-            <BrowsersStep
-              selected={draft.selectedProfileIds}
-              onChange={(selectedProfileIds) => update({ selectedProfileIds })}
-              showHint={!ready}
+          {step === 'kinds' && (
+            <KindsStep
+              chosen={kinds}
+              onToggle={toggleKind}
+              detection={{
+                pending: detection.isPending,
+                detected: detection.data,
+                error: detection.error,
+                retry: () => void detection.refetch(),
+              }}
             />
           )}
-          {step === 'storage' && (
-            <StorageStep selected={draft.selectedProfileIds} />
+          {step === 'sources' && kinds && (
+            <SourcesStep
+              kinds={kinds}
+              selectedProfileIds={draft.selectedProfileIds}
+              onProfiles={(selectedProfileIds) =>
+                update({ selectedProfileIds })
+              }
+              agent={agent}
+              agentTools={agentTools}
+              onAgentTools={(tools) => update({ agentTools: tools })}
+              lacking={kindsLackingSource(draft, context)}
+            />
+          )}
+          {step === 'storage' && kinds && (
+            <StorageStep
+              kinds={kinds}
+              selected={draft.selectedProfileIds}
+              agent={agent}
+              agentTools={agentReadable ?? []}
+            />
           )}
           {step === 'encryption' && (
             <EncryptionStep draft={draft} onChange={update} />
@@ -187,13 +298,16 @@ export default function OnboardingPage() {
           {step === 'ai' && (
             <AiStep draft={draft} where={where} onChange={update} />
           )}
-          {step === 'done' && (
+          {step === 'done' && kinds && (
             <DoneStep
               draft={draft}
+              kinds={kinds}
+              agentTools={agentReadable ?? []}
               stages={stages}
               finish={finish.state}
               onRetry={finish.start}
               onSkip={() => void finish.skip()}
+              onOpenBackup={openBackup}
             />
           )}
 
@@ -288,9 +402,12 @@ function NextLabel({
  */
 function StepScroller({
   index,
+  wide,
   children,
 }: {
   index: number
+  /** Room for two panes side by side (the sources step with several kinds). */
+  wide: boolean
   children: React.ReactNode
 }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -312,7 +429,10 @@ function StepScroller({
     <div ref={ref} className="flex flex-1 overflow-y-auto">
       <div
         key={index}
-        className="m-auto flex w-full max-w-[620px] animate-rise flex-col gap-6 px-10 py-12 motion-reduce:animate-none"
+        className={cn(
+          'm-auto flex w-full animate-rise flex-col gap-6 px-10 py-12 motion-reduce:animate-none',
+          wide ? 'max-w-[960px]' : 'max-w-[620px]',
+        )}
       >
         {children}
       </div>

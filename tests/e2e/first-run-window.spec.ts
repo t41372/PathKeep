@@ -28,7 +28,7 @@ import {
   type FramePlatform,
 } from './support/window-frame'
 
-const welcome = 'Your browser is deleting your history'
+const welcome = 'Keep what gets deleted automatically'
 
 for (const platform of ['linux', 'windows'] as FramePlatform[]) {
   test(`${platform}: onboarding has the window buttons and drags from the top`, async ({

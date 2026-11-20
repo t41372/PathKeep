@@ -55,6 +55,7 @@ import {
   turnKey,
   type ToolCall,
 } from './row-model'
+import type { ReaderPrefs } from './reader-prefs'
 import { SubagentCards, ToolGroup } from './tool-group'
 
 export interface RowContext {
@@ -70,6 +71,8 @@ export interface RowContext {
   switched: { key: string; records: number } | null
   /** The turn under the pointer or focus: its footer shows. */
   activeTurn: string | null
+  /** Settings › Agent conversations: tool calls folded, thinking shown. */
+  prefs: ReaderPrefs
 }
 
 function Boundary({ row }: { row: ChatRow }) {
@@ -416,13 +419,19 @@ export const RowView = memo(function RowView({
   first: boolean
 }) {
   const parts: ReactNode[] = []
+  const unfolded = !context.prefs.collapseToolCalls
   if (place.kind === 'start') {
-    parts.push(<ToolGroup key="tools" calls={place.calls} />)
+    parts.push(
+      <ToolGroup key="tools" calls={place.calls} unfolded={unfolded} />,
+    )
   } else if (place.kind === 'alone') {
     if (isPrompt(row))
       parts.push(<Prompt key="prompt" context={context} row={row} />)
     else {
-      if (row.parts.some((part) => part.kind === 'thinking'))
+      if (
+        context.prefs.showThinking &&
+        row.parts.some((part) => part.kind === 'thinking')
+      )
         parts.push(<Thinking key="thinking" row={row} />)
       if (hasText(row))
         parts.push(
@@ -435,7 +444,8 @@ export const RowView = memo(function RowView({
           ),
         )
       const calls = toolCalls([row])
-      if (calls.length > 0) parts.push(<ToolGroup key="tools" calls={calls} />)
+      if (calls.length > 0)
+        parts.push(<ToolGroup key="tools" calls={calls} unfolded={unfolded} />)
     }
   }
   if (place.kind !== 'continued') {

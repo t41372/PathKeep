@@ -23,6 +23,12 @@ import { call } from './shared'
 export const supportClient = {
   openPathInFileManager: (path: string) =>
     call<string>('open_path_in_file_manager', { path }),
+  /**
+   * Shows a file selected in the system's file manager; where the system
+   * cannot select it, opens its folder. Answers the path it showed. The
+   * path must be absolute and its folder must still be there.
+   */
+  revealFile: (path: string) => call<string>('reveal_file', { path }),
   openExternalUrl: (url: string) => call<string>('open_external_url', { url }),
   /** The clock the OS shows, or null when it does not say (Linux). */
   systemClock: () => call<'h12' | 'h23' | null>('system_clock'),

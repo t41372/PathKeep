@@ -28,6 +28,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import type { ChatChildCard, ChatRow } from '@/lib/backend-client/agent-chats'
 import { cn } from '@/lib/cn'
 import { useI18n, type Formatters } from '@/lib/i18n'
+import { useReaderPrefs } from './reader-prefs'
 import { COLUMN, isToolOnly, launchesOf, toolCalls, turnKey } from './row-model'
 import { RowView, type RowContext, type RunPlace } from './row-view'
 import { SubagentCards } from './tool-group'
@@ -87,12 +88,13 @@ function placeOf(
   row: ChatRow,
   rankState: (rank: number) => RankState<ChatRow>,
   total: number,
+  showThinking: boolean,
 ): RunPlace {
-  if (!isToolOnly(row)) return { kind: 'alone' }
+  if (!isToolOnly(row, showThinking)) return { kind: 'alone' }
   const previous = rank > 0 ? rankState(rank - 1) : null
   if (
     previous?.state === 'row' &&
-    isToolOnly(previous.row) &&
+    isToolOnly(previous.row, showThinking) &&
     turnKey(previous.row) === turnKey(row)
   )
     return { kind: 'continued' }
@@ -101,7 +103,7 @@ function placeOf(
     const state = rankState(next)
     if (
       state.state !== 'row' ||
-      !isToolOnly(state.row) ||
+      !isToolOnly(state.row, showThinking) ||
       turnKey(state.row) !== turnKey(row)
     )
       break
@@ -144,6 +146,7 @@ export function Transcript({
   scrollRequest?: ScrollRequest | null
 }) {
   const { t } = useI18n()
+  const prefs = useReaderPrefs()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [range, setRange] = useState<{ first: number; last: number }>({
     first: 0,
@@ -249,6 +252,7 @@ export function Transcript({
     onPickVersion,
     switched,
     activeTurn,
+    prefs,
   }
 
   return (
@@ -295,7 +299,13 @@ export function Transcript({
               body = (
                 <RowView
                   row={state.row}
-                  place={placeOf(item.index, state.row, rankState, total)}
+                  place={placeOf(
+                    item.index,
+                    state.row,
+                    rankState,
+                    total,
+                    prefs.showThinking,
+                  )}
                   context={context}
                   first={item.index === 0}
                 />
