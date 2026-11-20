@@ -1,6 +1,6 @@
 /**
  * Queries for the conversation list and the reader: list pages, counts,
- * the projects the filter offers, one conversation's header, info panel,
+ * one conversation's header, info panel,
  * subagents and prompt versions; the marks a person puts on a
  * conversation; and keeping all of them current.
  *
@@ -24,9 +24,9 @@ import {
   agentChatsClient,
   type ChatEditRequest,
   type ChatHeader,
+  type ChatGroup,
   type ChatListPage,
   type ChatListQuery,
-  type ChatProjectGroup,
 } from '@/lib/backend-client/agent-chats'
 import { subscribeToAgentConversations } from '@/lib/ipc/agent-chats-events'
 import { queryClient, queryKeys } from '@/lib/query'
@@ -34,24 +34,41 @@ import { useAgentKind } from './agent-backup'
 
 /** Rows per list page; the backend's default. */
 const LIST_PAGE = 50
-/** Project groups per page of the filter's project list. */
-const PROJECTS_PAGE = 100
-const CHILDREN_PAGE = 50
+/** Subagent cards per page, wherever a conversation's subagents are read. */
+export const CHILDREN_PAGE = 50
 
-/** The list's filters, sort and group, without a cursor: one cache entry each. */
-export function useChatList(query: Omit<ChatListQuery, 'cursor' | 'limit'>) {
+/**
+ * A page of the list and the grouping it was asked in. A day page and a
+ * project page are shaped differently, and while another grouping loads the
+ * old pages stay on screen: they are drawn by their own grouping.
+ */
+export interface ShownChatListPage extends ChatListPage {
+  group: ChatGroup
+}
+
+/**
+ * The list's filters, sort and group, without a cursor: one cache entry
+ * each. Not read while a search shows instead (`enabled` false).
+ */
+export function useChatList(
+  query: Omit<ChatListQuery, 'cursor' | 'limit'>,
+  enabled = true,
+) {
   const { readable } = useAgentKind()
   return useInfiniteQuery({
     queryKey: queryKeys.agentChatList(query),
-    queryFn: ({ pageParam }) =>
-      agentChatsClient.list({
+    queryFn: async ({ pageParam }): Promise<ShownChatListPage> => ({
+      ...(await agentChatsClient.list({
         ...query,
         limit: LIST_PAGE,
         ...(pageParam ? { cursor: pageParam } : {}),
-      }),
+      })),
+      // By day when not given, as the backend does.
+      group: query.group ?? 'day',
+    }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
-    enabled: readable && query.timeZone !== undefined,
+    enabled: readable && enabled && query.timeZone !== undefined,
     // Changing the filters keeps the old rows on screen, dimmed, until the
     // new ones arrive, instead of flashing an empty list.
     placeholderData: keepPreviousData,
@@ -68,60 +85,6 @@ export function useChatCounts(query: Omit<ChatListQuery, 'cursor' | 'limit'>) {
     placeholderData: keepPreviousData,
     staleTime: Infinity,
   })
-}
-
-/** A project as the filter lists it: the newest activity in it first. */
-export interface ChatProjectOption {
-  id: string
-  label: string
-  /** The newest last activity among its conversations. */
-  lastActivityAt: number | null
-  count: number
-}
-
-/**
- * Every working folder that has a conversation, newest first, read a page
- * of groups at a time while `enabled` (the filter's menu is open) until the
- * end. Folders the tool did not record cannot be picked, so they are left
- * out.
- */
-export function useChatProjects(
-  timeZone: string | undefined,
-  enabled: boolean,
-) {
-  const { readable } = useAgentKind()
-  const query = useInfiniteQuery({
-    queryKey: queryKeys.agentChatProjects,
-    queryFn: ({ pageParam }) =>
-      agentChatsClient.list({
-        group: 'project',
-        sort: 'lastActivity',
-        timeZone,
-        limit: PROJECTS_PAGE,
-        ...(pageParam ? { cursor: pageParam } : {}),
-      }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
-    enabled: readable && enabled && timeZone !== undefined,
-    staleTime: Infinity,
-  })
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query
-  useEffect(() => {
-    if (enabled && hasNextPage && !isFetchingNextPage) void fetchNextPage()
-  }, [enabled, hasNextPage, isFetchingNextPage, fetchNextPage])
-  const options: ChatProjectOption[] = []
-  for (const page of query.data?.pages ?? []) {
-    for (const group of page.groups as ChatProjectGroup[]) {
-      if (!group.project) continue
-      options.push({
-        id: group.project.id,
-        label: group.project.label,
-        lastActivityAt: group.items[0]?.lastActivityAt ?? null,
-        count: group.count,
-      })
-    }
-  }
-  return { ...query, options, complete: query.isSuccess && !hasNextPage }
 }
 
 export function useChatHeader(id: string | null) {
@@ -198,7 +161,7 @@ export function useChatVersions(
 let ownViewToken: string | null = null
 
 function patchListRows(header: ChatHeader) {
-  queryClient.setQueriesData<InfiniteData<ChatListPage>>(
+  queryClient.setQueriesData<InfiniteData<ShownChatListPage>>(
     { queryKey: [...queryKeys.agentChats, 'list'] },
     (data) =>
       data?.pages
@@ -222,7 +185,7 @@ function patchListRows(header: ChatHeader) {
  * move a row in or out, and the trash leaves every count.
  */
 function refetchLists() {
-  for (const part of ['list', 'counts', 'projects'])
+  for (const part of ['list', 'counts'])
     void queryClient.invalidateQueries({
       queryKey: [...queryKeys.agentChats, part],
     })

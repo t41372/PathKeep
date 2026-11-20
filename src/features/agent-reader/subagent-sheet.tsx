@@ -6,7 +6,7 @@
  * content, with a way back to the one before.
  */
 import { ChevronLeft } from 'lucide-react'
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useMemo, useRef, type ReactNode } from 'react'
 import {
   Sheet,
   SheetContent,
@@ -20,15 +20,21 @@ import { useI18n, type Formatters } from '@/lib/i18n'
 import { queryClient, queryKeys } from '@/lib/query'
 import { useChatChildren, useChatHeader } from '@/lib/queries/agent-chats'
 import { durationText, tokensText } from './reader-words'
-import { Transcript, type TranscriptControl } from './transcript'
+import {
+  Transcript,
+  type ScrollRequest,
+  type TranscriptControl,
+} from './transcript'
 
 function ChildTranscript({
   child,
   f,
+  scrollRequest,
   onOpenChild,
 }: {
   child: ChatChildCard
   f: Formatters
+  scrollRequest: ScrollRequest | null
   onOpenChild: (child: ChatChildCard) => void
 }) {
   const header = useChatHeader(child.id)
@@ -66,6 +72,7 @@ function ChildTranscript({
       onPickVersion={() => {}}
       onOpenChild={onOpenChild}
       onStale={refresh}
+      scrollRequest={scrollRequest}
     />
   )
 }
@@ -74,11 +81,20 @@ export function SubagentSheet({
   stack,
   f,
   onStack,
+  findBar = null,
+  onEscape,
+  scrollRequest = null,
 }: {
   /** The subagents opened, outermost first; empty when closed. */
   stack: ChatChildCard[]
   f: Formatters
   onStack: (stack: ChatChildCard[]) => void
+  /** The reader's find bar, while it is open: the sheet keeps the focus. */
+  findBar?: ReactNode
+  /** Esc in the sheet: the reader closes its find bar first. */
+  onEscape?: (event: KeyboardEvent) => void
+  /** Find moved to a record of a subagent: used when it is the one shown. */
+  scrollRequest?: (ScrollRequest & { id: string }) | null
 }) {
   const { t } = useI18n()
   const child = stack.at(-1)
@@ -98,9 +114,13 @@ export function SubagentSheet({
       open={stack.length > 0}
       onOpenChange={(open) => !open && onStack([])}
     >
-      <SheetContent className="w-[600px] gap-0 sm:max-w-[600px]">
+      <SheetContent
+        className="w-[600px] gap-0 sm:max-w-[600px]"
+        onEscapeKeyDown={onEscape}
+      >
         {child && (
           <>
+            {findBar}
             <SheetHeader className="gap-1.5 border-b pr-12">
               {parent && (
                 <button
@@ -114,7 +134,10 @@ export function SubagentSheet({
                   })}
                 </button>
               )}
-              <SheetTitle className="leading-snug">
+              <SheetTitle
+                data-part={`title:${child.id}`}
+                className="leading-snug"
+              >
                 {child.title?.trim() || t('agentReader.untitled')}
               </SheetTitle>
               <SheetDescription>
@@ -131,6 +154,9 @@ export function SubagentSheet({
                 key={child.id}
                 child={child}
                 f={f}
+                scrollRequest={
+                  scrollRequest?.id === child.id ? scrollRequest : null
+                }
                 onOpenChild={(next) => onStack([...stack, next])}
               />
             </div>

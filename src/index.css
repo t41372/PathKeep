@@ -73,6 +73,10 @@
     0 12px 32px rgb(15 15 30 / 0.14), 0 2px 6px rgb(15 15 30 / 0.06);
   --user-bubble: #18181b;
   --user-bubble-foreground: #fafafa;
+  /* Find in a conversation: every match, and the one it is on. */
+  --find-match: oklch(0.86 0.15 90 / 0.55);
+  --find-current: oklch(0.76 0.17 62);
+  --find-current-foreground: #18181b;
 }
 
 .dark {
@@ -130,6 +134,9 @@
   --shadow-float: 0 16px 40px rgb(0 0 0 / 0.45);
   --user-bubble: #f4f4f5;
   --user-bubble-foreground: #18181b;
+  --find-match: oklch(0.78 0.14 90 / 0.4);
+  --find-current: oklch(0.8 0.16 62);
+  --find-current-foreground: #18181b;
 }
 
 /*
@@ -346,5 +353,13 @@ html.dark[data-window-material='glass'][data-space-hue] {
   }
   ::selection {
     background: var(--brand-soft);
+  }
+  /* Find in this conversation (`features/agent-reader/find-paint.ts`). */
+  ::highlight(pathkeep-find) {
+    background-color: var(--find-match);
+  }
+  ::highlight(pathkeep-find-current) {
+    background-color: var(--find-current);
+    color: var(--find-current-foreground);
   }
 }

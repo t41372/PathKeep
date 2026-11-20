@@ -1,6 +1,7 @@
 /**
  * How the reader puts numbers into words: durations, token counts, a
- * tool's name, and copying a line to the clipboard with its notice.
+ * tool's name, "Show in Finder" in this computer's words, and copying a
+ * line to the clipboard with its notice.
  *
  * Responsibilities: choosing the words. Not responsible for: the copy
  * itself (`agentReader` messages).
@@ -10,7 +11,8 @@ import { toolName } from '@/features/data-kinds/tools'
 import type { TokenKinds } from '@/lib/backend-client/agent-chats'
 import type { AgentToolId } from '@/lib/backend-client/data-kinds'
 import { describeError } from '@/lib/errors'
-import type { Formatters, Translator } from '@/lib/i18n'
+import type { Formatters, MessageKey, Translator } from '@/lib/i18n'
+import { isMacOsHost } from '@/lib/runtime'
 
 /** "12 s", "3 min 20 s", "48 min", "2 h 5 min". */
 export function durationText(t: Translator, ms: number) {
@@ -51,4 +53,12 @@ export function copyText(t: Translator, text: string, done: string) {
         description: describeError(error),
       }),
   )
+}
+
+/** "Show in Finder" in the words of this computer's file manager. */
+export function revealLabel(): MessageKey {
+  if (isMacOsHost()) return 'agentReader.menu.revealMac'
+  if (typeof navigator !== 'undefined' && /Win/.test(navigator.platform))
+    return 'agentReader.menu.revealWindows'
+  return 'agentReader.menu.revealLinux'
 }

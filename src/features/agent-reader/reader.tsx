@@ -1,13 +1,16 @@
 /**
  * The conversation reader (`agent-history.md` §4), beside the list and as
- * a full page: the header, the conversation (or its raw records), the
- * outline of what you said, the info panel, subagents in a side sheet and
- * Rename. Opens at the start; "Jump to the end" goes to the last row.
+ * a full page: the header, find in this conversation, the conversation
+ * (or its raw records), the outline of what you said, the info panel,
+ * subagents in a side sheet and Rename. Opens at the start, or from a
+ * search at the occurrence it was opened at; "Jump to the end" goes to the
+ * last row.
  *
  * Responsible for: the reader's own state (raw or not, info, outline, the
  * version of a prompt picked, open subagents), its states (loading, not
- * found, failed), and Esc. Not responsible for: what a row looks like or
- * reading windows (the sibling files).
+ * found, failed), ⌘F and Esc (find first, then the reader). Not
+ * responsible for: what a row looks like, reading windows or finding (the
+ * sibling files).
  */
 import { MessagesSquare, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -23,6 +26,7 @@ import {
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useChatMarks } from '@/features/agent-chats/chat-marks'
+import type { RecordAt } from '@/features/agent-chats/chats-params'
 import { useInsightsFormat } from '@/features/insights/zone'
 import type { ChatChildCard } from '@/lib/backend-client/agent-chats'
 import { useI18n } from '@/lib/i18n'
@@ -34,6 +38,8 @@ import {
   useChatInfo,
 } from '@/lib/queries/agent-chats'
 import { spacePath } from '@/lib/spaces'
+import { FindBar } from './find-bar'
+import { FindTargetContext } from './find-target'
 import { InfoPanel } from './info-panel'
 import { MoreMenu } from './more-menu'
 import { Outline } from './outline'
@@ -43,6 +49,7 @@ import { RenameDialog } from './rename-dialog'
 import { ResumeMenu } from './resume-menu'
 import { SubagentSheet } from './subagent-sheet'
 import { Transcript, type TranscriptControl } from './transcript'
+import { useReaderFind } from './use-reader-find'
 
 function ReaderSkeleton() {
   const { t } = useI18n()
@@ -115,6 +122,9 @@ function isTyping(target: EventTarget | null) {
 export function Reader({
   id,
   beside,
+  find = null,
+  at = null,
+  onFind,
   onClose,
   onTrashed,
   onOpenProject,
@@ -122,6 +132,11 @@ export function Reader({
   id: string
   /** Beside the list (outline off, a close button) rather than a full page. */
   beside: boolean
+  /** Opened from a search: find these words, at this record. */
+  find?: string | null
+  at?: RecordAt | null
+  /** The words find looks for changed (`null`: find closed). */
+  onFind?: (find: string | null) => void
   onClose: () => void
   /** It went to the trash from here. */
   onTrashed: () => void
@@ -163,20 +178,44 @@ export function Reader({
     [id],
   )
 
+  const pickLine = useCallback(
+    (next: number) => setLine({ leaf: next, prompt: '' }),
+    [],
+  )
+  const finder = useReaderFind({
+    header: header.data,
+    leaf: line?.leaf ?? null,
+    rootCards: cards,
+    find,
+    at,
+    onStale: refreshHeader,
+    onFind,
+    onSheet: setSheet,
+    onLine: pickLine,
+    onRaw: setRaw,
+  })
+  const { show: showFind, close: closeFind, open: findOpen } = finder
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
       if (
-        event.key !== 'Escape' ||
-        event.defaultPrevented ||
-        isTyping(event.target)
-      )
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        event.key.toLowerCase() === 'f'
+      ) {
+        event.preventDefault()
+        showFind()
         return
+      }
+      if (event.key !== 'Escape' || isTyping(event.target)) return
       if (document.querySelector('[role="dialog"], [role="menu"]')) return
-      onClose()
+      if (findOpen) closeFind()
+      else onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, showFind, closeFind, findOpen])
 
   if (!header.data) {
     if (header.isError) {
@@ -233,6 +272,7 @@ export function Reader({
             }}
             onRename={() => setRenaming(true)}
             onTrashed={onTrashed}
+            onFind={showFind}
           />
         }
         onInfo={() => setInfo((open) => !open)}
@@ -240,55 +280,73 @@ export function Reader({
         onOpenProject={onOpenProject}
         onRaw={setRaw}
       />
-      <div className="flex min-h-0 flex-1">
-        {raw ? (
-          <RawView
-            header={data}
-            f={f}
-            onStale={refreshHeader}
-            onSee={(rank) => {
-              setLine(null)
-              setRaw(false)
-              scrollTo(rank, 'center')
-            }}
-          />
-        ) : (
-          <>
-            <Transcript
-              key={data.publication}
-              id={id}
-              publication={data.publication}
-              leaf={leaf}
-              knownTotal={data.visibleRecords}
-              subagents={cards}
+      {finder.open && sheet.length === 0 && <FindBar find={finder} />}
+      <FindTargetContext.Provider value={finder.target}>
+        <div className="flex min-h-0 flex-1">
+          {raw ? (
+            <RawView
+              header={data}
               f={f}
-              control={control}
-              switchedPrompt={line?.prompt ?? null}
-              onPickVersion={(next, prompt) => {
-                setLine(next === latestLeaf ? null : { leaf: next, prompt })
-              }}
-              onOpenChild={(child) => setSheet([child])}
-              onTopTurn={setTopTurn}
+              startRank={finder.rawRank}
               onStale={refreshHeader}
+              onSee={(rank) => {
+                setLine(null)
+                setRaw(false)
+                scrollTo(rank, 'center')
+              }}
             />
-            {outline && (
-              <Outline
+          ) : (
+            <>
+              <Transcript
+                key={data.publication}
                 id={id}
                 publication={data.publication}
                 leaf={leaf}
-                promptCount={data.promptCount}
-                topTurn={topTurn}
-                onPick={(rank) => scrollTo(rank, 'start')}
+                knownTotal={data.visibleRecords}
+                subagents={cards}
+                f={f}
+                control={control}
+                switchedPrompt={line?.prompt ?? null}
+                onPickVersion={(next, prompt) => {
+                  setLine(next === latestLeaf ? null : { leaf: next, prompt })
+                }}
+                onOpenChild={(child) => setSheet([child])}
+                onTopTurn={setTopTurn}
                 onStale={refreshHeader}
+                scrollRequest={finder.rootScroll}
               />
-            )}
-          </>
-        )}
-        {info && (
-          <InfoPanel header={data} f={f} onOpenProject={onOpenProject} />
-        )}
-      </div>
-      <SubagentSheet stack={sheet} f={f} onStack={setSheet} />
+              {outline && (
+                <Outline
+                  id={id}
+                  publication={data.publication}
+                  leaf={leaf}
+                  promptCount={data.promptCount}
+                  topTurn={topTurn}
+                  onPick={(rank) => scrollTo(rank, 'start')}
+                  onStale={refreshHeader}
+                />
+              )}
+            </>
+          )}
+          {info && (
+            <InfoPanel header={data} f={f} onOpenProject={onOpenProject} />
+          )}
+        </div>
+        <SubagentSheet
+          stack={sheet}
+          f={f}
+          onStack={setSheet}
+          findBar={
+            finder.open ? <FindBar find={finder} className="pr-12" /> : null
+          }
+          onEscape={(event) => {
+            if (!finder.open) return
+            event.preventDefault()
+            closeFind()
+          }}
+          scrollRequest={finder.sheetScroll}
+        />
+      </FindTargetContext.Provider>
       <RenameDialog
         summary={data.summary}
         marks={marks}

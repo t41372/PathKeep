@@ -22,11 +22,16 @@ import { call } from './shared'
 /** `user`: the person renamed it; `tool`: the tool named it; `firstPrompt`: the first thing typed. */
 export type TitleSource = 'user' | 'tool' | 'firstPrompt' | 'unknown'
 
-/** A recorded working folder; the full path is the id, so equal names stay apart. */
+/**
+ * The project a conversation's working folder belongs to: an issued id
+ * (the Projects commands', `src/lib/backend-client/agent-projects.ts`),
+ * its display name, and whether it is a repository, a plain folder or the
+ * loose folders.
+ */
 export interface ChatProject {
   id: string
   label: string
-  kind: 'folder' | (string & {})
+  kind: 'repo' | 'folder' | 'scratch' | (string & {})
 }
 
 /** One conversation (a root) as the list and the reader's header show it. */

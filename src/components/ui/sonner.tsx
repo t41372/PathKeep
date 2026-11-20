@@ -30,6 +30,9 @@ const Toaster = ({ toastOptions, ...props }: ToasterProps) => {
           '--normal-text': 'var(--popover-foreground)',
           '--normal-border': 'var(--border)',
           '--border-radius': 'var(--radius)',
+          // A notice's Undo stays clickable while a sheet or dialog is open:
+          // the open dialog turns pointer events off for the rest of the page.
+          pointerEvents: 'auto',
         } as React.CSSProperties
       }
       // Names, in the user's language, the close button a toast that stays

@@ -71,6 +71,16 @@ export function agentChatPath(id: string) {
   return `/${'agent' satisfies SpaceWithPagesId}/chat/${encodeURIComponent(id)}`
 }
 
+/** The Agent space's projects (`#/agent/projects`). */
+export function agentProjectsPath(search = '') {
+  return `/${'agent' satisfies SpaceWithPagesId}/projects${search}`
+}
+
+/** One project's page (`#/agent/projects/:id`): its conversations. */
+export function agentProjectPath(id: string) {
+  return `${agentProjectsPath()}/${encodeURIComponent(id)}`
+}
+
 /**
  * The space a path is in, or null for a shared screen (Ask, Settings). A
  * space whose kind is off still owns its paths; they show that it is off.

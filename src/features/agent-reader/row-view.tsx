@@ -40,11 +40,13 @@ import { cn } from '@/lib/cn'
 import { useI18n, type Formatters, type MessageKey } from '@/lib/i18n'
 import { useChatVersions } from '@/lib/queries/agent-chats'
 import { Attachments } from './attachments'
+import { useReveal } from './find-target'
 import { durationText, tokenTotal, tokensText } from './reader-words'
 import {
   COLUMN,
   hasText,
   isPrompt,
+  partTokensOf,
   rowKey,
   textOf,
   thinkingMs,
@@ -197,7 +199,10 @@ function Prompt({ context, row }: { context: RowContext; row: ChatRow }) {
             : t('agentReader.rows.you', { time: context.f.time(row.at) })}
         </span>
       </div>
-      <div className="max-w-[85%] rounded-[18px] bg-user-bubble px-4 py-2.5 text-[14px] leading-normal whitespace-pre-wrap text-user-bubble-foreground [overflow-wrap:anywhere]">
+      <div
+        data-part={partTokensOf(row, 'text')}
+        className="max-w-[85%] rounded-[18px] bg-user-bubble px-4 py-2.5 text-[14px] leading-normal whitespace-pre-wrap text-user-bubble-foreground [overflow-wrap:anywhere]"
+      >
         {textOf(row)}
       </div>
       {switched && context.switched && (
@@ -216,7 +221,8 @@ function Prompt({ context, row }: { context: RowContext; row: ChatRow }) {
 
 function Thinking({ row }: { row: ChatRow }) {
   const { t } = useI18n()
-  const [open, setOpen] = useState(false)
+  const tokens = partTokensOf(row, 'thinking')
+  const [open, setOpen] = useReveal(tokens.split(' '))
   const ms = thinkingMs(row)
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -231,7 +237,10 @@ function Thinking({ row }: { row: ChatRow }) {
         />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <p className="mt-1.5 border-l-2 pl-3 text-[13px] leading-relaxed whitespace-pre-wrap text-muted-foreground italic">
+        <p
+          data-part={tokens}
+          className="mt-1.5 border-l-2 pl-3 text-[13px] leading-relaxed whitespace-pre-wrap text-muted-foreground italic"
+        >
           {thinkingOf(row)}
         </p>
       </CollapsibleContent>
@@ -361,7 +370,8 @@ function Footer({
 /** A row in a role the reader has no look for (system, developer, …). */
 function OtherText({ row }: { row: ChatRow }) {
   const { t } = useI18n()
-  const [open, setOpen] = useState(false)
+  const tokens = partTokensOf(row, 'text')
+  const [open, setOpen] = useReveal(tokens.split(' '))
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="group flex items-center gap-1.5 font-mono text-[11.5px] text-muted-foreground hover:text-foreground">
@@ -372,7 +382,10 @@ function OtherText({ row }: { row: ChatRow }) {
         />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <p className="mt-1.5 rounded-md bg-muted/60 p-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap text-muted-foreground [overflow-wrap:anywhere]">
+        <p
+          data-part={tokens}
+          className="mt-1.5 rounded-md bg-muted/60 p-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap text-muted-foreground [overflow-wrap:anywhere]"
+        >
           {textOf(row)}
         </p>
       </CollapsibleContent>
@@ -414,7 +427,9 @@ export const RowView = memo(function RowView({
       if (hasText(row))
         parts.push(
           row.role === 'assistant' ? (
-            <Markdown key="text" content={textOf(row)} streaming={false} />
+            <div key="text" data-part={partTokensOf(row, 'text')}>
+              <Markdown content={textOf(row)} streaming={false} />
+            </div>
           ) : (
             <OtherText key="text" row={row} />
           ),
