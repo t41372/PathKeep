@@ -190,6 +190,8 @@ impl Fixture {
                 vault_store::params![relative, hash])?;
             s.execute("INSERT INTO site_dictionary_overrides(target_kind,target_value,display_name,created_at,updated_at)
                 VALUES('domain','lifecycle.example.test','pkintelligencecoral','2026-11-14T00:00:00Z','2026-11-14T00:00:00Z')", ())?;
+            s.execute("INSERT INTO search_engine_rules(rule_id,engine_id,display_name,host_pattern,query_param_key,created_at,updated_at)
+                VALUES('local-engine','local','My catalog','catalog.example.test','term','2026-11-14','2026-11-14')", ())?;
             Ok(())
         }).unwrap();
         vault.search().cycle().unwrap();

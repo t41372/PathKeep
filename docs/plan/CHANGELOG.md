@@ -3178,3 +3178,7 @@ that held up when checked against the code.
 - 2026-11-20：Agent 紀錄與閱讀器接上桌面與開發橋接命令。清單讀摘要索引，閱讀器可從末尾、原始紀錄或工具 ID 定位。已記錄工具用量與推算費用分開，缺少用量保留為未知。[畫面契約](../architecture/desktop-command-surface.md#conversation-list-and-reader)
 
 - Agent 閱讀器可把選取分支串流匯出為 Markdown 或單檔 HTML，也能匯出整理過的 JSONL 及包含子代理的原始檔。原始檔顯示、已核實版本的接續指令、⌘K 標題查找、閱讀偏好和零散資料夾設定已接入桌面命令。Agent 排程使用自己的備份時間，啟用預覽依 Linux 實測估計各角色的增量。[桌面契約](../architecture/desktop-command-surface.md#agent-viewer-export-and-shell)
+
+### 2026-11-20 — Group 5 backend handoff
+
+Move imports preserve local Agent conversations, saved text locators, site overrides and engine rules. Undo creates a safety copy and moves eligible imported conversations to Trash. Recovery and previous-version handoff are available through the desktop and development bridge. Storage reports local model, audit, schedule, integration and retained-copy bytes. Wipe waits for the browsing producer. The UI contract lists the confirmation steps, return fields, notice codes and paths. [Archive recovery commands](../architecture/desktop-command-surface.md#group-5-archive-recovery-commands)

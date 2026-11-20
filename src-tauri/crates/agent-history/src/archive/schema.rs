@@ -18,7 +18,13 @@ pub(super) fn migrations() -> MigrationRegistry {
 pub fn schema_steps(db: Db) -> Vec<Migration> {
     match db {
         Db::AgentHistoryEvidence => steps(
-            &[EVIDENCE, crate::projects::schema::EVIDENCE, crate::insights::EVIDENCE].concat(),
+            &[
+                EVIDENCE,
+                crate::projects::schema::EVIDENCE,
+                crate::insights::EVIDENCE,
+                super::move_import::SCHEMA,
+            ]
+            .concat(),
         ),
         Db::AgentHistoryReadModel => steps(
             &[

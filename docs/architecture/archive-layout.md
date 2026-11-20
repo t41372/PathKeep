@@ -74,7 +74,7 @@ The compiler cannot see a file that some code writes without declaring it. That 
 
 The table was introduced without changing behaviour, so some rows hold answers that look wrong. They are the app's real behaviour, now visible in one place:
 
-- `derived/intelligence.db` is original data (site categories the user edited, the records that locate saved page text) but the move bundle omits it. See `WORK-VAULT-FOLLOWUPS-2026-11`.
+- Move files carry the user-edited rows in `derived/intelligence.db` and the records locating saved page text in `archive/intelligence-originals.pkf`. The destination builds its own analysis indexes.
 - Saved page text and the copies of browser history files stay readable in an encrypted archive. See `WORK-ENCRYPT-AT-REST-ALL`.
 - After a conversion from the old format, the control it replaced stays in a `maintenance.bak-*` folder that neither storage usage nor retention counts. (What a restore or an import replaces is a safety copy under `raw-snapshots/maintenance/`: counted with the snapshots, and listed in Free up space as a row of its own, as every safety copy is.)
 - Each operation treats a database's companion files (`-wal`, `-shm`, `-tshm`) differently.

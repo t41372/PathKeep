@@ -81,11 +81,37 @@ pub(crate) async fn apply_app_data_import(
     state: State<'_, SessionState>,
     bundle_path: String,
     options: vault_core::ApplyImportOptions,
+    current_password: Option<String>,
 ) -> Result<vault_core::ImportResult, CommandError> {
     let key_state = state.inner().clone();
     let bundle = PathBuf::from(bundle_path);
     run_blocking_command("apply_app_data_import", move || {
-        worker_bridge::apply_app_data_import_impl(&key_state, bundle, options)
+        worker_bridge::apply_app_data_import_impl(&key_state, bundle, options, current_password)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) async fn list_conversation_imports(
+    state: State<'_, SessionState>,
+) -> Result<Vec<serde_json::Value>, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("list_conversation_imports", move || {
+        worker_bridge::conversation_imports_impl(&session)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) async fn undo_conversation_import(
+    import_id: String,
+    state: State<'_, SessionState>,
+) -> Result<serde_json::Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("undo_conversation_import", move || {
+        worker_bridge::undo_conversation_import_impl(&session, import_id)
     })
     .await
 }

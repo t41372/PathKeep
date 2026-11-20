@@ -116,6 +116,7 @@ fn copy_plan(vault: &vault_core::Vault) -> Result<SafetyCopyPreview> {
     let directory = vault
         .paths()
         .artifact_path(vault_layout::ArtifactId::NativeSnapshots)
+        .join("v06")
         .display()
         .to_string();
     let conversations_unreadable = vault.conversation_availability().is_err();

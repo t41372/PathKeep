@@ -675,3 +675,14 @@
   - v0.5.0 的人仍然存在，所以 v0.6 那個靠設定檔擋 v0.5.0 的辦法不能因為有了 v0.5.1 就拿掉。
   - 從 `main` 開分支做，不在 v0.6 的分支上。
   - 設計審完了（2026-11-14），v0.5.1 要做的事定為：一決定資料夾位置就先讀設定檔，早於取得 owner 鎖、建資料夾、往資料夾寫記錄、接續未完成的刪除或安裝、鑰匙圈、App Lock。`archiveMode` 是物件（不論裡面的版本號認不認得）就回報「這個存檔已由較新的 PathKeep 更新」並顯示那一個畫面：不問密碼、不提供修復或重設、不改寫設定、不跑任何復原。有資料庫但設定檔不見或讀不了算「需要復原」，不算第一次啟動。設定檔是舊格式就照原本的流程啟動。交接內容在 `pathkeep-v06-handoff/DESIGN-archive-compatibility.rev2.md` 的 R6。
+
+### Group 5 — Recorded, not handled (2026-11-20)
+
+- A power cut between publishing a move import and recording its before-import copy name can leave the independent undo receipt without a matching restore checkbox.
+- A second process replacing the control, a detached component, a symlink or an envelope during an operation remains outside the Group 5 acceptance scenarios.
+- A torn FAT allocation table can lose both names of a file. Matching bytes protect an extant export twin only.
+- External tools can restore a stale rollback receipt or copy only part of a package. Ambiguous handoffs need their original folder or a safety copy.
+- A crash between committing a rejoin and resolving its external receipt can require manual recovery.
+- A merge can leave a source head on its last published revision when its newer raw capture was never published. Its retained revisions remain in evidence.
+- An archive copied from another program while it is actively writing can contain an inconsistent database and companion-file set.
+- Rejoin after a downgrade cannot recover data already lost to an earlier faulty migration. Independent backups remain the recovery source.

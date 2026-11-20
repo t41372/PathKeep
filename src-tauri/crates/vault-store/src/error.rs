@@ -144,7 +144,9 @@ pub enum Error {
         #[source]
         source: Option<turso::Error>,
     },
-    #[error("{db:?} schema version {found} is newer than supported version {supported}")]
+    #[error(
+        "archive-schema-too-new: {db:?} schema version {found} is newer than supported version {supported}"
+    )]
     SchemaTooNew { db: crate::Db, found: i64, supported: i64 },
     #[error("storage engine: {0}")]
     Engine(#[source] turso::Error),

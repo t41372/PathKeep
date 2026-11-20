@@ -24,7 +24,7 @@ fn wipe_removes_markers_checkpoints_snapshots_and_owned_exports_without_changing
             &vault_core::SnapshotRestoreRequest { snapshot_path: snapshot.display().to_string() },
         )
         .unwrap();
-        let bundle = fixture.root.join("exports/lifecycle.pathkeep");
+        let bundle = fixture.root.join("exports/pathkeep/format-3/lifecycle.pathkeep");
         vault_worker::export_app_data(&fixture.vault(), bundle, EXPORT_PASSWORD).unwrap();
         let browser = std::fs::read(fixture.browser()).unwrap();
         let before =

@@ -150,39 +150,19 @@ pub(crate) fn start_was_refused() -> bool {
     START_REFUSED.load(std::sync::atomic::Ordering::SeqCst)
 }
 
-/// Tells the person why the archive was not opened, then quits with a failure status. Nothing
-/// is written to the data folder, not even a log line: the reason goes to the dialog and stderr.
-#[cfg(not(test))]
-pub(crate) fn refused_start<R: Runtime>(
-    app: &AppHandle<R>,
-    refusal: &vault_core::admission::Refusal,
-    background: bool,
-) {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
-    eprintln!("{refusal}");
+pub(crate) fn restrict_to_recovery() {
     START_REFUSED.store(true, std::sync::atomic::Ordering::SeqCst);
-    for window in app.webview_windows().into_values() {
-        let _ = window.destroy();
-    }
-    if background {
-        app.exit(1);
-        return;
-    }
-    let language = MenuLanguage::resolve(
-        &vault_core::LanguagePreference::System,
-        &vault_platform::preferred_ui_languages(),
-    );
-    let message = format!(
-        "{}\n\n{}\n{refusal}",
-        copy::refused_start_message(language, refusal.reason),
-        refusal.root.display(),
-    );
-    let exit = app.clone();
-    app.dialog()
-        .message(message)
-        .title(crate::PRODUCT_DISPLAY_NAME)
-        .kind(MessageDialogKind::Error)
-        .show(move |_| exit.exit(1));
+}
+
+/// The recovery window owns no archive, log, scheduler, or owner service.
+#[cfg(not(test))]
+pub(crate) fn enter_recovery<R: Runtime>(app: &AppHandle<R>) {
+    restrict_to_recovery();
+    show_main_window(app);
+}
+
+pub(crate) fn archive_wiped<R: Runtime>(app: &AppHandle<R>) {
+    update_status(app, |status| status.set_archive(ArchiveReadiness::NotSetUp));
 }
 
 fn menu_language(config: &AppConfig) -> MenuLanguage {

@@ -150,6 +150,11 @@ pub enum WipePolicy {
 /// Existing storage DTO categories; original data can live in a category called derived.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UsageBucket {
+    Models,
+    Schedule,
+    Integrations,
+    Audit,
+    SavedCopies,
     Archive,
     SourceEvidence,
     Intelligence,
@@ -166,7 +171,9 @@ pub enum UsageBucket {
 /// Measurements intentionally retain their different companion-file coverage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Measure {
-    MainAndWal,
+    Family,
+    OutsideManifests,
+    DatabaseFiles,
     Tree,
     TreeOrFile,
     None,

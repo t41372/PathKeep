@@ -40,8 +40,7 @@
 //! - `archive/.pk-archive-write.lock` and `archive/.pk-owner.lock`. Deleting either inode
 //!   would let a second process lock a new file while the first still holds the old one.
 //! - A file directly in the app root that no row selects and whose name has no `.bak-` in it.
-//!   PathKeep writes none itself, but a bundle the user exported straight into this folder is
-//!   one, and it survives. That is a known gap, not a decision.
+//!   Older releases allowed a move export here. A verified move-file manifest includes it in the preview and wipe.
 //!
 //! ## Order
 //! Gate, write lock and control gate; the record an earlier wipe left, settled; the trash and the
@@ -329,7 +328,12 @@ pub fn wipe_all_data(
     // Not only the control: a folder that holds an archive and no control is refused here, before
     // a record in it is acted on. Such a record holds the control it was written beside.
     crate::admission::inspect(&paths.app_root)?;
+    crate::maintenance::rollback::require_resolved(&paths.app_root)?;
     let _gate = ArchiveOpGate::acquire(paths);
+    let producer = crate::vault::live::backup(&paths.app_root);
+    let _backup = producer
+        .as_ref()
+        .map(|lock| lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
     let _write_lock =
         ArchiveWriteLock::acquire(paths).context("waiting for other archive work to finish")?;
     // From reading what to delete to the last removal, nothing else writes the control: a save
@@ -418,6 +422,10 @@ pub fn finish_interrupted_data_wipe(
     // it is, lock files included.
     pending(paths)?;
     let _gate = ArchiveOpGate::acquire(paths);
+    let producer = crate::vault::live::backup(&paths.app_root);
+    let _backup = producer
+        .as_ref()
+        .map(|lock| lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
     let _write_lock =
         ArchiveWriteLock::acquire(paths).context("waiting for other archive work to finish")?;
     let _control_gate = crate::ControlGate::acquire(paths);
@@ -436,7 +444,7 @@ fn settle(
     if !data_wipe_interrupted(paths) {
         return Ok(None);
     }
-    Ok(Some(match pending(paths)? {
+    let settled = match pending(paths)? {
         Pending::Intent(intent) => match intent.control_here(paths)? {
             Here::Other => {
                 // Not the folder this wipe was in. The trash the intent names stays as it is, if it
@@ -489,7 +497,17 @@ fn settle(
             crate::ai::revoke_model_downloads(&paths.models_dir)?;
             SettledWipe::Finished(finish_legacy(paths, &outside, clear_secrets, remove_schedule)?)
         }
-    }))
+    };
+    match &settled {
+        SettledWipe::RolledBack => {
+            crate::maintenance::notices::remember(&paths.app_root, "wipe-rolled-back", None)
+        }
+        SettledWipe::Discarded => {
+            crate::maintenance::notices::remember(&paths.app_root, "wipe-record-discarded", None)
+        }
+        SettledWipe::Finished(_) => {}
+    }
+    Ok(Some(settled))
 }
 
 /// An interrupted wipe's record, whichever release wrote it.
@@ -661,7 +679,8 @@ fn run_wipe(
                  will"
             )
         })?;
-        return Err(error);
+        crate::maintenance::notices::remember(&paths.app_root, "wipe-rolled-back", None);
+        return Err(error.context("archive-wipe-rolled-back: the archive was put back"));
     }
     intent.committed = true;
     if let Err(error) =
@@ -844,6 +863,7 @@ fn displace(trash: &Path, root: &Path, relative: &Path) -> Result<()> {
         .context("a free name in the trash")?;
     rename(&root.join(relative), &away)
         .with_context(|| format!("moving {} out of the archive's way", relative.display()))?;
+    crate::maintenance::notices::remember(root, "wipe-files-displaced", Some(trash));
     crate::fault_inject::checkpoint("wipe-displaced")
 }
 
@@ -1001,6 +1021,12 @@ fn wipe_targets(paths: &ProjectPaths) -> Result<Vec<PathBuf>> {
                 },
             ),
         );
+    }
+
+    for (file, _) in crate::migration::root_move_files(&paths.app_root)? {
+        if !targets.contains(&file) {
+            targets.push(file);
+        }
     }
 
     // Only "not found" means a target is not there. A target that cannot be looked at (a disk

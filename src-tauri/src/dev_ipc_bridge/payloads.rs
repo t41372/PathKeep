@@ -59,6 +59,11 @@ pub(super) struct FullArchiveRestorePayload {
     pub(super) request: vault_core::SnapshotRestoreRequest,
     #[serde(default)]
     pub(super) key: Option<String>,
+    pub(super) current_password: Option<String>,
+    #[serde(default)]
+    pub(super) undo_conversations: bool,
+    #[serde(default)]
+    pub(super) use_copy_encryption: bool,
 }
 
 /// Accepts the in-memory session key used by dev automation when the native
@@ -390,6 +395,7 @@ pub(super) struct PreviewAppDataImportPayload {
 pub(super) struct ApplyAppDataImportPayload {
     pub(super) bundle_path: String,
     pub(super) options: vault_core::ApplyImportOptions,
+    pub(super) current_password: Option<String>,
 }
 
 /// Provides an optional human-readable reason for locking the app session.

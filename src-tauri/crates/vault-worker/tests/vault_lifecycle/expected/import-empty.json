@@ -67,7 +67,9 @@
     "derived/agent-history-read-model.db": "pkreadmodeljade",
     "searchTitles": ["pksearchelm"],
     "askMessages": ["pkaskhazel"],
-    "savedTextLocators": []
+    "savedTextLocators": [
+      "89/ad/89add169a6847800eba8346ee2fe0a64abcd0f6aff31fd91d347c8136c5d873f.txt"
+    ]
   },
   "databaseHeaders": {
     "archive/agent-history.db": "non-sqlite",

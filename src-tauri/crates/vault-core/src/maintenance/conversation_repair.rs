@@ -529,7 +529,7 @@ fn prepare(
 }
 
 fn copy_destination(vault: &Vault, decision: &[u8]) -> Result<(String, PathBuf)> {
-    let copies = Path::new(vault_layout::spec(ArtifactId::NativeSnapshots).path.relative());
+    let copies = Path::new(vault_layout::NATIVE_COPIES_V06);
     let mut sequence = 0u64;
     loop {
         let token = crate::utils::sha256_hex(&serde_json::to_vec(&(&decision, sequence))?);

@@ -8,22 +8,34 @@ use std::{
     sync::{Arc, Mutex, OnceLock, Weak},
 };
 use vault_store::Store;
-fn owners() -> &'static Mutex<HashMap<PathBuf, Weak<Store>>> {
-    static OWNERS: OnceLock<Mutex<HashMap<PathBuf, Weak<Store>>>> = OnceLock::new();
+struct LiveOwner {
+    store: Weak<Store>,
+    backup: Weak<Mutex<()>>,
+}
+
+fn owners() -> &'static Mutex<HashMap<PathBuf, LiveOwner>> {
+    static OWNERS: OnceLock<Mutex<HashMap<PathBuf, LiveOwner>>> = OnceLock::new();
     OWNERS.get_or_init(Default::default)
 }
-pub(super) fn register(root: &Path, store: &Arc<Store>) {
+pub(super) fn register(root: &Path, store: &Arc<Store>, backup: &Arc<Mutex<()>>) {
     let mut owners = owners().lock().expect("native owners");
-    owners.retain(|_, store| store.strong_count() > 0);
-    owners.insert(root.to_owned(), Arc::downgrade(store));
+    owners.retain(|_, owner| owner.store.strong_count() > 0);
+    owners.insert(
+        root.to_owned(),
+        LiveOwner { store: Arc::downgrade(store), backup: Arc::downgrade(backup) },
+    );
 }
 pub(crate) fn store(root: &Path) -> Option<Arc<Store>> {
     owners()
         .lock()
         .expect("native owners")
         .get(root)
-        .and_then(Weak::upgrade)
+        .and_then(|o| o.store.upgrade())
         .filter(|s| s.is_open())
+}
+/// A wipe waits for the browser producer before taking the control lock or emptying settings.
+pub(crate) fn backup(root: &Path) -> Option<Arc<Mutex<()>>> {
+    owners().lock().expect("native owners").get(root).and_then(|o| o.backup.upgrade())
 }
 
 #[derive(Clone)]

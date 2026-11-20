@@ -570,12 +570,12 @@ recovery, cancellation and exact command/channel shapes.
 
 ### Data migration bundle contract (`.pathkeep-bundle`)
 
-Native bundles use format 2. Every export has a fresh random data key wrapped by
+The released v0.5 bundle is format 2. New bundles use format 3 and add the two Agent History databases and an authenticated stream of intelligence originals. Every export has a fresh random data key wrapped by
 an explicit export password. The ZIP contains `archive/history-vault.db`,
 `archive/source-evidence.db`, `archive/agent.db`, `archive/keys.envelope`,
 `config/config.json`, `archive/portable-artifacts.pkf`, the manifest and its
 SHA-256 sidecar. The config and streaming TAR of audit, raw snapshots and retained
-sidecars use the authenticated bundle-artifacts codec; the six-entry inventory
+sidecars use the authenticated bundle-artifacts codec; the fixed-size file inventory
 stays bounded as the provenance history grows. The TAR leaves out the safety
 copies in `raw-snapshots/` (the user's decision, 2026-11-15): `maintenance/`,
 and every folder holding a copy PathKeep 0.3 made (`*.sqlite`). They are the
@@ -585,14 +585,14 @@ files of 0.5 and earlier carry them, and a 100,000-visit archive of 33 MB made a
 database rows are relocated after verification; immutable audit JSON keeps its
 original hash and resolves through imported root aliases. Agent conversations
 are included. The `derived/` tree is excluded; search is rebuilt on import and
-intelligence remains rebuildable. This replaces the old SQLCipher bundle layout.
+derived intelligence indexes are rebuilt. The encrypted `archive/intelligence-originals.pkf` carries explicit columns from `site_dictionary_overrides`, `search_engine_rules` and `page_content_enrichments`. The latter preserves the URL-to-text locator alongside its file in the artifact TAR. This replaces the old SQLCipher bundle layout.
 
 Export copies and verifies database rows before writing the ZIP, and atomically
 publishes the completed bundle at the requested path. Import validates manifest
 and entry digests in staging, authenticates the export password, checks database
 integrity, builds search, then closes the old owner and performs the journaled
 installation. The archive it replaces is kept as a safety copy
-(`raw-snapshots/maintenance/before-import-*`): listed for a restore, counted in
+(`quarantine/v06/previous-generations/before-import-*`): listed for a restore, counted in
 disk usage and removed by freeing space like the other copies. Its `snapshot.json`
 is written once the new archive is in place, by reading the copy again; when that
 read fails, the restore that later needs the copy writes it first, as it does for a

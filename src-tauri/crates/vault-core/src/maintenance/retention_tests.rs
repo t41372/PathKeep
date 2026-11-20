@@ -24,7 +24,21 @@ fn archive_with_copies() -> (tempfile::TempDir, Vault, Vec<PathBuf>, PathBuf) {
     for name in ["rekey-a", "before-restore-b", "before-import-c"] {
         let path = maintenance.join(name);
         snapshot(&vault, &path).unwrap();
-        super::record_restore(&vault, &path.display().to_string()).unwrap();
+        let run = super::record_restore(&vault, &path.display().to_string()).unwrap();
+        // Released archives already have rows for old safety copies. Retention must
+        // still remove those rows even though the new writer keeps this ledger for browsing.
+        let legacy_path = path.display().to_string();
+        vault
+            .store()
+            .write(Db::Archive, vault_store::Priority::Interactive, move |s| {
+                s.execute(
+                    "INSERT INTO snapshots(run_id,file_path,created_at) VALUES(?1,?2,'2026-11-15')",
+                    vault_store::params![run, legacy_path],
+                )?;
+                crate::archive::totals::add(s, "snapshots", 1)?;
+                Ok(())
+            })
+            .unwrap();
         // Folder times order the list, ten seconds apart.
         let when = std::time::SystemTime::now()
             - std::time::Duration::from_secs(60 - copies.len() as u64 * 10);

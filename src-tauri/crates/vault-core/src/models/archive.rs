@@ -516,6 +516,17 @@ pub struct ArchiveUpgradeAssessment {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageSummary {
+    #[serde(default)]
+    pub model_bytes: u64,
+    #[serde(default)]
+    pub other_audit_bytes: u64,
+    #[serde(default)]
+    pub schedule_bytes: u64,
+    #[serde(default)]
+    pub integration_bytes: u64,
+    #[serde(default)]
+    pub retained_copy_bytes: u64,
+
     pub archive_database_bytes: u64,
     pub source_evidence_database_bytes: u64,
     pub search_database_bytes: u64,
@@ -617,6 +628,8 @@ pub enum ConversationRepairSource {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RecoverySnapshot {
+    #[serde(default)]
+    pub data_kinds: Vec<String>,
     /// Stable identity for the FE list — the snapshot's display path.
     pub id: String,
     /// The snapshot file's path (the value a restore request echoes back).

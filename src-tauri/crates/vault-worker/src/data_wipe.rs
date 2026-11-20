@@ -96,12 +96,40 @@ pub fn finish_interrupted_data_wipe() -> Result<bool> {
     if !vault_core::data_wipe_interrupted(&paths) {
         return Ok(false);
     }
+    vault_core::admission::inspect(&paths.app_root)?;
+    anyhow::ensure!(
+        !legacy_wipe_needs_confirmation(&paths),
+        "archive-wipe-confirmation-required: confirm the unfinished deletion"
+    );
+    settle_interrupted_wipe(&paths)
+}
+
+/// Released 0.5 markers do not bind the deletion to this folder.
+pub fn legacy_wipe_needs_confirmation(paths: &ProjectPaths) -> bool {
+    !paths.config_path.exists()
+        && paths.artifact_path(vault_layout::ArtifactId::WipeIntent).is_file()
+}
+
+pub fn confirm_interrupted_wipe(confirmation: &str) -> Result<bool> {
+    let paths = vault_core::project_paths()?;
+    vault_core::admission::inspect(&paths.app_root)?;
+    anyhow::ensure!(
+        legacy_wipe_needs_confirmation(&paths) && confirmation == WIPE_CONFIRMATION_WORD,
+        "archive-wipe-confirmation-required: confirm the unfinished deletion"
+    );
+    settle_interrupted_wipe(&paths)
+}
+
+fn settle_interrupted_wipe(paths: &ProjectPaths) -> Result<bool> {
+    if !vault_core::data_wipe_interrupted(paths) {
+        return Ok(false);
+    }
     log::warn!(target: "pathkeep::data_wipe", "settling a data wipe that was cut short");
     let settled = vault_core::finish_interrupted_data_wipe(
-        &paths,
-        || stop_background_work(&paths, false),
+        paths,
+        || stop_background_work(paths, false),
         clear_keychain,
-        |plan| remove_schedule(&paths, plan),
+        |plan| remove_schedule(paths, plan),
     )?;
     match &settled {
         Some(SettledWipe::Finished(report)) => {

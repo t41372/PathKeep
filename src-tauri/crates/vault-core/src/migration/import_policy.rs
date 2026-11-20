@@ -1,5 +1,5 @@
-//! A move file replaces conversation evidence. Keep a destination grant only
-//! when the installed evidence can resolve that same immutable selection.
+//! Import preserves conversations. Keeping a backup grant also requires that the move
+//! file carried the same immutable selection the destination approved.
 //! Source folders need not be connected during an import.
 use crate::{AppConfig, ControlGate, ProjectPaths, Vault};
 use anyhow::Result;
@@ -11,12 +11,14 @@ fn descriptor(vault: &Vault, id: &str) -> Result<Option<String>> {
         return Ok(None);
     }
     let id = id.to_owned();
-    Ok(vault.store().read(Db::AgentHistoryEvidence, move |s| {
-        s.query_one("SELECT descriptor_json FROM ah_capture_selections WHERE id=?1", [id], |row| {
-            Ok(row.get::<String>(0)?)
-        })
-        .optional()
-    })?)
+    Ok(vault.store().read(Db::AgentHistoryEvidence, move |s| selection(s, &id))?)
+}
+
+fn selection(s: &vault_store::Session<'_>, id: &str) -> vault_store::Result<Option<String>> {
+    s.query_one("SELECT descriptor_json FROM ah_capture_selections WHERE id=?1", [id], |r| {
+        Ok(r.get(0)?)
+    })
+    .optional()
 }
 
 /// Read databases outside the control gate. A selection edited during the
@@ -24,7 +26,7 @@ fn descriptor(vault: &Vault, id: &str) -> Result<Option<String>> {
 pub(super) fn for_install(
     paths: &ProjectPaths,
     current: Option<&Vault>,
-    stage: &Path,
+    incoming_root: &Path,
     config: &mut AppConfig,
     key: Option<&vault_crypto::DataKey>,
 ) -> Result<ControlGate> {
@@ -68,10 +70,16 @@ pub(super) fn for_install(
         drop(gate);
         let previous = current.map(|v| descriptor(v, &id)).transpose()?.flatten();
         let matching = if previous.is_some() {
-            let staged =
-                Vault::open_staged(crate::project_paths_with_root(stage), config.clone(), key)?;
-            let incoming = descriptor(&staged, &id)?;
-            staged.close()?;
+            let storage = crate::vault::storage_config(
+                &crate::project_paths_with_root(incoming_root),
+                crate::admission::WRITTEN_LAYOUT,
+                key,
+                None,
+            )?;
+            let incoming =
+                vault_store::Store::inspect_existing(&storage, Db::AgentHistoryEvidence, |s| {
+                    selection(s, &id)
+                })?;
             incoming.filter(|v| Some(v) == previous.as_ref())
         } else {
             None

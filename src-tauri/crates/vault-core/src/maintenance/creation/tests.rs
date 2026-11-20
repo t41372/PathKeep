@@ -461,7 +461,7 @@ fn a_snapshot_pathkeep_0_5_took_restores_browsing_and_keeps_the_conversations() 
 }
 
 #[test]
-fn a_file_pathkeep_0_5_exported_imports_without_conversations() {
+fn a_file_pathkeep_0_5_exported_keeps_local_conversations() {
     let (_source_root, source) = released_archive();
     let files_dir = tempfile::tempdir().unwrap();
     let bundle = files_dir.path().join("from-0.5.pathkeep");
@@ -506,7 +506,10 @@ fn a_file_pathkeep_0_5_exported_imports_without_conversations() {
         let vault = &installed.vault;
         assert_eq!(vault.layout(), ArchiveLayout::AgentHistoryV2, "populated: {populated}");
         assert_eq!(marker(vault, Db::Archive).as_deref(), Some("released-archive"));
-        assert_eq!(marker(vault, Db::AgentHistoryEvidence), None, "populated: {populated}");
+        assert_eq!(
+            marker(vault, Db::AgentHistoryEvidence).as_deref(),
+            populated.then_some("the-replaced-archive")
+        );
         assert_eq!(marker(vault, Db::AgentHistoryReadModel), None, "populated: {populated}");
         assert!(read(&target).unwrap().is_none());
     }

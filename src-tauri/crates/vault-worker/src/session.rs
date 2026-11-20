@@ -208,6 +208,17 @@ impl VaultSession {
         self.inner.0.lock().expect("session state").data_key.clone()
     }
 
+    /// The completed opening attempt, including a refusal discovered inside a database.
+    pub fn open_failure(&self) -> Option<String> {
+        let (lock, ready) = &*self.inner;
+        let state = ready
+            .wait_while(lock.lock().expect("session state"), |s| {
+                s.transition == Transition::Opening
+            })
+            .expect("session state");
+        state.last_error.clone()
+    }
+
     /// Status reads inspect an existing handle without opening storage or the keychain.
     pub fn current_vault(&self) -> Option<Vault> {
         let state = self.inner.0.lock().expect("session state");
@@ -526,6 +537,22 @@ impl VaultSession {
         }
         Ok(())
     }
+    /// A synchronous wipe rollback retains the prior unlock, including a keychain-only session.
+    pub fn wipe(&self, confirmation: &str) -> anyhow::Result<vault_core::WipeReport> {
+        let password = self.typed_password().map(Zeroizing::new);
+        let key = self.data_key();
+        let result = crate::wipe_all_data(confirmation, || self.close_vault());
+        if result.as_ref().is_err_and(|e| e.to_string().starts_with("archive-wipe-rolled-back:"))
+            && self.current_vault().is_none()
+        {
+            let paths = vault_core::project_paths()?;
+            let config = vault_core::load_config(&paths)?;
+            self.open(|| self.open_store(paths, config, password, key))
+                .map_err(anyhow::Error::msg)?;
+        }
+        result
+    }
+
     pub fn close_vault(&self) -> anyhow::Result<()> {
         let (lock, ready) = &*self.inner;
         let mut state = lock.lock().expect("session state");

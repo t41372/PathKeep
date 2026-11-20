@@ -49,10 +49,17 @@ pub(crate) fn apply_app_data_import_impl(
     state: &crate::session::SessionState,
     bundle_path: PathBuf,
     options: vault_core::ApplyImportOptions,
+    current_password: Option<String>,
 ) -> Result<vault_core::ImportResult, CommandError> {
     let paths = worker_result(vault_core::project_paths())?;
     let password = options.source_archive_key.clone();
-    let current = state.current_vault();
+    let current = if let Some(password) = current_password {
+        let config = worker_result(vault_core::load_config(&paths))?;
+        worker_result(vault_core::ensure_app_lock_unlocked(&paths, &config))?;
+        Some(state.open_password(paths.clone(), config, password)?)
+    } else {
+        state.current_vault()
+    };
     // Through installing the imported archive and its key, not only the import, so a quit
     // that waits for it doesn't leave the keychain behind.
     let _running = vault_worker::begin_foreground_work(vault_worker::ForegroundWork::MoveImport);
@@ -72,4 +79,56 @@ pub(crate) fn apply_app_data_import_impl(
     ))?;
     drop(lease);
     Ok(report)
+}
+
+pub(crate) fn conversation_imports_impl(
+    state: &crate::session::SessionState,
+) -> Result<Vec<serde_json::Value>, CommandError> {
+    worker_result(vault_core::migration::conversations::imports(&state.vault()?))
+}
+
+pub(crate) fn undo_conversation_import_impl(
+    state: &crate::session::SessionState,
+    id: String,
+) -> Result<serde_json::Value, CommandError> {
+    worker_result(vault_core::migration::conversations::undo(&state.vault()?, id))
+}
+
+pub(crate) fn rollback_preview() -> Result<vault_core::maintenance::rollback::Preview, CommandError>
+{
+    let paths = worker_result(vault_core::project_paths())?;
+    worker_result(vault_core::maintenance::rollback::preview(&paths))
+}
+
+pub(crate) fn rollback_prepare(
+    session: &crate::session::SessionState,
+    password: Option<String>,
+) -> Result<PathBuf, CommandError> {
+    let paths = worker_result(vault_core::project_paths())?;
+    let _lease = session.begin_maintenance()?;
+    let dir = worker_result(vault_core::maintenance::rollback::detach(
+        &paths,
+        session.current_vault().as_ref(),
+        session.owner(),
+        password.as_deref(),
+    ))?;
+    crate::desktop_integration::restrict_to_recovery();
+    Ok(dir)
+}
+
+pub(crate) fn rollback_resolve(
+    session: &crate::session::SessionState,
+    rejoin: bool,
+    password: Option<String>,
+    package: Option<String>,
+) -> Result<(), CommandError> {
+    let paths = worker_result(vault_core::project_paths())?;
+    let _lease = session.begin_maintenance()?;
+    worker_result(vault_core::maintenance::rollback::resolve(
+        &paths,
+        session.owner(),
+        rejoin,
+        password.as_deref(),
+        package.as_deref(),
+    ))
 }

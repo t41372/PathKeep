@@ -18,6 +18,7 @@ mod import;
 mod intelligence;
 mod migration;
 mod projects;
+mod rollback;
 mod schedule;
 mod search;
 mod security;
@@ -29,6 +30,6 @@ mod update;
 /// Re-exports the full production command surface for `tauri::generate_handler!`.
 pub(crate) use self::{
     agent_insights::*, ai_chat::*, annotations::*, app::*, archive::*, chats::*, data_kinds::*,
-    desktop::*, import::*, intelligence::*, migration::*, projects::*, schedule::*, search::*,
-    security::*, stars::*, support::*, update::*,
+    desktop::*, import::*, intelligence::*, migration::*, projects::*, rollback::*, schedule::*,
+    search::*, security::*, stars::*, support::*, update::*,
 };

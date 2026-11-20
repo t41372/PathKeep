@@ -379,6 +379,11 @@ pub(super) fn storage_summary(paths: &ProjectPaths) -> StorageSummary {
     for member in vault_layout::usage_members(vault_layout::ArchiveLayout::NEWEST) {
         let bytes = usage_bytes(paths, member);
         let field = match member.lifecycle.usage.bucket.expect("measured member") {
+            UsageBucket::Models => &mut summary.model_bytes,
+            UsageBucket::Schedule => &mut summary.schedule_bytes,
+            UsageBucket::Integrations => &mut summary.integration_bytes,
+            UsageBucket::Audit => &mut summary.other_audit_bytes,
+            UsageBucket::SavedCopies => &mut summary.retained_copy_bytes,
             UsageBucket::Archive => &mut summary.archive_database_bytes,
             UsageBucket::SourceEvidence => &mut summary.source_evidence_database_bytes,
             UsageBucket::Intelligence => &mut summary.intelligence_database_bytes,
@@ -441,7 +446,18 @@ fn usage_bytes(paths: &ProjectPaths, member: vault_layout::ArtifactSpec) -> u64 
                 .map(|meta| meta.len())
                 .sum()
         }
-        Measure::MainAndWal => CompanionFamily::Native
+        Measure::Family | Measure::OutsideManifests => fs::read_dir(&path)
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter(|entry| match member.lifecycle.usage.measure {
+                Measure::Family => vault_layout::family_pattern(member.id)
+                    .matches(&entry.file_name().to_string_lossy()),
+                _ => entry.path() != paths.manifests_dir,
+            })
+            .map(|entry| crate::maintenance::retained_bytes(&entry.path()).unwrap_or_default())
+            .sum(),
+        Measure::DatabaseFiles => CompanionFamily::Native
             .suffixes(CompanionUse::Usage)
             .iter()
             .map(|suffix| {

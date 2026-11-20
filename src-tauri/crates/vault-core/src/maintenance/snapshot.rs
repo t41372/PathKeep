@@ -105,7 +105,7 @@ pub(crate) fn publish_held(
     install::sync_tree(&copy)?;
     install::rename(
         &copy,
-        &paths.artifact_path(vault_layout::ArtifactId::NativeSnapshots).join(name),
+        &paths.artifact_path(vault_layout::ArtifactId::NativeSnapshots).join("v06").join(name),
     )
 }
 
@@ -234,15 +234,17 @@ pub(super) fn seal_replaced(copy: &Path) -> Result<()> {
 /// without a seal was cut short while it was written and may lack files, and a folder elsewhere is
 /// not PathKeep's to write in.
 fn unsealed_replaced_archive(paths: &ProjectPaths, source: &Path) -> bool {
-    let copies = paths.artifact_path(vault_layout::ArtifactId::NativeSnapshots);
+    let copies = paths.native_copy_folders();
     let here = |path: &Path| fs::canonicalize(path).ok();
     source.is_dir()
         && !source.join(SEAL).exists()
         && source
             .file_name()
             .is_some_and(|name| install::Before::of_copy(&name.to_string_lossy()).is_some())
-        && here(copies.as_path()).is_some()
-        && source.parent().and_then(here) == here(copies.as_path())
+        && source
+            .parent()
+            .and_then(here)
+            .is_some_and(|parent| copies.iter().any(|dir| here(dir).as_ref() == Some(&parent)))
 }
 
 pub(crate) fn verify(root: &Path) -> Result<()> {
@@ -343,10 +345,39 @@ pub fn restore_snapshot_to(
     live_key: Option<&vault_crypto::DataKey>,
     cancel: CancelToken,
 ) -> Result<InstalledArchive> {
+    restore_with_protection(
+        paths,
+        current,
+        reservation,
+        source,
+        password,
+        RestoreProtection::Current(live_key),
+        cancel,
+    )
+}
+
+/// A user who cannot unlock the live envelope can explicitly keep its files in the
+/// displaced copy and start empty conversations under the safety copy's encryption.
+pub enum RestoreProtection<'a> {
+    Current(Option<&'a vault_crypto::DataKey>),
+    FromCopy,
+}
+
+pub fn restore_with_protection(
+    paths: &ProjectPaths,
+    current: Option<&Vault>,
+    reservation: Option<std::sync::Arc<vault_store::OwnerLock>>,
+    source: &Path,
+    password: Option<&str>,
+    protection: RestoreProtection<'_>,
+    cancel: CancelToken,
+) -> Result<InstalledArchive> {
     let _operation = crate::archive::ArchiveOpGate::acquire(paths);
     // A damaged or missing control is what a restore repairs. One that needs a newer PathKeep
     // is not damage: replacing it would put an older archive over a newer one.
     crate::admission::refuse_newer(&paths.app_root)?;
+    crate::maintenance::rollback::require_resolved(&paths.app_root)?;
+    crate::storage_volume::require_snapshot_volume(paths)?;
     if let Some(vault) = current {
         vault.check_browsing_files()?;
     }
@@ -379,8 +410,22 @@ pub fn restore_snapshot_to(
     };
     // What the restored archive is under, decided before anything is staged: one that needs this
     // archive's key and has none stops here, with nothing changed.
-    let target = Encryption::of_archive(paths, current.and_then(Vault::data_key).or(live_key))?
-        .unwrap_or_else(|| Encryption::of_copy(source, copy_key.as_ref().map(owned)));
+    let copy_protection = || Encryption::of_copy(source, copy_key.as_ref().map(owned));
+    let from_copy = matches!(protection, RestoreProtection::FromCopy);
+    let target = match protection {
+        RestoreProtection::Current(key) => {
+            Encryption::of_archive(paths, current.and_then(Vault::data_key).or(key))?
+                .unwrap_or_else(copy_protection)
+        }
+        RestoreProtection::FromCopy => {
+            anyhow::ensure!(
+                current.is_none()
+                    && paths.artifact_path(vault_layout::ArtifactId::Envelope).is_file(),
+                "archive-copy-protection-unavailable: the live encrypted archive must be closed"
+            );
+            copy_protection()
+        }
+    };
     let conversations_here =
         crate::admission::guard(&paths.app_root).ok().flatten().is_some_and(|control| {
             crate::admission::layout_of(Some(&control))
@@ -423,7 +468,7 @@ pub fn restore_snapshot_to(
         (_, Some(owner)) => owner,
         _ => std::sync::Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)?),
     };
-    let mut files = if conversations_here {
+    let mut files = if conversations_here && !from_copy {
         // Left where they are, out of the installation and its journal.
         vault_layout::installation_files_except(
             layout,
@@ -452,10 +497,7 @@ pub fn restore_snapshot_to(
         vault.check_available_files()?;
         let mut pause = vault.pause_store()?;
         if vault.conversation_availability().is_err() {
-            let relative = Path::new(
-                vault_layout::spec(vault_layout::ArtifactId::NativeSnapshots).path.relative(),
-            )
-            .join(format!(
+            let relative = Path::new(vault_layout::PREVIOUS_GENERATIONS_V06).join(format!(
                 "before-restore-{}",
                 stage.path().file_name().context("restore stage has no name")?.to_string_lossy()
             ));
@@ -741,75 +783,109 @@ fn copy_inventory(
 /// control can be read; one that cannot (a restore replaced a damaged archive) cannot be sealed or
 /// restored from.
 pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapshot>> {
-    let root = paths.artifact_path(vault_layout::ArtifactId::NativeSnapshots);
-    if !root.exists() {
-        return Ok(Vec::new());
-    }
     let label = match crate::load_config(paths).unwrap_or_default().preferred_language {
         crate::LanguagePreference::ZhCn | crate::LanguagePreference::ZhTw => "安全快照",
         _ => "Safety snapshot",
     };
     let mut result = Vec::new();
-    for entry in fs::read_dir(root)? {
-        let entry = entry?;
-        let path = entry.path();
-        let before = install::Before::of_copy(&entry.file_name().to_string_lossy());
-        let held_copy = is_held_copy(&path);
-        let sealed = path.join(SEAL).is_file();
-        let replaced_archive = (before.is_some() || held_copy) && path.is_dir();
-        if !sealed && !replaced_archive {
+    for folder in paths.native_copy_folders() {
+        if !folder.try_exists()? {
             continue;
         }
-        let archive = path.join(vault_layout::database_path(vault_layout::primary_database()));
-        let header = |archive: &Path| -> std::io::Result<(u64, [u8; 16])> {
-            let mut header = [0u8; 16];
-            fs::File::open(archive)?.read_exact(&mut header)?;
-            Ok((fs::metadata(archive)?.len(), header))
-        };
-        let (size, encrypted) = match header(&archive) {
-            Ok((size, header)) => (size, &header != b"SQLite format 3\0"),
-            Err(_) => (0, false),
-        };
-        let created = fs::metadata(&path)?
-            .modified()
-            .ok()
-            .map(|time| chrono::DateTime::<chrono::Utc>::from(time).to_rfc3339());
+        for entry in fs::read_dir(folder)? {
+            let entry = entry?;
+            let path = entry.path();
+            if entry.file_name().to_string_lossy().starts_with("undo-import-")
+                && path.join("agent-history-format").is_file()
+            {
+                let name = path.display().to_string();
+                result.push(crate::RecoverySnapshot {
+                    id: name.clone(),
+                    path: name,
+                    source_op: "importUndo".into(),
+                    data_kinds: vec!["agent-history".into()],
+                    size_bytes: super::retained_bytes(&path)?,
+                    encrypted: path.join("agent-history-key.envelope").is_file(),
+                    created_at: entry
+                        .metadata()?
+                        .modified()
+                        .ok()
+                        .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339()),
+                    conversation_repair_source: crate::ConversationRepairSource::Unsealed,
+                    ..Default::default()
+                });
+                continue;
+            }
+            let before = install::Before::of_copy(&entry.file_name().to_string_lossy());
+            let held_copy = is_held_copy(&path);
+            let sealed = path.join(SEAL).is_file();
+            let replaced_archive = (before.is_some() || held_copy) && path.is_dir();
+            if !sealed && !replaced_archive {
+                continue;
+            }
+            let archive = path.join(vault_layout::database_path(vault_layout::primary_database()));
+            let header = |archive: &Path| -> std::io::Result<(u64, [u8; 16])> {
+                let mut header = [0u8; 16];
+                fs::File::open(archive)?.read_exact(&mut header)?;
+                Ok((fs::metadata(archive)?.len(), header))
+            };
+            let (size, encrypted) = match header(&archive) {
+                Ok((size, header)) => (size, &header != b"SQLite format 3\0"),
+                Err(_) => (0, false),
+            };
+            let created = fs::metadata(&path)?
+                .modified()
+                .ok()
+                .map(|time| chrono::DateTime::<chrono::Utc>::from(time).to_rfc3339());
 
-        let encrypted = if held_copy {
-            path.join(vault_layout::spec(vault_layout::ArtifactId::Envelope).path.relative())
-                .is_file()
-        } else {
-            encrypted
-        };
-        let source_op = if held_copy {
-            "heldGeneration"
-        } else if entry.file_name().to_string_lossy().starts_with("before-agent-repair-") {
-            "agentRepair"
-        } else if entry.file_name().to_string_lossy().starts_with("manual-") {
-            "manual"
-        } else {
-            before.map_or("maintenance", install::Before::op)
-        };
-        let restorable = sealed || crate::admission::root_layout(&path).is_ok();
-        let name = path.display().to_string();
-        let conversations_unreadable =
-            path.join(vault_layout::UNREADABLE_CONVERSATIONS).try_exists()?;
-        let (size_bytes, conversation_repair_source) =
-            copy_inventory(&path, sealed, conversations_unreadable, size);
-        result.push(crate::RecoverySnapshot {
-            id: name.clone(),
-            path: name,
-            created_at: created,
-            // The whole copy, as Free up space shows and deletes it.
-            size_bytes,
-            verified_openable: !held_copy && restorable && size >= 4096,
-            unchecked: !sealed,
-            conversations_unreadable,
-            conversation_repair_source,
-            encrypted,
-            source_op: source_op.into(),
-            label: label.into(),
-        });
+            let encrypted = if held_copy {
+                path.join(vault_layout::spec(vault_layout::ArtifactId::Envelope).path.relative())
+                    .is_file()
+            } else {
+                encrypted
+            };
+            let source_op = if held_copy {
+                "heldGeneration"
+            } else if entry.file_name().to_string_lossy().starts_with("before-agent-repair-") {
+                "agentRepair"
+            } else if entry.file_name().to_string_lossy().starts_with("manual-") {
+                "manual"
+            } else {
+                before.map_or("maintenance", install::Before::op)
+            };
+            let restorable = sealed || crate::admission::root_layout(&path).is_ok();
+            let name = path.display().to_string();
+            let conversations_unreadable =
+                path.join(vault_layout::UNREADABLE_CONVERSATIONS).try_exists()?;
+            let (size_bytes, conversation_repair_source) =
+                copy_inventory(&path, sealed, conversations_unreadable, size);
+            result.push(crate::RecoverySnapshot {
+                data_kinds: {
+                    let mut kinds = Vec::new();
+                    if archive.is_file() {
+                        kinds.push("browsing".into());
+                    }
+                    if path.join(vault_layout::database_path(Db::AgentHistoryEvidence)).is_file()
+                        || path.join(vault_layout::HELD_CONVERSATIONS).is_dir()
+                    {
+                        kinds.push("agent-history".into());
+                    }
+                    kinds
+                },
+                id: name.clone(),
+                path: name,
+                created_at: created,
+                // The whole copy, as Free up space shows and deletes it.
+                size_bytes,
+                verified_openable: !held_copy && restorable && size >= 4096,
+                unchecked: !sealed,
+                conversations_unreadable,
+                conversation_repair_source,
+                encrypted,
+                source_op: source_op.into(),
+                label: label.into(),
+            });
+        }
     }
     Ok(result)
 }
@@ -820,13 +896,23 @@ pub fn manual_snapshot(
     expected_unreadable: bool,
 ) -> Result<crate::RecoverySnapshot> {
     let _op = crate::archive::ArchiveOpGate::acquire(vault.paths());
+    manual_snapshot_under_gate(vault, expected_unreadable)
+}
+
+pub(crate) fn manual_snapshot_under_gate(
+    vault: &Vault,
+    expected_unreadable: bool,
+) -> Result<crate::RecoverySnapshot> {
+    crate::storage_volume::require_snapshot_volume(vault.paths())?;
     vault.recheck_root()?;
     let stage = staging_root(vault.paths())?;
     let target =
-        vault.paths().artifact_path(vault_layout::ArtifactId::NativeSnapshots).join(format!(
-            "manual-{}",
-            stage.path().file_name().context("copy stage has no name")?.to_string_lossy()
-        ));
+        vault.paths().artifact_path(vault_layout::ArtifactId::NativeSnapshots).join("v06").join(
+            format!(
+                "manual-{}",
+                stage.path().file_name().context("copy stage has no name")?.to_string_lossy()
+            ),
+        );
     let copy = stage.path().join("snapshot");
     let mut pause = vault.pause_store()?;
     anyhow::ensure!(

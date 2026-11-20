@@ -32,7 +32,7 @@ fn the_copy_before(paths: &ProjectPaths, op: &str) -> PathBuf {
     assert_eq!(copies.len(), 1, "{copies:?}");
     assert!(copies[0].verified_openable, "{copies:?}");
     let copy = PathBuf::from(&copies[0].path);
-    let snapshots = paths.artifact_path(vault_layout::ArtifactId::RawSnapshots);
+    let snapshots = paths.app_root.join("quarantine/v06/previous-generations");
     assert!(
         copy.starts_with(&snapshots),
         "{} is not counted or freed with the others",
@@ -308,7 +308,7 @@ fn a_replaced_archive_left_under_both_names_by_a_cut_rename_still_becomes_the_co
     let quarantined: Vec<PathBuf> = walkdir::WalkDir::new(&paths.quarantine_dir)
         .into_iter()
         .map(|entry| entry.unwrap().into_path())
-        .filter(|path| path.ends_with("archive/history-vault.db"))
+        .filter(|path| !path.starts_with(&copy) && path.ends_with("archive/history-vault.db"))
         .collect();
     assert_eq!(quarantined.len(), 1, "{quarantined:?}");
     assert_eq!(std::fs::read(&quarantined[0]).unwrap(), replaced);

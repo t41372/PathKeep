@@ -79,6 +79,7 @@ fn execute(
     mut report: impl FnMut(BackupProgressEvent),
 ) -> Result<BackupReport> {
     let _backup = vault.begin_backup()?;
+    anyhow::ensure!(vault.store().is_open(), "archive-uninitialized: archive has been closed");
     anyhow::ensure!(vault.config().initialized, "archive has not been initialized");
     crate::config::ensure_paths(vault.paths())?;
     if let Some(wake_interval) = scheduled_wake_interval

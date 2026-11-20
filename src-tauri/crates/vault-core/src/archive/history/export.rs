@@ -29,7 +29,7 @@ mod progress;
 use crate::{
     Vault,
     config::ProjectPaths,
-    durable_io::{atomic_durable_write_with, sweep_temps_older_than},
+    durable_io::{atomic_durable_write_with, sweep_export_temps},
     models::{
         ExportFormat, ExportRequest, ExportResult, HistoryEntry, HistoryQuery, HistoryQueryResponse,
     },
@@ -118,7 +118,7 @@ pub(super) fn write_export(
     // The temp is written beside the file; one left by an export that was killed is ours to
     // clear once it is an hour old (a fresh one may belong to an export still running).
     if let Some(folder) = target_path.parent() {
-        sweep_temps_older_than(folder, ABANDONED_EXPORT_AGE)?;
+        sweep_export_temps(folder, ABANDONED_EXPORT_AGE)?;
     }
     let search = request.query.q.as_ref().is_some_and(|q| !q.trim().is_empty());
     if let Some(job) = job {

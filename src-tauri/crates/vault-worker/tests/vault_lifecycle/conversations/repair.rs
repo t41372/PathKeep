@@ -1,6 +1,8 @@
 //! Exercises the repair preview and its irreversible boundary on synthetic archives.
 //! Corpus and browser fixtures retain the independent expected data.
 
+#[path = "pre_pair_copy.rs"]
+mod pre_pair_copy;
 use super::*;
 use vault_core::maintenance::{preview_conversation_repair, repair_conversations};
 use vault_store::Db;
@@ -401,12 +403,10 @@ fn legacy_sealed_copy_rebuilds_from_verified_evidence() {
     vault_core::maintenance::snapshot(&f.vault(), &good).unwrap();
     let seal = good.join("snapshot.json");
     let mut proofs: serde_json::Value = serde_json::from_slice(&fs::read(&seal).unwrap()).unwrap();
+    pre_pair_copy::replace_roles(&good);
     for db in [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel] {
         let role = vault_layout::database_path(db);
         let path = good.join(role);
-        let conn = rusqlite::Connection::open(&path).unwrap();
-        conn.execute_batch("DROP TABLE ah_pair_seal; DELETE FROM __pk_migrations WHERE version=(SELECT max(version) FROM __pk_migrations)").unwrap();
-        drop(conn);
         let digest = vault_core::utils::sha256_hex(&fs::read(path).unwrap());
         proofs.as_array_mut().unwrap().iter_mut().find(|p| p["path"] == role).unwrap()["sha256"] =
             digest.into();

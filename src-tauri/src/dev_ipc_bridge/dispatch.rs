@@ -58,6 +58,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
     command: &str,
     payload: Value,
 ) -> Result<Value, CommandError> {
+    if crate::desktop_integration::start_was_refused()
+        && !crate::archive_access::recovery_command(command)
+    {
+        return Err(CommandError::recovery_only());
+    }
     macro_rules! json_value {
         ($value:expr) => {
             to_json_value($value)
@@ -310,6 +315,80 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(super::preview::register(state, frames))
         }
         "cancel_agent_read" => worker_bridge::cancel_agent_read_impl(surface_request(payload)?),
+        "get_archive_access" => json_value!(crate::archive_access::access(&state.session)?),
+        "get_storage_volume" => {
+            #[derive(serde::Deserialize)]
+            struct Folder {
+                folder: Option<std::path::PathBuf>,
+            }
+            crate::archive_access::storage_volume(parse_payload::<Folder>(payload)?.folder)
+        }
+        "take_wipe_notice" => json_value!(crate::archive_access::notices()?),
+        "confirm_interrupted_wipe" => {
+            let request = parse_payload::<WipeConfirmationPayload>(payload)?;
+            json_value!(
+                vault_worker::confirm_interrupted_wipe(&request.confirmation)
+                    .map_err(|e| CommandError::from_backend(&e))?
+            )
+        }
+        "list_conversation_imports" => {
+            json_value!(worker_bridge::conversation_imports_impl(&state.session)?)
+        }
+        "undo_conversation_import" => {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Undo {
+                import_id: String,
+            }
+            worker_bridge::undo_conversation_import_impl(
+                &state.session,
+                parse_payload::<Undo>(payload)?.import_id,
+            )
+        }
+        "repair_archive_control" => {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Recover {
+                repair: crate::archive_access::Repair,
+                current_password: Option<String>,
+            }
+            let r = parse_payload::<Recover>(payload)?;
+            crate::archive_access::repair(&state.session, r.repair, r.current_password)?;
+            Ok(Value::Null)
+        }
+        "restart_after_archive_recovery" => {
+            require_app_handle(state)?.request_restart();
+            Ok(Value::Null)
+        }
+        "preview_archive_rollback" => json_value!(worker_bridge::rollback_preview()?),
+        "prepare_archive_rollback" => {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Prepare {
+                current_password: Option<String>,
+            }
+            json_value!(worker_bridge::rollback_prepare(
+                &state.session,
+                parse_payload::<Prepare>(payload)?.current_password
+            )?)
+        }
+        "resolve_archive_handoff" => {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Resolve {
+                rejoin: bool,
+                current_password: Option<String>,
+                package_password: Option<String>,
+            }
+            let request = parse_payload::<Resolve>(payload)?;
+            worker_bridge::rollback_resolve(
+                &state.session,
+                request.rejoin,
+                request.current_password,
+                request.package_password,
+            )?;
+            Ok(Value::Null)
+        }
         "app_build_info" => json_value!(worker_bridge::app_build_info_impl()),
         "app_snapshot" => {
             json_value!(worker_bridge::app_snapshot_impl(&state.session)?)
@@ -340,6 +419,9 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             })
             .await
             .unwrap_or_else(|error| join_failure("wipe_all_data", error))?;
+            if let Ok(app) = require_app_handle(state) {
+                desktop_integration::archive_wiped(&app);
+            }
             json_value!(report)
         }
         "initialize_archive" => {
@@ -391,6 +473,9 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(worker_bridge::run_full_archive_restore_impl(
                 payload.request,
                 payload.key,
+                payload.current_password,
+                payload.undo_conversations,
+                payload.use_copy_encryption,
                 &state.session
             )?)
         }
@@ -567,6 +652,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 &state.session,
                 std::path::PathBuf::from(payload.bundle_path),
                 payload.options,
+                payload.current_password,
             )?)
         }
         "load_dashboard_snapshot" => {

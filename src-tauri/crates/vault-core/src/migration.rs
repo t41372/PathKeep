@@ -21,10 +21,13 @@ use std::{
 };
 use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
+pub mod conversations;
 mod import_policy;
+mod intelligence_originals;
 pub mod native;
 mod portable_artifacts;
 mod safety_copies;
+mod undo_copy;
 pub use portable_artifacts::resolve_imported_artifact;
 #[cfg(test)]
 mod native_tests;
@@ -277,6 +280,25 @@ pub fn read_and_validate_manifest(bundle_path: &Path) -> Result<ExportManifest> 
     let manifest: ExportManifest =
         serde_json::from_slice(&manifest_bytes).context("parsing bundle manifest")?;
     Ok(manifest)
+}
+
+/// Older builds let a move file have any name directly under the data root. Identify those
+/// by their checked manifests so a wipe preview and a downgrade agree about ownership.
+pub(crate) fn root_move_files(root: &Path) -> Result<Vec<(PathBuf, u32)>> {
+    let mut files = Vec::new();
+    if !root.try_exists()? {
+        return Ok(files);
+    }
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file()
+            && let Ok(manifest) = read_and_validate_manifest(&entry.path())
+            && matches!(manifest.format_version, 1..=3)
+        {
+            files.push((entry.path(), manifest.format_version));
+        }
+    }
+    Ok(files)
 }
 
 fn read_zip_entry_bytes(archive: &mut ZipArchive<File>, entry_name: &str) -> Result<Vec<u8>> {

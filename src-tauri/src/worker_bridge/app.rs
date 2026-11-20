@@ -41,7 +41,7 @@ pub(crate) fn wipe_all_data_impl(
     confirmation: &str,
     state: &SessionState,
 ) -> Result<vault_core::WipeReport, CommandError> {
-    let report = worker_result(vault_worker::wipe_all_data(confirmation, || state.close_vault()))?;
+    let report = worker_result(state.wipe(confirmation))?;
     update_session_key(state, None)?;
     Ok(report)
 }

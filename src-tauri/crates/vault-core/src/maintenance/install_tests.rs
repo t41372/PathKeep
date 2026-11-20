@@ -331,6 +331,7 @@ fn a_journal_naming_a_copy_anywhere_else_moves_nothing() {
         "raw-snapshots/maintenance/rekey-x",
         "raw-snapshots/maintenance/before-restore-another",
         "raw-snapshots/before-restore-x",
+        "quarantine/v06/previous-generations/before-restore-another",
     ] {
         let root = tempfile::tempdir().unwrap();
         let paths = project_paths_with_root(root.path());
@@ -344,7 +345,9 @@ fn a_journal_naming_a_copy_anywhere_else_moves_nothing() {
         publish(&paths, &mut journal).unwrap();
         let mut record = journal_file(root.path());
         let backup = record["backup"].as_str().unwrap().to_owned();
-        assert!(record["kept_as"].as_str().unwrap().starts_with("raw-snapshots/maintenance/"));
+        assert!(
+            record["kept_as"].as_str().unwrap().starts_with("quarantine/v06/previous-generations/")
+        );
         record["kept_as"] = elsewhere.into();
         std::fs::write(
             root.path().join("archive/.pk-install-v2.json"),
@@ -1259,7 +1262,7 @@ fn a_log_a_copy_left_in_place_goes_with_the_archive_it_belongs_to() {
 
     recover(&paths).unwrap_or_else(|error| panic!("{error:#}"));
     assert!(!root.path().join(log).exists(), "a log beside the new store");
-    let copies = root.path().join("raw-snapshots/maintenance");
+    let copies = root.path().join("quarantine/v06/previous-generations");
     let [copy] = <[std::path::PathBuf; 1]>::try_from(
         std::fs::read_dir(&copies).unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>(),
     )

@@ -176,7 +176,7 @@ impl Before {
         let random = name.strip_prefix(vault_layout::family_prefix(
             vault_layout::ArtifactId::PreviousArchives,
         ))?;
-        let copies = vault_layout::spec(vault_layout::ArtifactId::NativeSnapshots).path.relative();
+        let copies = vault_layout::PREVIOUS_GENERATIONS_V06;
         RecordedPath::new(&Path::new(copies).join(format!("{}{random}", self.prefix()))).ok()
     }
 }
@@ -316,7 +316,13 @@ fn locate(paths: &ProjectPaths, journal: &Journal) -> Result<Located> {
     let kept_as = match &journal.kept_as {
         None => None,
         Some(copy)
-            if Before::ALL.iter().any(|before| before.copy_of(backup).as_ref() == Some(copy)) =>
+            if Before::ALL.iter().any(|before| {
+                before.copy_of(backup).is_some_and(|expected| {
+                    expected == *copy
+                        || (copy.parent() == Some(Path::new("raw-snapshots/maintenance"))
+                            && copy.file_name() == expected.file_name())
+                })
+            }) =>
         {
             Some(paths.app_root.join(copy))
         }
@@ -851,6 +857,7 @@ fn keep_aside(paths: &ProjectPaths, located: &Located, entry: &Entry, backup: &P
             crate::fault_inject::checkpoint("native-install-kept")?;
         }
     }
+    crate::maintenance::notices::remember(&paths.app_root, "archive-check-disk", Some(&quarantine));
     eprintln!(
         "PathKeep install: {} may have two names after a power cut on a file system without a \
          journal; its other names are kept in {} until the disk is checked",

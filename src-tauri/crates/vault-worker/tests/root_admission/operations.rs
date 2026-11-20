@@ -6,6 +6,15 @@ use vault_core::{ArchiveMode, Vault};
 
 #[derive(Clone, Copy, Debug)]
 enum Operation {
+    ConfirmWipe,
+    RollbackPreview,
+    RollbackPrepare,
+    HandoffResolve,
+    RebuildSettings,
+    RepairSecondary,
+    ConversationImports,
+    UndoConversationImport,
+
     LoadConfig,
     SaveConfig,
     Open,
@@ -72,7 +81,9 @@ fn observe(operation: Operation, control: &str) -> Observation {
     use Operation::*;
     let live = matches!(
         operation,
-        Snapshot
+        ConversationImports
+            | UndoConversationImport
+            | Snapshot
             | Restore
             | FullRestore
             | Export
@@ -156,6 +167,32 @@ fn observe(operation: Operation, control: &str) -> Observation {
     let secret_reads_before =
         vault_platform::test_support::keyring_secret_read_count(&f.temp.path().join("keyring"));
     let result = match operation {
+        ConfirmWipe => error(vault_worker::confirm_interrupted_wipe("DELETE")),
+        RollbackPreview => error(vault_core::maintenance::rollback::preview(&f.paths())),
+        RollbackPrepare => {
+            error(vault_core::maintenance::rollback::detach(&f.paths(), None, None, None))
+        }
+        HandoffResolve => {
+            error(vault_core::maintenance::rollback::resolve(&f.paths(), None, true, None, None))
+        }
+        RebuildSettings => error(vault_core::maintenance::control_recovery::rebuild_settings(
+            &f.paths(),
+            None,
+            None,
+        )),
+        RepairSecondary => {
+            error(vault_core::maintenance::control_recovery::replace_missing_secondary(
+                &f.paths(),
+                None,
+                vault_store::Db::Agent,
+                None,
+            ))
+        }
+        ConversationImports => error(vault_core::migration::conversations::imports(f.vault())),
+        UndoConversationImport => {
+            error(vault_core::migration::conversations::undo(f.vault(), "test".into()))
+        }
+
         LoadConfig => error(vault_core::load_config(&f.paths())),
         SaveConfig => {
             error(vault_core::save_config(&vault_core::ControlGate::acquire(&f.paths()), &f.config))
@@ -615,3 +652,19 @@ fn every_owner_route_that_uses_the_archive_refuses_at_the_owner() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 refuses!(model_install_refuses_before_touching_generations, ModelInstall);
+
+refuses!(rollback_preview_refuses, RollbackPreview);
+
+refuses!(rollback_prepare_refuses, RollbackPrepare);
+
+refuses!(handoff_resolve_refuses, HandoffResolve);
+
+refuses!(rebuild_settings_refuses, RebuildSettings);
+
+refuses!(repair_secondary_refuses, RepairSecondary);
+
+refuses!(conversation_imports_refuses, ConversationImports);
+
+refuses!(undo_conversation_import_refuses, UndoConversationImport);
+
+refuses!(confirm_wipe_refuses, ConfirmWipe);

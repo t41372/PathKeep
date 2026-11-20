@@ -16,15 +16,15 @@ impl Names {
             let parent = parts.join("/");
             let normalized = if part.starts_with("maintenance.bak-") {
                 self.alias(&parent, "maintenance.bak", part)
-            } else if parent.ends_with("raw-snapshots/maintenance")
+            } else if parent.ends_with("raw-snapshots/maintenance/v06")
                 && part.starts_with("rekey-maintenance-")
             {
                 self.alias(&parent, "rekey-maintenance", part)
-            } else if parent.ends_with("raw-snapshots/maintenance")
+            } else if parent.ends_with("quarantine/v06/previous-generations")
                 && part.starts_with("before-restore-")
             {
                 self.alias(&parent, "before-restore", part)
-            } else if parent.ends_with("raw-snapshots/maintenance")
+            } else if parent.ends_with("quarantine/v06/previous-generations")
                 && part.starts_with("before-import-")
             {
                 self.alias(&parent, "before-import", part)

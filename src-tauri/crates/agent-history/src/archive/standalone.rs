@@ -37,6 +37,40 @@ fn reject_product_root(root: &Path) -> Result<()> {
 }
 
 impl Archive {
+    /// The desktop already owns and has drained the product stores. Publish their standalone
+    /// format marker and a separate copy of the password envelope before detaching the files.
+    pub fn write_detached_control(root: &Path, envelope: Option<&Path>) -> Result<()> {
+        private_directory(root)?;
+        if let Some(envelope) = envelope {
+            let bytes = vault_crypto::read_envelope_file(envelope)?;
+            install_new_envelope(root, &Envelope::parse(&bytes)?)?;
+        }
+        write_marker(root, if envelope.is_some() { FORMAT_BYTES } else { PLAIN_FORMAT_BYTES })
+    }
+
+    /// Rejoin copies both roles through verified keyed ATTACH. The package stays usable until
+    /// the owner has installed and verified its replacement.
+    pub fn copy_detached_pair(
+        root: &Path,
+        password: &[u8],
+        stage: &Path,
+        key: Option<&DataKey>,
+    ) -> Result<()> {
+        let archive = Self::open(root, password)?;
+        let pause = archive.store.pause()?;
+        for role in [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel] {
+            let derived =
+                key.map(|k| *k.derive(vault_layout::database_spec(role).key).expose_bytes());
+            pause.copy_database(
+                role,
+                stage.join(vault_layout::database_path(role)),
+                derived,
+                Default::default(),
+                |_| {},
+            )?;
+        }
+        Ok(())
+    }
     /// Initializes an empty destination using the product's accepted password KDF.
     /// An existing archive or unrelated directory is never overwritten.
     pub fn create(root: &Path, password: &[u8]) -> Result<Self> {

@@ -390,6 +390,11 @@ fn remove_made_folder(paths: &ProjectPaths, record: &CreationRecord) -> Result<(
     }
     for relative in twins {
         rename(&folder.join(relative), &super::install::unused(&quarantine, relative)?)?;
+        crate::maintenance::notices::remember(
+            &paths.app_root,
+            "archive-check-disk",
+            Some(&quarantine),
+        );
         eprintln!(
             "PathKeep bring-up: {} may have two names after a power cut on a file system without \
              a journal; the other is kept in {} until the disk is checked",

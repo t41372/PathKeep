@@ -140,11 +140,21 @@ pub(crate) async fn list_recovery_snapshots()
 pub(crate) async fn run_full_archive_restore(
     request: vault_core::SnapshotRestoreRequest,
     key: Option<String>,
+    current_password: Option<String>,
+    undo_conversations: Option<bool>,
+    use_copy_encryption: Option<bool>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::FullArchiveRestoreReport, CommandError> {
     let session = state.inner().clone();
     run_blocking_command("run_full_archive_restore", move || {
-        worker_bridge::run_full_archive_restore_impl(request, key, &session)
+        worker_bridge::run_full_archive_restore_impl(
+            request,
+            key,
+            current_password,
+            undo_conversations.unwrap_or(false),
+            use_copy_encryption.unwrap_or(false),
+            &session,
+        )
     })
     .await
 }

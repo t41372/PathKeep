@@ -51,6 +51,10 @@ pub mod schedule_attempts;
 pub mod semantic_index;
 mod snapshot_reads;
 pub mod stars;
+/// Release version embedded in move files and previous-version handoffs.
+pub const APP_VERSION: &str = env!("PATHKEEP_APP_VERSION");
+
+pub mod storage_volume;
 pub mod store_schema;
 pub mod takeout;
 pub mod test_support;

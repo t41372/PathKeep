@@ -32,27 +32,27 @@
     "derived/search-index/<generation-1>/<segment-1>.term",
     "derived/search-index/<generation-1>/meta.json",
     "derived/search-index/current",
+    "quarantine/v06/previous-generations/<before-import-1>/archive/agent-history.db",
+    "quarantine/v06/previous-generations/<before-import-1>/archive/agent-history.db-wal",
+    "quarantine/v06/previous-generations/<before-import-1>/archive/history-vault.db",
+    "quarantine/v06/previous-generations/<before-import-1>/archive/history-vault.db-wal",
+    "quarantine/v06/previous-generations/<before-import-1>/archive/source-evidence.db",
+    "quarantine/v06/previous-generations/<before-import-1>/archive/source-evidence.db-wal",
+    "quarantine/v06/previous-generations/<before-import-1>/audit/.gitignore",
+    "quarantine/v06/previous-generations/<before-import-1>/audit/README.md",
+    "quarantine/v06/previous-generations/<before-import-1>/audit/manifests/<date-1>/run-1-<hash-1>.json",
+    "quarantine/v06/previous-generations/<before-import-1>/config.json",
+    "quarantine/v06/previous-generations/<before-import-1>/derived/agent-history-read-model.db",
+    "quarantine/v06/previous-generations/<before-import-1>/derived/agent-history-read-model.db-wal",
+    "quarantine/v06/previous-generations/<before-import-1>/derived/agent.db",
+    "quarantine/v06/previous-generations/<before-import-1>/derived/agent.db-wal",
+    "quarantine/v06/previous-generations/<before-import-1>/derived/intelligence.db",
+    "quarantine/v06/previous-generations/<before-import-1>/derived/intelligence.db-wal",
+    "quarantine/v06/previous-generations/<before-import-1>/derived/scratch.db",
+    "quarantine/v06/previous-generations/<before-import-1>/derived/scratch.db-wal",
+    "quarantine/v06/previous-generations/<before-import-1>/raw-snapshots/chrome%3ADefault/<checkpoint-1>/History",
+    "quarantine/v06/previous-generations/<before-import-1>/snapshot.json",
     "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History",
-    "raw-snapshots/maintenance/<before-import-1>/archive/agent-history.db",
-    "raw-snapshots/maintenance/<before-import-1>/archive/agent-history.db-wal",
-    "raw-snapshots/maintenance/<before-import-1>/archive/history-vault.db",
-    "raw-snapshots/maintenance/<before-import-1>/archive/history-vault.db-wal",
-    "raw-snapshots/maintenance/<before-import-1>/archive/source-evidence.db",
-    "raw-snapshots/maintenance/<before-import-1>/archive/source-evidence.db-wal",
-    "raw-snapshots/maintenance/<before-import-1>/audit/.gitignore",
-    "raw-snapshots/maintenance/<before-import-1>/audit/README.md",
-    "raw-snapshots/maintenance/<before-import-1>/audit/manifests/<date-1>/run-1-<hash-1>.json",
-    "raw-snapshots/maintenance/<before-import-1>/config.json",
-    "raw-snapshots/maintenance/<before-import-1>/derived/agent-history-read-model.db",
-    "raw-snapshots/maintenance/<before-import-1>/derived/agent-history-read-model.db-wal",
-    "raw-snapshots/maintenance/<before-import-1>/derived/agent.db",
-    "raw-snapshots/maintenance/<before-import-1>/derived/agent.db-wal",
-    "raw-snapshots/maintenance/<before-import-1>/derived/intelligence.db",
-    "raw-snapshots/maintenance/<before-import-1>/derived/intelligence.db-wal",
-    "raw-snapshots/maintenance/<before-import-1>/derived/scratch.db",
-    "raw-snapshots/maintenance/<before-import-1>/derived/scratch.db-wal",
-    "raw-snapshots/maintenance/<before-import-1>/raw-snapshots/chrome%3ADefault/<checkpoint-1>/History",
-    "raw-snapshots/maintenance/<before-import-1>/snapshot.json",
     "sidecars/intelligence-blobs/89/ad/89add169a6847800eba8346ee2fe0a64abcd0f6aff31fd91d347c8136c5d873f.txt"
   ],
   "markers": {
@@ -62,39 +62,39 @@
     "pkarchiveamber": [],
     "pkaskhazel": [],
     "pkcheckpointgold": [
-      "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History",
-      "raw-snapshots/maintenance/<before-import-1>/raw-snapshots/chrome%3ADefault/<checkpoint-1>/History"
+      "quarantine/v06/previous-generations/<before-import-1>/raw-snapshots/chrome%3ADefault/<checkpoint-1>/History",
+      "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History"
     ],
     "pkevidencebirch": [],
     "pkintelligencecoral": [],
     "pkreadmodeljade": [],
     "pksearchelm": [
-      "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History",
-      "raw-snapshots/maintenance/<before-import-1>/archive/history-vault.db",
-      "raw-snapshots/maintenance/<before-import-1>/archive/source-evidence.db",
-      "raw-snapshots/maintenance/<before-import-1>/raw-snapshots/chrome%3ADefault/<checkpoint-1>/History"
+      "quarantine/v06/previous-generations/<before-import-1>/archive/history-vault.db",
+      "quarantine/v06/previous-generations/<before-import-1>/archive/source-evidence.db",
+      "quarantine/v06/previous-generations/<before-import-1>/raw-snapshots/chrome%3ADefault/<checkpoint-1>/History",
+      "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History"
     ],
     "pktextfuchsia": [
       "sidecars/intelligence-blobs/89/ad/89add169a6847800eba8346ee2fe0a64abcd0f6aff31fd91d347c8136c5d873f.txt"
     ],
     "targetagent": [
-      "raw-snapshots/maintenance/<before-import-1>/archive/agent-history.db",
-      "raw-snapshots/maintenance/<before-import-1>/derived/agent.db"
+      "quarantine/v06/previous-generations/<before-import-1>/archive/agent-history.db",
+      "quarantine/v06/previous-generations/<before-import-1>/derived/agent.db"
     ],
     "targetagenthistory": [
-      "raw-snapshots/maintenance/<before-import-1>/archive/agent-history.db"
+      "quarantine/v06/previous-generations/<before-import-1>/archive/agent-history.db"
     ],
     "targetarchive": [
-      "raw-snapshots/maintenance/<before-import-1>/archive/history-vault.db"
+      "quarantine/v06/previous-generations/<before-import-1>/archive/history-vault.db"
     ],
     "targetevidence": [
-      "raw-snapshots/maintenance/<before-import-1>/archive/source-evidence.db"
+      "quarantine/v06/previous-generations/<before-import-1>/archive/source-evidence.db"
     ],
     "targetintelligence": [
-      "raw-snapshots/maintenance/<before-import-1>/derived/intelligence.db"
+      "quarantine/v06/previous-generations/<before-import-1>/derived/intelligence.db"
     ],
     "targetreadmodel": [
-      "raw-snapshots/maintenance/<before-import-1>/derived/agent-history-read-model.db"
+      "quarantine/v06/previous-generations/<before-import-1>/derived/agent-history-read-model.db"
     ]
   },
   "logical": {
@@ -102,11 +102,13 @@
     "archive/source-evidence.db": "pkevidencebirch",
     "derived/intelligence.db": null,
     "derived/agent.db": "pkagentdenim",
-    "archive/agent-history.db": "pkagenthistoryivory",
-    "derived/agent-history-read-model.db": "pkreadmodeljade",
+    "archive/agent-history.db": "targetagenthistory",
+    "derived/agent-history-read-model.db": "targetreadmodel",
     "searchTitles": ["pksearchelm"],
     "askMessages": ["pkaskhazel"],
-    "savedTextLocators": []
+    "savedTextLocators": [
+      "89/ad/89add169a6847800eba8346ee2fe0a64abcd0f6aff31fd91d347c8136c5d873f.txt"
+    ]
   },
   "databaseHeaders": {
     "archive/agent-history.db": "non-sqlite",
@@ -116,13 +118,13 @@
     "derived/agent.db": "non-sqlite",
     "derived/intelligence.db": "non-sqlite",
     "derived/scratch.db": "empty",
-    "raw-snapshots/maintenance/<before-import-1>/archive/agent-history.db": "sqlite",
-    "raw-snapshots/maintenance/<before-import-1>/archive/history-vault.db": "sqlite",
-    "raw-snapshots/maintenance/<before-import-1>/archive/source-evidence.db": "sqlite",
-    "raw-snapshots/maintenance/<before-import-1>/derived/agent-history-read-model.db": "sqlite",
-    "raw-snapshots/maintenance/<before-import-1>/derived/agent.db": "sqlite",
-    "raw-snapshots/maintenance/<before-import-1>/derived/intelligence.db": "sqlite",
-    "raw-snapshots/maintenance/<before-import-1>/derived/scratch.db": "empty"
+    "quarantine/v06/previous-generations/<before-import-1>/archive/agent-history.db": "sqlite",
+    "quarantine/v06/previous-generations/<before-import-1>/archive/history-vault.db": "sqlite",
+    "quarantine/v06/previous-generations/<before-import-1>/archive/source-evidence.db": "sqlite",
+    "quarantine/v06/previous-generations/<before-import-1>/derived/agent-history-read-model.db": "sqlite",
+    "quarantine/v06/previous-generations/<before-import-1>/derived/agent.db": "sqlite",
+    "quarantine/v06/previous-generations/<before-import-1>/derived/intelligence.db": "sqlite",
+    "quarantine/v06/previous-generations/<before-import-1>/derived/scratch.db": "empty"
   },
   "configMode": "Encrypted",
   "plaintextGapFamilies": [

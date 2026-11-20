@@ -71,12 +71,15 @@ impl CompanionFamily {
     /// Main files are represented by the empty suffix, keeping relative ordering unchanged.
     pub const fn suffixes(self, operation: CompanionUse) -> &'static [&'static str] {
         match (self, operation) {
-            (_, CompanionUse::Usage) => &["", "-wal"],
-            (Self::Native, CompanionUse::Install) => &["", "-wal", "-shm", "-tshm"],
+            (Self::LegacySqlite, CompanionUse::Usage) => &["", "-wal"],
+            (Self::Native, CompanionUse::Install | CompanionUse::Usage | CompanionUse::Reset) => {
+                &["", "-wal", "-shm", "-tshm"]
+            }
             (Self::LegacySqlite, CompanionUse::Recovery | CompanionUse::Install) => {
                 &["", "-wal", "-shm", "-journal"]
             }
-            (_, CompanionUse::Reset | CompanionUse::Assess)
+            (Self::LegacySqlite, CompanionUse::Reset)
+            | (_, CompanionUse::Assess)
             | (Self::Native, CompanionUse::Recovery) => &["", "-wal", "-shm"],
         }
     }

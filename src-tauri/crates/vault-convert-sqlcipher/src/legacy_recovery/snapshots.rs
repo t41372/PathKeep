@@ -142,6 +142,7 @@ pub fn list_legacy_snapshots(paths: &ProjectPaths) -> Result<Vec<RecoverySnapsho
             let path_string = path.display().to_string();
             let disk_mode = detect_disk_encryption_mode(&path);
             snapshots.push(RecoverySnapshot {
+                data_kinds: vec!["browsing".into()],
                 id: path_string.clone(),
                 verified_openable: snapshot_is_openable_keyless(disk_mode, &path, size_bytes),
                 // An old-format snapshot is one database file and has no seal to write.
