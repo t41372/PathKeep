@@ -234,8 +234,8 @@ export function subagentsText(n: number) {
   return `${n.toLocaleString('en-US')} subagent${n === 1 ? '' : 's'}`
 }
 
-export async function openBackupPage(page: Page, query = '') {
-  await page.goto(`/#/agent/backup${query}`)
+export async function openBackupPage(page: Page) {
+  await page.goto('/#/agent/backup')
   await unlockIfLocked(page)
   await expect(
     page.getByRole('heading', { name: 'Backup', level: 1 }),
@@ -320,12 +320,23 @@ export interface WireKindRow {
   sourceReviewRequired?: boolean
 }
 
-/** Each kind's state as the backend has it, and the token to change one. */
-export function dataKinds() {
-  return backend<{ kinds: WireKindRow[]; policyToken: string }>(
-    'list_data_kinds',
-    { request: {} },
-  )
+/**
+ * Each kind's state as the backend has it, and the token to change one. A
+ * read that crosses a change (the window's own, say, while a spec polls) is
+ * refused with `policy-changed`; the answer is to read again, as the window
+ * does when the change's event arrives.
+ */
+export async function dataKinds() {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await backend<{ kinds: WireKindRow[]; policyToken: string }>(
+        'list_data_kinds',
+        { request: {} },
+      )
+    } catch (error) {
+      if (attempt >= 5 || !String(error).includes('policy-changed')) throw error
+    }
+  }
 }
 
 /** Agent conversations' state as the backend has it. */

@@ -7,18 +7,23 @@
  * has a row per folder; the choose step adds a tool's folders up.
  *
  * What the preview should count for a folder, from the files the generator
- * wrote, without opening any of them:
+ * wrote, without opening any of them. The preview walks the folder with the
+ * same file rule the save uses, so it counts what the save would read:
  * - conversation files: files named like a transcript. That is the
- *   conversations (`conversation`), and also the empty transcript (`empty`)
- *   and a Cowork task's `audit.jsonl` (`audit`): only opening them would
- *   show that they hold no conversation;
+ *   conversations (`conversation`) and also the empty transcript (`empty`):
+ *   only opening it would show that it holds no conversation. A Cowork
+ *   task's `audit.jsonl` (`audit`) counts only while its task folder holds
+ *   no main transcript; next to one, the save keeps it as the task's
+ *   metadata, not as a conversation of its own;
  * - subagent files: `subagent`, which Claude Code's layout shows;
  * - size: every file in the folder;
  * - earliest: the oldest file's modification time.
  */
 import { existsSync, renameSync } from 'node:fs'
+import path from 'node:path'
 import { expect, type Page } from '@playwright/test'
 import type {
+  AgentFile,
   AgentRoot,
   AgentTool,
 } from '../../../scripts/fixtures/synthetic-agents.mjs'
@@ -57,7 +62,17 @@ const ROOT_TOOL: Record<AgentRoot, AgentTool> = {
   deepseek: 'deepseek',
 }
 
-const LOOKS_LIKE_CONVERSATION = new Set(['conversation', 'empty', 'audit'])
+/** Whether the preview counts `file` as a conversation file (see above). */
+function looksLikeConversation(file: AgentFile, files: readonly AgentFile[]) {
+  if (file.kind !== 'audit')
+    return file.kind === 'conversation' || file.kind === 'empty'
+  const transcripts = path.join(path.dirname(file.path), '.claude', 'projects')
+  return !files.some(
+    (other) =>
+      other.kind === 'conversation' &&
+      other.path.startsWith(`${transcripts}${path.sep}`),
+  )
+}
 
 /** The folders whose rows name them, as English shows it. */
 const FOLDER_LABELS: Partial<Record<AgentRoot, string>> = {
@@ -91,7 +106,7 @@ export function expectedFolders(): ExpectedFolder[] {
         label: FOLDER_LABELS[root],
         path: agents.roots[root],
         conversationFiles: facts.files.filter((file) =>
-          LOOKS_LIKE_CONVERSATION.has(file.kind),
+          looksLikeConversation(file, facts.files),
         ).length,
         subagentFiles: facts.subagentFiles.length,
         bytes: facts.totalBytes,

@@ -222,7 +222,9 @@ function Facts({
       </div>
       <div
         role="img"
-        aria-label={t('agentInsights.year.months', { year: calendar.year })}
+        aria-label={t('agentInsights.year.months', {
+          year: String(calendar.year),
+        })}
         className="flex min-h-[48px] flex-1 flex-col gap-1.5"
       >
         <div className="flex flex-1 items-end gap-1.5 border-b border-foreground/10">
@@ -324,7 +326,9 @@ export function YearSection({
                 <div className="overflow-x-auto pb-1">
                   <Heatmap
                     columns={columns}
-                    label={t('agentInsights.year.grid', { year: value.year })}
+                    label={t('agentInsights.year.grid', {
+                      year: String(value.year),
+                    })}
                     onCellClick={(day) =>
                       void navigate(historyOnDay(filters, day))
                     }
@@ -345,7 +349,9 @@ export function YearSection({
       <div className="flex min-w-[300px] flex-1 flex-col">
         <SectionCard
           title={
-            value ? t('agentInsights.year.facts', { year: value.year }) : ''
+            value
+              ? t('agentInsights.year.facts', { year: String(value.year) })
+              : ''
           }
           className="flex-1"
         >

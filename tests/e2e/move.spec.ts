@@ -287,8 +287,14 @@ test('after the move, this computer chooses its folders again, and older links s
     'On, but nothing on this computer is chosen to back up, so nothing is backed up. Everything saved is still here.',
   )
 
-  // A browsing backup's link from before: not in this archive.
-  await openBackupPage(page, `?run=${encodeURIComponent(linkBeforeMove!)}`)
+  // A browsing backup's link from before: not in this archive. The link
+  // opens a sheet over the page, which hides the page from a screen reader,
+  // so the page is opened (and unlocked) first and the link followed in it.
+  await openBackupPage(page)
+  const link = `?run=${encodeURIComponent(linkBeforeMove!)}`
+  await page.evaluate((query) => {
+    window.location.hash = `/agent/backup${query}`
+  }, link)
   const sheet = page.getByRole('dialog')
   await expect(sheet).toContainText('This backup isn’t in the archive.')
   await testInfo.attach('a link from before the move', {

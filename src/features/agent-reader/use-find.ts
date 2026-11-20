@@ -49,28 +49,34 @@ const idle: FindState = {
   matches: { items: [], byToken: new Map() },
   error: null,
 }
+const finding: FindState = { ...idle, phase: 'finding' }
 
 export function useFind(id: string, query: string | null, onStale: () => void) {
-  const [state, setState] = useState<FindState>(idle)
   const [attempt, setAttempt] = useState(0)
+  // What was found, and for which find: from the render that asks for a new
+  // query, conversation or attempt on, the last one's matches are not this
+  // one's (the reader would go to the last query's first occurrence as the
+  // new one's).
+  const key = query ? `${id}\n${attempt}\n${query}` : null
+  const [found, setFound] = useState<{ key: string; state: FindState } | null>(
+    null,
+  )
 
   useEffect(() => {
-    if (!query) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- no query, nothing found
-      setState(idle)
-      return
-    }
+    if (!key || !query) return
     let live = true
     let frame = 0
     const items: SearchMatch[] = []
     const byToken = new Map<string, SearchMatch[]>()
     let phase: FindState['phase'] = 'finding'
     let error: string | null = null
-    setState({ ...idle, phase: 'finding' })
     const flush = () => {
       frame = 0
       if (!live) return
-      setState({ phase, matches: { items: items.slice(), byToken }, error })
+      setFound({
+        key,
+        state: { phase, matches: { items: items.slice(), byToken }, error },
+      })
     }
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(flush)
@@ -119,7 +125,8 @@ export function useFind(id: string, query: string | null, onStale: () => void) {
       if (frame) cancelAnimationFrame(frame)
       close?.()
     }
-  }, [id, query, attempt, onStale])
+  }, [key, id, query, onStale])
 
-  return state
+  if (!key) return idle
+  return found?.key === key ? found.state : finding
 }

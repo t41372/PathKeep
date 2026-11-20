@@ -652,8 +652,10 @@ const read = () => view
 /**
  * The download as the screens show it. Listens while mounted; a transfer another window started
  * shows at once (the backend is asked when nothing is followed) and then follows its events.
- * `modelDownloaded` is the snapshot's word that the model is here: the phase is then `ready`
- * whatever the events said.
+ * `modelDownloaded` says no download is needed: the snapshot has the model, or the saved
+ * settings choose a service. The phase is then `ready` whatever the events said, except while a
+ * transfer still runs: choosing a service stops the download, and the screen says it is stopping
+ * until it has.
  */
 export function useModelDownloadProgress(
   modelDownloaded: boolean,
@@ -672,8 +674,11 @@ export function useModelDownloadProgress(
     }
   }, [])
   const current = useSyncExternalStore(watch, read)
-  return useMemo(
-    () => (modelDownloaded ? { ...current, phase: 'ready' as const } : current),
-    [current, modelDownloaded],
-  )
+  return useMemo(() => {
+    const running =
+      current.phase === 'downloading' || current.phase === 'waiting'
+    return modelDownloaded && !running
+      ? { ...current, phase: 'ready' as const }
+      : current
+  }, [current, modelDownloaded])
 }

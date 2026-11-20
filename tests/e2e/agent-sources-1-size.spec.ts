@@ -40,11 +40,12 @@ test('the size in the archive fills in after the page, without moving it', async
   const { devIpcUrl } = resolveDesktopBridgeEnv(process.env)
   const pattern = `${devIpcUrl}/commands/list_data_kinds`
   const held: Route[] = []
+  let holding = true
   await page.route(pattern, (route) => {
     const body = route.request().postDataJSON() as {
       request?: { includeArchiveBytes?: boolean }
     } | null
-    if (body?.request?.includeArchiveBytes) held.push(route)
+    if (holding && body?.request?.includeArchiveBytes) held.push(route)
     else void route.continue()
   })
 
@@ -64,8 +65,11 @@ test('the size in the archive fills in after the page, without moving it', async
       contentType: 'image/png',
     })
 
-    await page.unroute(pattern)
+    // Let the held answers through before the route goes: removing a route
+    // passes on what it holds by itself, and a route can be let through once.
+    holding = false
     for (const route of held) await route.continue()
+    await page.unroute(pattern)
 
     const sizes = await backend<{ kinds: KindRow[] }>('list_data_kinds', {
       request: { includeArchiveBytes: true },

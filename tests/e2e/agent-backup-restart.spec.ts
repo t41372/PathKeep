@@ -68,7 +68,10 @@ test('a first save cut off by a restart ends stopped, and a retry finishes it on
   })
 
   await killAndRestartApp()
+  // Load the restarted app: until the page is loaded again it still shows
+  // the killed one, unlocked, while the new one starts behind App Lock.
   await page.goto('/#/settings/background?show=conversations')
+  await page.reload()
   await unlockIfLocked(page)
 
   // Over, stopped by the restart; nothing started it again.

@@ -8,8 +8,9 @@
  *
  * Proves:
  * - "Keep going in the background" closes the dialog and the save goes on:
- *   the rail's indicator counts one task, and its list names the first
- *   save with its progress in files and a Cancel;
+ *   the kind is on at once, so the switcher lists Agent conversations while
+ *   the save runs; the rail's indicator counts one task, and its list names
+ *   the first save with its progress in files and a Cancel;
  * - opening `?enable=agent` again shows the same run (one running task,
  *   not a second);
  * - Cancel in the rail's list ends it as stopped before the end, because
@@ -76,6 +77,16 @@ test('a first save goes on behind the dialog, stops from the rail, and finishes 
     .getByRole('button', { name: 'Keep going in the background' })
     .click()
   await expect(enableDialog(page)).toBeHidden()
+
+  // On at once: the switcher has the space while the save runs (the rail
+  // below shows it still running).
+  await page.getByRole('button', { name: /^Switch data type\. Now: / }).click()
+  const spaces = page.getByRole('menu', { name: /^Switch data type/ })
+  await expect(
+    spaces.getByRole('menuitemradio', { name: /Agent conversations/ }),
+  ).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(spaces).toBeHidden()
 
   // The rail shows it, with progress in files and a Cancel.
   await expect(taskIndicator(page)).toHaveAccessibleName(

@@ -11,14 +11,17 @@
  *   own "Back up now" still backs them up;
  * - off, the switcher no longer lists the space, `#/agent/backup` says it
  *   is off, and the archive still holds every conversation;
- * - "On" again turns it on directly (its folders are still approved here):
- *   no preview, no second first save, the same conversations.
+ * - "On" again goes through the enable flow, as every change from off to on
+ *   does (`data-spaces.md` §2): the preview opens and the kind stays off
+ *   until the save starts; saving the same tools turns it on, and the
+ *   archive holds the same conversations.
  */
 import { expect, test, type Page } from '@playwright/test'
 import type { AppSnapshot } from '../../src/lib/types'
 import {
   agentKindState,
   agentRuns,
+  chooseAndStart,
   conversationsText,
   count,
   newestRunRef,
@@ -26,7 +29,7 @@ import {
   openTaskList,
   waitForRunAfter,
 } from './support/agent-backup'
-import { enableDialog } from './support/agent-tools'
+import { agentSettings, enableDialog } from './support/agent-tools'
 import { unlockIfLocked } from './support/app'
 import { backend } from './support/fixture'
 
@@ -115,6 +118,7 @@ test('pause stops a running backup and skips the kind; off hides it; on brings i
     request: { purpose: 'backup' },
   })
   const runsHeld = (await agentRuns()).length
+  const lastRun = await newestRunRef()
   await page.goto('/#/settings/kinds')
   await unlockIfLocked(page)
   await states(page).getByRole('radio', { name: 'Off' }).click()
@@ -140,15 +144,27 @@ test('pause stops a running backup and skips the kind; off hides it; on brings i
     contentType: 'image/png',
   })
 
-  // On again: directly, with no preview and no second first save.
+  // On again: through the preview, and still off until the save starts.
+  const { policy } = await agentSettings()
   await page.goto('/#/settings/kinds')
   await unlockIfLocked(page)
   await states(page).getByRole('radio', { name: 'On' }).click()
-  await expect.poll(async () => (await agentKindState())?.state).toBe('on')
-  await expect(page).not.toHaveURL(/enable=agent/)
-  await expect(enableDialog(page)).toHaveCount(0)
+  await expect(page).toHaveURL(/enable=agent/)
+  await expect(enableDialog(page)).toBeVisible()
+  expect((await agentKindState())?.state).toBe('off')
+  await chooseAndStart(page, policy.enabledTools, policy.readGit)
+  const dialog = enableDialog(page)
+  await expect(dialog.getByRole('heading', { name: 'Saved' })).toBeVisible({
+    timeout: 120_000,
+  })
+  const again = await waitForRunAfter(lastRun)
+  expect(again.trigger).toBe('enable')
+  expect(await agentRuns()).toHaveLength(runsHeld + 1)
+  // The footer's Close; the × in the corner has the same name.
+  await dialog.getByRole('button', { name: 'Close' }).first().click()
+  await expect(dialog).toBeHidden()
+  expect((await agentKindState())?.state).toBe('on')
   expect(await switcherHasAgent(page)).toBe(true)
-  expect(await agentRuns()).toHaveLength(runsHeld)
   await openBackupPage(page)
   await expect(
     page.getByText(

@@ -7,9 +7,10 @@
  * the off page's button opens the same dialog.)
  *
  * Proves:
- * - ticking Claude Code and Codex with `.git` off and starting turns the
- *   kind on at once: the switcher lists Agent conversations while the save
- *   still runs;
+ * - ticking Claude Code and Codex with `.git` off and starting saves both
+ *   tools. That the kind is on at once is checked in agent-backup-2: the
+ *   switcher behind this dialog can be opened only once the dialog is put
+ *   away;
  * - the Run step shows each ticked tool's progress in files (found, then
  *   saved with their size), never a percentage, and no row for the others;
  * - Done's numbers are the run's (`get_archive_run`), and those are what
@@ -63,17 +64,6 @@ test('a first save from the off page, with two tools and no .git, leaves notes a
     .click()
   await expect(enableDialog(page)).toBeVisible()
   await chooseAndStart(page, CHOSEN, false)
-
-  // On at once: the switcher has the space while the save runs.
-  const switcher = page.getByRole('button', {
-    name: /^Switch data type\. Now: /,
-  })
-  await switcher.click()
-  const menu = page.getByRole('menu', { name: /^Switch data type/ })
-  await expect(
-    menu.getByRole('menuitemradio', { name: /Agent conversations/ }),
-  ).toBeVisible()
-  await page.keyboard.press('Escape')
 
   // Progress in files for each ticked tool, and no percentage.
   const dialog = enableDialog(page)

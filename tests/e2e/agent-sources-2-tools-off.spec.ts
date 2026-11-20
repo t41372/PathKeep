@@ -149,6 +149,10 @@ test('with every tool switched off, the kind stays on, says so, and holds browsi
       body: await page.screenshot(),
       contentType: 'image/png',
     })
+    // The browsing backup's own notice can arrive meanwhile and stack in
+    // front of this one; pointing at the notices spreads them out, as a
+    // person does to reach the one behind.
+    await page.locator('[data-sonner-toast][data-front="true"]').hover()
     await notice.getByRole('button', { name: 'Choose sources' }).click()
     await expect(page).toHaveURL(/#\/agent\/backup$/)
     await waitForBrowsingRunAfter(browsingBefore?.id)
