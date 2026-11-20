@@ -25,6 +25,7 @@ import {
   lastBrowsingRun,
   railAttention,
   taskRow,
+  taskSummary,
   waitForBrowsingRunAfter,
 } from './support/agent-backup'
 import { unlockIfLocked } from './support/app'
@@ -81,6 +82,23 @@ test('the page follows the backend’s event, and reads nothing while nothing ch
     `section[data-task-group] li[data-task-id="browsing:intelligence/${jobId}"]`,
   )
   await expect(row.first()).toBeVisible({ timeout: 15_000 })
+  // It rebuilds every visit's Insights: about a minute on the Linux debug
+  // build. The page has to show it done once the backend says so (nothing
+  // else was queued or running: the page said so above).
+  await expect
+    .poll(
+      async () => {
+        const summary = await taskSummary()
+        return (
+          summary.queuedCount === 0 &&
+          !summary.running.some(
+            (task) => task.taskId === `browsing:intelligence/${jobId}`,
+          )
+        )
+      },
+      { timeout: 150_000 },
+    )
+    .toBe(true)
   const done = await taskRow(
     page,
     'today',
@@ -131,7 +149,9 @@ test('a browsing backup that ended short is dismissed from Needs a look, and its
   expect(listed?.commands).toContain('dismiss')
   const counted = await railAttention()
   expect(counted).toBeGreaterThan(0)
-  await expectIdleIndicator(page)
+  // The backup queued Insights work that starts the rebuild over: about a
+  // minute on the Linux debug build.
+  await expectIdleIndicator(page, 180_000)
   await testInfo.attach('a backup that ended short, under Needs a look', {
     body: await page.screenshot({ fullPage: true }),
     contentType: 'image/png',
