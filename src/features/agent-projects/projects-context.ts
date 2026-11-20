@@ -4,7 +4,7 @@
  * the dialogs any row can open. The page provides it; rows and menus read
  * it instead of passing it down through every view.
  */
-import { createContext, useContext, type RefObject } from 'react'
+import { createContext, useContext } from 'react'
 import type { ProjectCard } from '@/lib/backend-client/agent-projects'
 import type { Formatters } from '@/lib/i18n'
 import type { Arrangement } from './arrangement'
@@ -30,10 +30,15 @@ export function useProjectsShared() {
 /** A project row's height: rows are virtualized at this size. */
 export const ROW_HEIGHT = 40
 
-/** The page's scrolling element, which every card's rows follow. */
-export const PageScrollContext = createContext<RefObject<HTMLElement | null>>({
-  current: null,
-})
+/**
+ * The page's scrolling element, which every card's rows follow; `null`
+ * until it is in the page. An element rather than a ref: the rows mount in
+ * the same commit as the page when its data is already loaded, and their
+ * layout effects run before an ancestor's ref is set, so a ref would read
+ * as empty then and never say when it was filled. The element is state,
+ * and the rows draw again once it is there.
+ */
+export const PageScrollContext = createContext<HTMLElement | null>(null)
 
 /**
  * For a sheet's `onInteractOutside`: a click on a notice (its Undo) is not

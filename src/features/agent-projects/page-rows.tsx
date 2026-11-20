@@ -23,12 +23,11 @@ export function PageRows<T>({
   keyOf: (item: T) => string
   children: (item: T, index: number) => ReactNode
 }) {
-  const scroll = useContext(PageScrollContext)
+  const parent = useContext(PageScrollContext)
   const list = useRef<HTMLDivElement>(null)
   const [margin, setMargin] = useState(0)
   useLayoutEffect(() => {
     const element = list.current
-    const parent = scroll.current
     if (!element || !parent) return
     const measure = () => {
       const top =
@@ -42,11 +41,11 @@ export function PageRows<T>({
     observer.observe(parent)
     if (parent.firstElementChild) observer.observe(parent.firstElementChild)
     return () => observer.disconnect()
-  }, [scroll])
+  }, [parent])
   // eslint-disable-next-line react-hooks/incompatible-library -- the virtualizer is only read below
   const virtualizer = useVirtualizer({
     count: items.length,
-    getScrollElement: () => scroll.current,
+    getScrollElement: () => parent,
     estimateSize: () => ROW_HEIGHT,
     getItemKey: (index) => keyOf(items[index]),
     scrollMargin: margin,

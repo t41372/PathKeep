@@ -257,8 +257,14 @@ test('Insights open the Agent space and say what the backend counts', async ({
     await pickTool(page, 'Codex')
     await conversationsTile(page).click()
     await expect(page).toHaveURL(/#\/agent\/chats\?h=codex$/)
+    // History is drawn before going back. The address changes first; going
+    // back before History replaced Insights would leave Insights as it was.
+    await expect(chatList(page)).toBeVisible()
     await page.goBack()
     await expect(insightsHeading(page)).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Filter tools and projects' }),
+    ).toBeVisible()
 
     // The longest conversation opens beside History.
     const [longest] = all.breakdowns.longest

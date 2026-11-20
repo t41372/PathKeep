@@ -10,7 +10,7 @@
  * responsible for: the views or the dialogs (the sibling files).
  */
 import { FolderKanban, TriangleAlert } from 'lucide-react'
-import { useRef } from 'react'
+import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { dragRegion } from '@/components/app/drag-region'
 import { Button } from '@/components/ui/button'
@@ -59,7 +59,7 @@ function CardSkeleton() {
 export default function ProjectsPage() {
   const { t } = useI18n()
   const [search, setSearch] = useSearchParams()
-  const scroll = useRef<HTMLDivElement>(null)
+  const [scroll, setScroll] = useState<HTMLDivElement | null>(null)
   const { row } = useAgentKind()
   const all = useProjectList({})
   const view: View =
@@ -151,7 +151,7 @@ export default function ProjectsPage() {
   return (
     <ProjectsProvider all={all.data}>
       <PageScrollContext.Provider value={scroll}>
-        <div ref={scroll} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div ref={setScroll} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           <div className="mx-auto flex max-w-[1180px] flex-col gap-4 px-7 pb-10">
             <header
               {...dragRegion()}
