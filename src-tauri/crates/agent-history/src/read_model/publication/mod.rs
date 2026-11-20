@@ -85,6 +85,8 @@ pub struct ResolvedBase {
 /// Identifies the retained revision and explains its role in the selected conversation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceMember {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_call: Option<String>,
     #[serde(default)]
     pub awaiting_rebuild: bool,
     #[serde(default)]

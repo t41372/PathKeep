@@ -109,6 +109,7 @@ pub(crate) fn stage_summary(
     let mut activity = std::collections::BTreeMap::<i64, (i64, i64)>::new();
     let mut first_prompt: Option<(i64, String)> = None;
     let mut detail = json!({});
+    let mut assignment = None;
     for m in &members {
         // A superseded DeepSeek generation and a byte-identical copy contribute no new work.
         let mut contributes =
@@ -284,6 +285,7 @@ pub(crate) fn stage_summary(
         }
         if source == current {
             detail = parser.details;
+            assignment = parser.assignment;
         }
     }
     for (hour, (lo, hi)) in activity {
@@ -292,6 +294,10 @@ pub(crate) fn stage_summary(
             params![publication, hour, lo, hi],
         )?;
     }
+    if let Some(call) = &elected.launch_call {
+        detail["launchCallId"] = json!(call);
+    }
+    let first_prompt = first_prompt.map(|(_, title)| title).or(assignment);
     let title_source = if native_title.is_some() {
         "tool"
     } else if first_prompt.is_some() {
@@ -300,7 +306,7 @@ pub(crate) fn stage_summary(
         "unknown"
     };
     let title =
-        native_title.or_else(|| first_prompt.map(|(_, title)| title.chars().take(160).collect()));
+        native_title.or_else(|| first_prompt.map(|title| title.chars().take(160).collect()));
     let bytes = members.iter().map(|m| m.bytes as i64).sum::<i64>();
     let saved = members.iter().map(|m| m.observation.captured_at).max();
     let missing = members.iter().all(|m| m.observation.missing_since.is_some());
@@ -333,6 +339,7 @@ pub(crate) fn switch_summaries(tx: &Session<'_>) -> Result<()> {
     let parents=tx.query("SELECT DISTINCT s.parent FROM ah_reader_build b JOIN ah_chat_summary s ON s.id=b.conversation WHERE s.parent IS NOT NULL AND (s.live=1 OR s.publication=b.publication)",(),|r|Ok(r.get::<String>(0)?))?;
     tx.execute("UPDATE ah_chat_summary SET live=0 WHERE live=1 AND id IN (SELECT conversation FROM ah_reader_build)",())?;
     tx.execute("UPDATE ah_chat_summary SET live=1 WHERE publication IN (SELECT publication FROM ah_reader_build)",())?;
+    super::subagents::name_launched_children(tx)?;
     let mut roots: BTreeSet<String> = parents.into_iter().collect();
     roots.extend(tx.query("SELECT b.conversation FROM ah_reader_build b WHERE EXISTS(SELECT 1 FROM ah_chat_summary c WHERE c.live=1 AND c.parent=b.conversation)",(),|r|Ok(r.get::<String>(0)?))?);
     let mut affected = BTreeSet::new();

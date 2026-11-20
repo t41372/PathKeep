@@ -97,6 +97,7 @@ pub(super) struct BackfillOutcome {
     pub updated_items: usize,
     /// Rows scanned but skipped because their content was unchanged.
     pub skipped_items: usize,
+    pub unembeddable_items: usize,
     /// The actual returned vector length once observed (D4); `None` if nothing was embedded.
     pub effective_dim: Option<usize>,
     /// Count of vectors actually appended to the `.pkvec` store this pass (F3 0-byte honesty).

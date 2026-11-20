@@ -17,6 +17,7 @@ pub const PRICE_TABLE_VERSION: &str = pricing::VERSION;
 mod publish;
 mod reader;
 pub(crate) mod schema;
+mod subagents;
 mod variants;
 pub(crate) use list::DayCounts;
 pub use list::{Flag, Group, ListQuery, Sort};

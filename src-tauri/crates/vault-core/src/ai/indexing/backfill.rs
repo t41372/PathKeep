@@ -26,7 +26,7 @@ use super::store_rows::{
 };
 use super::{BackfillOutcome, IndexedVisit};
 use crate::models::ReembedScope;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use vault_store::{Db, Priority, params_owned as params};
 
 /// Resolves the WorkingSet scope filter: the canonical URLs of the bounded heavy-tier working set.
@@ -178,7 +178,7 @@ pub async fn build_ai_index_with_control(
             let removed = outcome.removed_items;
             (outcome, removed, searches)
         } else {
-            (BackfillOutcome::default(), 0, 0)
+            (BackfillOutcome::default(), 0, Default::default())
         };
         let pointer = build.as_ref().map_or("", |build| build.relative());
         use super::super::native_ledger::IndexCoverage;
@@ -215,6 +215,8 @@ pub async fn build_ai_index_with_control(
                 "indexedItems": outcome.indexed_items,
                 "updatedItems": outcome.updated_items,
                 "removedItems": removed_items,
+                "unembeddableItems": outcome.unembeddable_items,
+                "unembeddableSearches": searches.unembeddable,
             }),
         ) {
             eprintln!("pathkeep: recording completed index run {run_id}: {error:#}");
@@ -227,7 +229,7 @@ pub async fn build_ai_index_with_control(
                     "Embedded {} page vector(s) for {} history row(s); mapped {} updated row(s).",
                     outcome.embedded_vectors, outcome.indexed_items, outcome.updated_items,
                 ),
-                format!("Embedded {searches} distinct keyword search vector(s)."),
+                format!("Embedded {} distinct keyword search vector(s).", searches.embedded),
             ]
         };
         Ok(AiIndexReport {
@@ -324,7 +326,7 @@ pub async fn forget_unconfigured_indexes(
 ///   collide on the first 8 bytes (~2.8e-6 at 14.4M) are EACH embedded rather than the second
 ///   silently collapsing onto the first's vector. This set is run-scoped (never loaded from disk,
 ///   since the on-disk store cannot recover the full hash).
-/// - `mapped_ids` — the `history_id`s already in the `.pkmap` visit map. A crash mid-chunk can leave
+/// - `mapped_keys` — the `history_id`s already in the `.pkmap` visit map. A crash mid-chunk can leave
 ///   some visits mapped; a visit in this set is never re-appended, so a resume never doubles a
 ///   mapping entry. Loaded from the map on resume/incremental AND accumulated this run.
 ///
@@ -337,8 +339,8 @@ pub(super) struct DedupTracker {
     persisted_keys: HashSet<u64>,
     /// FULL content_hashes embedded this run (the work identity; never loaded from disk).
     persisted_hashes: HashSet<String>,
-    /// history_ids already in the `.pkmap` visit map (resume backstop + this run's appends).
-    mapped_ids: HashSet<i64>,
+    /// Last content key mapped for each visit, including pages with no usable vector.
+    mapped_keys: HashMap<i64, u64>,
 }
 
 impl DedupTracker {
@@ -347,14 +349,14 @@ impl DedupTracker {
         Self {
             persisted_keys: HashSet::new(),
             persisted_hashes: HashSet::new(),
-            mapped_ids: HashSet::new(),
+            mapped_keys: HashMap::new(),
         }
     }
 
     /// Loads the resume/incremental on-disk dedup state when an existing store is present.
     ///
-    /// Populates `persisted_keys` from the store's `existing_ids` and `mapped_ids` from the visit
-    /// map's `mapped_history_ids` ONLY when `!new_source && store.exists()` — mirroring the loop's
+    /// Populates `persisted_keys` from the store's `existing_ids` and `mapped_keys` from the visit
+    /// map's `read_all` ONLY when `!new_source && store.exists()` — mirroring the loop's
     /// gate exactly. A true full rebuild (`new_source`) or a never-built store leaves the sets
     /// empty so the build starts clean. `persisted_hashes` is NEVER loaded: the on-disk store carries
     /// only the truncated u64, so the full hash is unrecoverable from it; the full-hash
@@ -367,7 +369,7 @@ impl DedupTracker {
     ) -> Result<()> {
         if !new_source && store.exists() {
             self.persisted_keys = store.existing_ids()?;
-            self.mapped_ids = visit_map.mapped_history_ids()?;
+            self.mapped_keys = visit_map.read_all()?;
         }
         Ok(())
     }
@@ -399,7 +401,10 @@ impl DedupTracker {
     pub(super) fn take_unmapped(&mut self, changed: &[&IndexedVisit]) -> Vec<(i64, u64)> {
         changed
             .iter()
-            .filter(|visit| self.mapped_ids.insert(visit.history_id))
+            .filter(|visit| {
+                self.mapped_keys.insert(visit.history_id, visit.content_key)
+                    != Some(visit.content_key)
+            })
             .map(|visit| (visit.history_id, visit.content_key))
             .collect()
     }
@@ -503,6 +508,7 @@ async fn run_embedding_backfill(
         existing_store.trim_torn_tail()?;
         visit_map.trim_torn_tail()?;
     }
+    let mut unembeddable = super::super::unembeddable::Unembeddable::open(&existing_store)?;
     tracker.load_existing(&existing_store, &visit_map, new_source)?;
     plan.cursor.scan.as_mut().unwrap().phase = crate::IndexBuildPhase::Visits;
     let mut last_durable = plan.progress();
@@ -533,14 +539,15 @@ async fn run_embedding_backfill(
             // Older rebuild copies shared provenance with live files. A migrated row is not
             // evidence of source bytes: repair missing mappings/vectors before trusting its hash.
             for visit in &mut chunk {
-                visit.needs_embedding |= !tracker.mapped_ids.contains(&visit.history_id)
+                visit.needs_embedding |= tracker.mapped_keys.get(&visit.history_id)
+                    != Some(&visit.content_key)
                     || !tracker.persisted_keys.contains(&visit.content_key);
             }
             cursor = last_history_id + 1;
             plan.cursor.next_history_id = cursor;
             plan.cursor.scan.as_mut().unwrap().examined += page.physical_count as u64;
 
-            let changed: Vec<&IndexedVisit> = chunk
+            let mut changed: Vec<&IndexedVisit> = chunk
                 .iter()
                 .filter(|visit| {
                     (rebuild && visit.history_id >= plan.scan().rebuild_from_history_id)
@@ -556,7 +563,8 @@ async fn run_embedding_backfill(
             if !changed.is_empty() {
                 // DEDUP: collect the UNIQUE pages among the changed visits that are not already embedded,
                 // and embed each ONCE (the page identity is the FULL `content_hash`).
-                let embed_targets = tracker.select_targets(&changed);
+                let mut embed_targets = tracker.select_targets(&changed);
+                embed_targets.retain(|visit| !unembeddable.contains(visit.content_key));
 
                 if !embed_targets.is_empty() {
                     let texts: Vec<String> =
@@ -569,9 +577,8 @@ async fn run_embedding_backfill(
                     .await?;
                     let content_keys: Vec<u64> =
                         embed_targets.iter().map(|visit| visit.content_key).collect();
-                    let (effective_dim, records) =
-                        validate_embedding_batch_for_keys(&content_keys, &vectors)?;
-                    outcome.effective_dim = Some(effective_dim);
+                    let batch = validate_embedding_batch_for_keys(&content_keys, &vectors)?;
+                    outcome.effective_dim = Some(batch.dimension);
                     // `new_source` (NOT `request.full_rebuild`) drives the store reset: a full_rebuild
                     // RESUME appends to the partial store rather than truncating it. The
                     // fingerprint is stamped from the SELECTED engine's real descriptor (static = Mean,
@@ -581,7 +588,7 @@ async fn run_embedding_backfill(
                         paths,
                         provider,
                         &embedder.descriptor(),
-                        effective_dim,
+                        batch.dimension,
                         new_source,
                     )?;
                     // Every record here is a page we have NOT embedded this run (the full-hash dedup above
@@ -589,14 +596,17 @@ async fn run_embedding_backfill(
                     // later chunk / resume skips it (the full hash is the work identity; the u64
                     // is the storage-boundary backstop). The store accepts duplicate u64s for the rare
                     // collision; `read_all` last-writer-wins resolves that storage-boundary case.
-                    for (visit, (key, _)) in embed_targets.iter().zip(records.iter()) {
-                        tracker.record_embedded(*key, &visit.content_hash);
+                    unembeddable.record(batch.unembeddable.into_iter())?;
+                    for visit in embed_targets {
+                        if !unembeddable.contains(visit.content_key) {
+                            tracker.record_embedded(visit.content_key, &visit.content_hash);
+                        }
                     }
                     // Persist vectors FIRST so the watermark we report is always backed by on-disk data.
-                    store.append_vectors(&records)?;
+                    store.append_vectors(&batch.records)?;
                     // Count the vectors that actually landed on `.pkvec` (F3 0-byte honesty): the build's
                     // honesty note + the empty-store guard read this, not the per-visit `indexed_items`.
-                    outcome.embedded_vectors += records.len() as u64;
+                    outcome.embedded_vectors += batch.records.len() as u64;
                 }
 
                 // Map EVERY changed visit to its content_key (skip ones a prior crash already mapped), so
@@ -623,6 +633,14 @@ async fn run_embedding_backfill(
                     }
                     source_directories_synced = true;
                 }
+                let skipped: Vec<_> = changed
+                    .iter()
+                    .filter(|v| unembeddable.contains(v.content_key))
+                    .map(|v| v.history_id)
+                    .collect();
+                outcome.skipped_items += skipped.len();
+                outcome.unembeddable_items += skipped.len();
+                changed.retain(|v| !unembeddable.contains(v.content_key));
                 let indexed_at = now_rfc3339();
                 let visits = changed
                     .iter()
@@ -636,6 +654,9 @@ async fn run_embedding_backfill(
                 let updated_so_far = outcome.updated_items as u64;
                 let scan = plan.cursor.scan;
                 let updated = vault.write(Db::Intelligence, Priority::Batch, move |s| {
+                    for id in skipped {
+                        super::store_rows::remove_visit_embedding(s, &provider, &lineage, id)?;
+                    }
                     let mut updated = 0;
                     for visit in &visits {
                         updated += usize::from(upsert_embedding(

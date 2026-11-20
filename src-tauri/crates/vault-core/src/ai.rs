@@ -96,6 +96,7 @@ mod source_watermark;
 mod tool_arguments;
 mod topics;
 mod traits;
+mod unembeddable;
 mod vector_index;
 mod vector_planes;
 mod vector_store;

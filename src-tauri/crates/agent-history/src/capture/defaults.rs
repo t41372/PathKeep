@@ -20,23 +20,40 @@ pub fn known_sources() -> Vec<SourceRoot> {
     locations(true)
 }
 
-fn locations(include_missing: bool) -> Vec<SourceRoot> {
-    if let Some(folder) = env::var_os("CHB_AGENT_TOOLS_HOME") {
-        if folder.is_empty() {
-            return Vec::new();
-        }
-        let home = Path::new(&folder);
-        return sources_under(home, home, include_missing, |_| None);
-    }
+/// An explicit empty override disables discovery on this installation.
+pub(crate) enum ToolsHome {
+    Isolated(PathBuf),
+    Native { home: PathBuf, desktop_base: PathBuf },
+}
 
-    let Some(base) = directories::BaseDirs::new() else { return Vec::new() };
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    let desktop_base = base.data_dir();
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let desktop_base = base.config_dir();
-    sources_under(base.home_dir(), desktop_base, include_missing, |name| {
-        environment_path(name, base.home_dir())
-    })
+impl ToolsHome {
+    pub(crate) fn resolve() -> Option<Self> {
+        match env::var_os("CHB_AGENT_TOOLS_HOME") {
+            Some(path) => (!path.is_empty()).then(|| Self::Isolated(path.into())),
+            None => directories::BaseDirs::new().map(|base| {
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                let desktop_base = base.data_dir();
+                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                let desktop_base = base.config_dir();
+                Self::Native {
+                    home: base.home_dir().to_owned(),
+                    desktop_base: desktop_base.to_owned(),
+                }
+            }),
+        }
+    }
+}
+
+fn locations(include_missing: bool) -> Vec<SourceRoot> {
+    match ToolsHome::resolve() {
+        Some(ToolsHome::Native { home, desktop_base }) => {
+            sources_under(&home, &desktop_base, include_missing, |name| {
+                environment_path(name, &home)
+            })
+        }
+        Some(ToolsHome::Isolated(home)) => sources_under(&home, &home, include_missing, |_| None),
+        None => Vec::new(),
+    }
 }
 
 /// The CLI and the owner use the same layout. Only the native environment adds

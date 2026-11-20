@@ -7,6 +7,7 @@ mod index_pause;
 pub use index_pause::IndexPause;
 mod debug_delay;
 mod defaults;
+pub(crate) use defaults::ToolsHome;
 mod diagnostics;
 use diagnostics::RootOutcome;
 pub use diagnostics::{CaptureOutcome, SaveWarning};

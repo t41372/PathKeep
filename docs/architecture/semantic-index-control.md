@@ -393,6 +393,10 @@ larger f32 sources. Storage accounting already walks nested directories and incl
 and move intentionally omit derived indexes; wipe removes the entire derived tree, so both keep
 their existing behavior with this layout.
 
+The selected model can return a correctly sized zero vector for unknown-only input. The build counts those visits as skipped and keeps their current visit-to-content mapping, so a visit whose title changed cannot match its earlier vector. In the mutable lineage, each page or keyword vector store can have a sibling `.pkskip` file of little-endian 64-bit content keys. A later incremental pass recognizes those keys before embedding. A full rebuild starts a new lineage. New builds publish only the usable vectors. An older index may contain a zero vector from a mixed batch. A full rebuild reclassifies that content.
+
+The skip file follows the `Vectors` catalog entry. Snapshots and portable exports omit the vector tree, restore and encryption changes preserve the local tree, and wipe removes it. Existing builds ignore the extra file. The native `unembeddable_pages` test uses the E2E tokenizer and exercises an incremental pass after publication.
+
 When the background drain finishes handling an index job (succeeded, failed, cancelled, paused
 by the service, or waiting for a retry), the desktop shell emits `pathkeep://ai-index-job-ended`
 with the job's id and state; the dev bridge forwards it. The app reads its snapshot again on it,

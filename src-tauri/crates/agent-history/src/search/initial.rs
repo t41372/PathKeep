@@ -101,6 +101,19 @@ impl Archive {
         }
         Ok(())
     }
+    /// Reader repair binds both database files. Initial search publishes its selectors
+    /// into the same read model, so its last write must precede the reviewed checkpoint.
+    pub fn wait_for_search_preparation(&self, cancel: &CancelToken) -> Result<()> {
+        let pending = &self.initial_search;
+        let mut state = pending.state.lock().unwrap();
+        while state.active.is_some() {
+            cancel.check()?;
+            state =
+                pending.ready.wait_timeout(state, std::time::Duration::from_millis(100)).unwrap().0;
+        }
+        cancel.check()?;
+        Ok(())
+    }
     /// Revoking visibility stops the owner-started build at a bounded batch.
     pub fn cancel_visible_search(&self) {
         if let Some(token) = &self.initial_search.state.lock().unwrap().active {

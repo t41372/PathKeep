@@ -15,6 +15,9 @@ pub(super) fn prepare(
     );
     ensure!(source.is_none(), "conversation-evidence-readable: rebuild the read model");
     vault.check_available_files()?;
+    // A view-only archive attaches on its first reader. Finish that recovery now:
+    // parking a ticket or publishing the initial search selectors invalidates the pair seal.
+    vault.agent_history()?.wait_for_search_preparation(cancel)?;
     let stage = cache::stage(vault.paths())?;
     vault.store().copy_admitted_conversations(stage.path())?;
     crate::fault_inject::checkpoint("conversation-repair-preparing")?;

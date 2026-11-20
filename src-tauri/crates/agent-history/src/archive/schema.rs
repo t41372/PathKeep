@@ -28,6 +28,8 @@ pub fn schema_steps(db: Db) -> Vec<Migration> {
                 crate::chats::schema::TABLES,
                 crate::projects::schema::MODEL,
                 crate::insights::MODEL,
+                &["INSERT OR IGNORE INTO ah_reader_dirty
+                   SELECT conversation,lower(hex(randomblob(16))) FROM ah_reader_head WHERE parent IS NOT NULL"],
             ]
             .concat(),
         ),

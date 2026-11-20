@@ -16,25 +16,19 @@ use super::super::*;
 use super::IndexedVisit;
 use vault_store::{Session, params_owned as params};
 
-/// Validates one embedded batch against its CONTENT KEYS and pairs each vector with its key (W-AI-4c).
-///
-/// Pure (no I/O) so the defensive guards are unit-tested directly:
-/// - rejects a count mismatch (a short/over-long batch would desync the key↔vector join),
-/// - rejects a ragged/empty (zero-dim) batch (a vector of a different dim than the first), since the
-///   vector store is fixed-stride and a ragged record would corrupt every later read, and
-/// - rejects an ALL-ZERO batch (F3 0-byte honesty): a provider that "succeeds" but returns only zero
-///   vectors has produced NO usable embedding — counting it would land dead bytes in `.pkvec` while
-///   the run reports rows indexed. This is exactly the dishonest "indexed N with an empty/zero store"
-///   case, so it is surfaced as a real error instead of being silently appended + counted.
-///
-/// Returns the effective dim (the actual returned length of the first vector, D4) and the
-/// `(content_key, vector)` records ready to append. With dedup the keys are the per-page content
-/// keys (one per unique page), not visit ids — the loop deduped before calling this, so each key
-/// here is distinct.
+#[derive(Debug)]
+pub(in crate::ai) struct EmbeddingBatch {
+    pub dimension: usize,
+    pub records: Vec<(u64, Vec<f32>)>,
+    pub unembeddable: Vec<u64>,
+}
+
+/// Preserve input alignment while separating correctly shaped zero vectors from searchable ones.
+/// Count and dimension errors still invalidate the entire response before anything is written.
 pub(in crate::ai) fn validate_embedding_batch_for_keys(
     content_keys: &[u64],
     vectors: &[Vec<f32>],
-) -> Result<(usize, Vec<(u64, Vec<f32>)>)> {
+) -> Result<EmbeddingBatch> {
     if vectors.len() != content_keys.len() {
         anyhow::bail!(
             "embedding provider returned {} vector(s) for {} input(s)",
@@ -47,6 +41,7 @@ pub(in crate::ai) fn validate_embedding_batch_for_keys(
         anyhow::bail!("embedding provider returned an empty vector for the batch");
     }
     let mut records = Vec::with_capacity(content_keys.len());
+    let mut unembeddable = Vec::new();
     for (content_key, vector) in content_keys.iter().zip(vectors.iter()) {
         if vector.len() != effective_dim {
             anyhow::bail!(
@@ -54,16 +49,13 @@ pub(in crate::ai) fn validate_embedding_batch_for_keys(
                 vector.len()
             );
         }
-        records.push((*content_key, vector.clone()));
+        if vector.iter().any(|component| *component != 0.0) {
+            records.push((*content_key, vector.clone()));
+        } else {
+            unembeddable.push(*content_key);
+        }
     }
-    // F3 (0-byte honesty): a batch where EVERY vector is all-zero carries no signal — appending it
-    // would write dead bytes the index can never match while the run dishonestly reports rows indexed.
-    if records.iter().all(|(_, vector)| vector.iter().all(|component| *component == 0.0)) {
-        anyhow::bail!(
-            "embedding provider returned only zero vectors for the batch (no usable embedding); refusing to count an empty index build"
-        );
-    }
-    Ok((effective_dim, records))
+    Ok(EmbeddingBatch { dimension: effective_dim, records, unembeddable })
 }
 
 /// Returns the chunk size for one pass, clamped by any remaining caller `limit`.
@@ -140,6 +132,30 @@ pub(in crate::ai) fn remove_lineage_rows(
             return Ok(());
         }
     }
+}
+
+/// A changed visit that now has no signal must leave the prior indexed totals.
+pub(super) fn remove_visit_embedding(
+    s: &Session<'_>,
+    provider: &AiProviderRuntime,
+    lineage: &str,
+    id: i64,
+) -> Result<()> {
+    use vault_store::OptionalRow;
+    let prior = s.query_one(
+        "SELECT content_bytes,metadata_bytes FROM ai_embeddings WHERE history_id=?1 AND provider_id=?2 AND model=?3 AND lineage=?4",
+        params![id,provider.config.id,provider.config.default_model,lineage],
+        |r| Ok((r.get::<i64>(0)?,r.get::<i64>(1)?)),
+    ).optional()?;
+    if let Some((content, metadata)) = prior {
+        s.execute("DELETE FROM ai_embeddings WHERE history_id=?1 AND provider_id=?2 AND model=?3 AND lineage=?4",
+            params![id,provider.config.id,provider.config.default_model,lineage])?;
+        s.execute("UPDATE ai_embedding_totals SET item_count=item_count-1,content_bytes=content_bytes-?4,
+            metadata_bytes=metadata_bytes-?5,last_indexed_at=CASE WHEN item_count=1 THEN NULL ELSE last_indexed_at END
+            WHERE provider_id=?1 AND model=?2 AND lineage=?3",
+            params![provider.config.id,provider.config.default_model,lineage,content,metadata])?;
+    }
+    Ok(())
 }
 
 /// Upserts one SQLite compatibility row after a semantic embedding was produced.

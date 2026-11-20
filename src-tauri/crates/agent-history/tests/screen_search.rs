@@ -38,7 +38,7 @@ fn search_and_find_use_the_same_native_parts_and_addresses() {
         frames
     };
     let frames = search(json!({"query":"needle"}), None);
-    assert_eq!(frames.last().unwrap().1["hits"], 3);
+    assert_eq!(frames.last().unwrap().1["hits"], 4);
     assert_eq!(frames.last().unwrap().1["conversations"], 1);
     let group = &frames.iter().rev().find(|(ty, _)| ty == "groups").unwrap().1["items"][0];
     let id = group["id"].as_str().unwrap();
@@ -48,14 +48,17 @@ fn search_and_find_use_the_same_native_parts_and_addresses() {
         .filter(|(ty, _)| ty == "matches")
         .flat_map(|(_, p)| p["items"].as_array().unwrap())
         .collect();
-    assert_eq!(matches.len(), 3);
+    assert_eq!(matches.len(), 4);
+    let child_title = matches.iter().find(|hit| hit["role"] == "title").unwrap();
+    assert!(child_title["subagentId"].is_string());
+    assert_eq!(child_title["range"], json!([11, 17]));
     assert!(matches.iter().any(|m| m["subagentId"].is_string() && m["role"] == "user"));
     let assistant = matches.iter().find(|m| m["role"] == "agent").unwrap();
     assert_eq!(assistant["range"], json!([8, 14]));
     assert_eq!(assistant["address"]["nativeId"], "a");
     for (q, count) in [
         (json!({"query":"\"go go\""}), 1),
-        (json!({"query":"needle","roles":["tool"]}), 1),
+        (json!({"query":"needle","roles":["tool"]}), 2),
         (json!({"query":"umbrella","roles":["thinking"]}), 1),
         (json!({"query":"go absent"}), 0),
         (json!({"query":"bluecipher redcipher"}), 2),
@@ -63,7 +66,7 @@ fn search_and_find_use_the_same_native_parts_and_addresses() {
         (json!({"query":"bluecipher","roles":["thinking"]}), 1),
         (
             json!({"query":"needle","filters":{"projectId":"/project","day":"2026-11-10","timeZone":"UTC"}}),
-            3,
+            4,
         ),
         (json!({"query":"needle","filters":{"day":"2026-11-09","timeZone":"UTC"}}), 0),
     ] {
@@ -154,7 +157,8 @@ fn global_search_keeps_the_last_commit_during_backup_and_invalidates_a_trashed_c
         )
         .unwrap(),
     );
-    assert_eq!(scoped["hits"], 130);
+    // The child contributes both its assignment and the title derived from it.
+    assert_eq!(scoped["hits"], 131);
     add(131);
     let previous = archive.clone();
     let observed = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -166,7 +170,7 @@ fn global_search_keeps_the_last_commit_during_backup_and_invalidates_a_trashed_c
                 progress: Some(Arc::new(move |p| {
                     if p.phase == "index" {
                         let end = count(&previous, query());
-                        assert_eq!(end["hits"], 131);
+                        assert_eq!(end["hits"], 132);
                         assert_eq!(end["conversations"], 131);
                         assert_eq!(end["indexLag"], 1);
                         flag.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -178,7 +182,7 @@ fn global_search_keeps_the_last_commit_during_backup_and_invalidates_a_trashed_c
         .unwrap();
     assert!(observed.load(std::sync::atomic::Ordering::SeqCst));
     let end = count(&archive, query());
-    assert_eq!(end["hits"], 132);
+    assert_eq!(end["hits"], 133);
     assert_eq!(end["indexLag"], 0);
     let mut marked = false;
     let error = archive

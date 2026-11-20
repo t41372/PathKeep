@@ -98,12 +98,18 @@ pub(super) fn open(
     Ok(index)
 }
 
+#[derive(Default)]
+pub(super) struct SearchCounts {
+    pub embedded: usize,
+    pub unembeddable: usize,
+}
+
 /// A completed chunk is its own resume cursor; only missing keys reach the embedding engine.
 pub(super) async fn backfill(
     vault: &Vault,
     provider: &AiProviderRuntime,
     control: Option<&Arc<dyn AiRunControl>>,
-) -> Result<usize> {
+) -> Result<SearchCounts> {
     let paths = vault.paths();
     let engine = super::embedding_engine::select_embedding_provider(paths, provider)?;
     let store =
@@ -118,12 +124,13 @@ pub(super) async fn backfill(
         store.trim_torn_tail()?;
     }
     let mut existing = if store.exists() { store.existing_ids()? } else { Default::default() };
+    let mut unembeddable = super::unembeddable::Unembeddable::open(&store)?;
     let page_fingerprint =
         VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model)
             .read_header()?
             .map(|header| header.fingerprint_hash);
     let mut after = String::new();
-    let mut embedded = 0;
+    let mut counts = SearchCounts::default();
     loop {
         super::control::checkpoint_ai_run(control, "reading keyword searches")?;
         let cursor = after.clone();
@@ -144,8 +151,17 @@ pub(super) async fn backfill(
             break;
         }
         after = texts.last().unwrap().clone();
-        let texts =
-            texts.into_iter().filter(|text| !existing.contains(&key(text))).collect::<Vec<_>>();
+        let texts = texts
+            .into_iter()
+            .filter(|text| {
+                let id = key(text);
+                if unembeddable.contains(id) {
+                    counts.unembeddable += 1;
+                    return false;
+                }
+                !existing.contains(&id)
+            })
+            .collect::<Vec<_>>();
         if texts.is_empty() {
             continue;
         }
@@ -156,8 +172,8 @@ pub(super) async fn backfill(
         )
         .await?;
         let keys = texts.iter().map(|text| key(text)).collect::<Vec<_>>();
-        let (dim, records) = super::indexing::validate_embedding_batch_for_keys(&keys, &vectors)?;
-        let fp = fingerprint(provider, engine.descriptor(), dim)?;
+        let batch = super::indexing::validate_embedding_batch_for_keys(&keys, &vectors)?;
+        let fp = fingerprint(provider, engine.descriptor(), batch.dimension)?;
         // A service changing dimensions between page and search batches cannot publish one index.
         ensure!(
             page_fingerprint.as_ref().is_none_or(|hash| *hash == fp.hash()),
@@ -171,13 +187,15 @@ pub(super) async fn backfill(
             !store.is_stale_against(&fp)?,
             "search embedding dimensions changed during the index pass"
         );
-        store.append_vectors(&records)?;
-        existing.extend(keys);
-        embedded += records.len();
+        store.append_vectors(&batch.records)?;
+        counts.unembeddable += batch.unembeddable.len();
+        unembeddable.record(batch.unembeddable.into_iter())?;
+        existing.extend(batch.records.iter().map(|(key, _)| *key));
+        counts.embedded += batch.records.len();
     }
     super::control::checkpoint_ai_run(control, "publishing keyword search vectors")?;
 
-    Ok(embedded)
+    Ok(counts)
 }
 
 /// Search sidecars follow the lifetime of their owning page index, including clear and retirement.

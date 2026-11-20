@@ -475,6 +475,10 @@ impl VectorStore {
     /// Used by the index "clear" path; the vector plane is rebuildable so a clean delete is the
     /// correct reset (no partial state to preserve).
     pub fn delete(&self) -> Result<bool> {
+        let skipped = self.path.with_extension("pkskip");
+        if skipped.try_exists()? {
+            vault_fs::remove_file(skipped)?;
+        }
         if !self.exists() {
             return Ok(false);
         }

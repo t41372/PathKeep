@@ -132,7 +132,7 @@ pub(super) fn prepare(
                 return Err(operation(Error::ReaderRebuildRequired))
             }
             Ok((
-                SourceMember { awaiting_rebuild,
+                SourceMember { awaiting_rebuild, launch_call: facts.launch_call.clone(),
                     parent_status:if r.get::<Option<String>>(17)?.is_some(){ParentStatus::Resolved}
                         else if r.get::<Option<String>>(24)?.is_some(){ParentStatus::Unresolved}else{ParentStatus::None},
                     transport: Transport::from_path(&r.get::<String>(7)?),
@@ -184,6 +184,9 @@ pub(super) fn prepare(
         }
         if elected {
             batch.elected = Some(after.clone());
+        }
+        if member.parent_id.is_some() {
+            digest.update(b"subagent-assignment-v1");
         }
         digest.update([u8::from(elected)]);
         let status = resolver.lineage.describe(tx, after.clone()).map_err(operation)?;

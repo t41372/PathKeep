@@ -632,3 +632,6 @@ fn embedding_inputs_and_semantic_hits_use_the_same_native_speaker_and_part() {
     assert_eq!(hits[0].1["role"], "thinking");
     assert_eq!(hits[0].1["text"], "hidden reasoning");
 }
+
+#[path = "chat_screens/capture_fixtures.rs"]
+mod capture_fixtures;
