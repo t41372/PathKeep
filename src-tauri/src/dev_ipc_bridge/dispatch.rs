@@ -147,6 +147,26 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "list_agent_sources" => {
             worker_bridge::list_agent_sources_impl(&state.session, surface_request(payload)?)
         }
+        "export_agent_conversation" => {
+            let request = surface_request(payload)?;
+            let app = require_app_handle(state).ok();
+            let session = state.session.clone();
+            tokio::task::spawn_blocking(move || {
+                worker_bridge::export_agent_conversation_impl(app.as_ref(), &session, request)
+            })
+            .await
+            .unwrap_or_else(|e| join_failure("export_agent_conversation", e))
+        }
+        "get_agent_viewer_preferences" => {
+            worker_bridge::get_agent_viewer_preferences_impl(surface_request(payload)?)
+        }
+        "set_agent_viewer_preferences" => worker_bridge::set_agent_viewer_preferences_impl(
+            surface_request(payload)?,
+            backup_events(state),
+        ),
+        "query_agent_palette" => {
+            worker_bridge::query_agent_palette_impl(&state.session, surface_request(payload)?)
+        }
         "get_agent_insights" => {
             let frames =
                 worker_bridge::get_agent_insights_impl(&state.session, surface_request(payload)?)?;
@@ -1260,6 +1280,10 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 vault_core::record_frontend_error(&paths, &payload.request)
                     .map_err(|error| error.to_string())?
             )
+        }
+        "reveal_file" => {
+            let payload = parse_payload::<PathPayload>(payload)?;
+            json_value!(worker_bridge::reveal_file_impl(payload.path)?)
         }
         "open_path_in_file_manager" => {
             let payload = parse_payload::<PathPayload>(payload)?;

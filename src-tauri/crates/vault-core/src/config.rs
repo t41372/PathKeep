@@ -257,6 +257,7 @@ pub fn decode_config(root: &Path, bytes: &[u8]) -> Result<ConfigDocument, Refusa
                     .map_err(|e| refusal((Reason::ControlUnreadable, e.to_string())))?
         {
             document.config.capture_policy = Default::default();
+            document.config.agent_viewer = Default::default();
             document.config.dismissed_agent_hints.clear();
         }
     }

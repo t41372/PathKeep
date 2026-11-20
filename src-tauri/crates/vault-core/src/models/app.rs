@@ -148,10 +148,42 @@ pub struct SetAppLockPasscodeRequest {
     pub recovery_hint: Option<String>,
 }
 
+/// Device-local Agent reader defaults and explicit permissions for optional AI consumers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AgentViewerSettings {
+    /// None uses this device's temporary directories and its home directory itself.
+    pub scratch_locations: Option<Vec<String>>,
+    pub reader_collapse_tool_calls: bool,
+    pub reader_show_thinking: bool,
+    pub assistant_may_read: bool,
+    pub build_semantic_index: bool,
+    pub mcp_may_read: bool,
+}
+impl Default for AgentViewerSettings {
+    fn default() -> Self {
+        Self {
+            scratch_locations: None,
+            reader_collapse_tool_calls: true,
+            reader_show_thinking: true,
+            assistant_may_read: false,
+            build_semantic_index: false,
+            mcp_may_read: false,
+        }
+    }
+}
+impl AgentViewerSettings {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 /// Persisted application configuration owned by Settings.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
+    #[serde(default, skip_serializing_if = "AgentViewerSettings::is_default")]
+    pub agent_viewer: AgentViewerSettings,
     pub capture_policy: super::CapturePolicy,
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     pub dismissed_agent_hints: std::collections::BTreeSet<super::AgentHint>,
@@ -272,6 +304,7 @@ impl Default for AppConfig {
         Self {
             capture_policy: Default::default(),
             dismissed_agent_hints: Default::default(),
+            agent_viewer: Default::default(),
             initialized: false,
             archive_mode: ArchiveMode::Plaintext,
             preferred_language: LanguagePreference::System,

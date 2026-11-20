@@ -400,14 +400,19 @@ pub(super) fn storage_summary(paths: &ProjectPaths) -> StorageSummary {
 /// Live browsing databases and derived artifacts measured by Storage. Safety
 /// copies share a container with raw checkpoints and have their own Storage bucket.
 pub fn browsing_archive_bytes(vault: &Vault) -> Result<u64> {
+    Ok(browsing_storage_items(vault)?.iter().map(|(_, n)| n).sum())
+}
+
+/// Per-role breakdown using the same lifecycle catalogue and accounting as the Settings card.
+pub fn browsing_storage_items(vault: &Vault) -> Result<Vec<(vault_layout::ArtifactId, u64)>> {
     vault.recheck_root()?;
     Ok(vault_layout::usage_members(vault.layout())
         .filter(|m| {
             m.scope == vault_layout::DataScope::Browsing
                 && m.id != vault_layout::ArtifactId::RawSnapshots
         })
-        .map(|member| usage_bytes(vault.paths(), member))
-        .sum())
+        .map(|member| (member.id, usage_bytes(vault.paths(), member)))
+        .collect())
 }
 
 fn usage_bytes(paths: &ProjectPaths, member: vault_layout::ArtifactSpec) -> u64 {

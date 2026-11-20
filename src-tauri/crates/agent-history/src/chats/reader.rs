@@ -124,7 +124,7 @@ impl Archive {
             + self.extra_count(&h, &h.current_source)?;
         Ok(
             json!({"summary":summary,"viewToken":format!("{}:{}",view.0,view.1),"publication":h.publication,"currentSource":h.current_source,"parentId":h.parent_id,"parentStatus":h.parent_status,
-            "folderState":folder["state"],"nativeSessionId":(!native.is_empty()).then_some(native),"resumeCommand":null,"unparsedRecords":unparsed,"promptCount":prompt_count,"parent":parent_summary,"physicalRecords":h.physical_records,"visibleRecords":visible,"coverage":{"complete":h.complete,"reason":h.coverage_reason},"attachmentsNotKept":h.attachments_not_kept}),
+            "folderState":folder["state"],"nativeSessionId":(!native.is_empty()).then_some(native),"resumeCommand":self.resume_command(&h)?,"unparsedRecords":unparsed,"promptCount":prompt_count,"parent":parent_summary,"physicalRecords":h.physical_records,"visibleRecords":visible,"coverage":{"complete":h.complete,"reason":h.coverage_reason},"attachmentsNotKept":h.attachments_not_kept}),
         )
     }
     pub fn chat_raw(&self, q: &RawQuery, job: &JobControl) -> Result<Value> {

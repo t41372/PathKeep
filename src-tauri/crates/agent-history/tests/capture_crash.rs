@@ -33,6 +33,7 @@ const EXIT_AT_BOUNDARY: i32 = 93;
 
 fn options() -> BackupOptions {
     BackupOptions {
+        index_pause: Default::default(),
         max_record_bytes: 1024 * 1024,
         max_decoded_bytes: 16 * 1024 * 1024,
         cancel: CancelToken::new(),

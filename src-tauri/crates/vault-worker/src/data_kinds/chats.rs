@@ -36,7 +36,7 @@ pub(super) fn admitted(
     delivery::read(|| {
         let (vault, config) = backups::admitted(session, false)?;
         let archive = vault.agent_history()?;
-        archive.set_project_git(config.capture_policy.read_git);
+        archive.set_project_grouping(super::viewer::grouping(&config));
         let value = read(&archive, &vault)?;
         backups::check_reply(&vault, session, false)?;
         Ok(value)
@@ -191,7 +191,7 @@ pub struct FindRequest {
 }
 pub fn search(s: &VaultSession, mut q: ScreenQuery) -> Result<super::preview::Frames> {
     let (vault, config) = backups::admitted(s, false)?;
-    vault.agent_history()?.set_project_git(config.capture_policy.read_git);
+    vault.agent_history()?.set_project_grouping(super::viewer::grouping(&config));
     if q.filters.time_zone.is_none() {
         q.filters.time_zone = Some(vault_core::insights_time_zone(&vault)?.shown);
     }
@@ -201,7 +201,7 @@ pub fn search(s: &VaultSession, mut q: ScreenQuery) -> Result<super::preview::Fr
 }
 pub fn find(s: &VaultSession, q: FindRequest) -> Result<super::preview::Frames> {
     let (vault, config) = backups::admitted(s, false)?;
-    vault.agent_history()?.set_project_git(config.capture_policy.read_git);
+    vault.agent_history()?.set_project_grouping(super::viewer::grouping(&config));
     let frames = super::preview::search_stream(
         s,
         vault.agent_history()?,
@@ -210,4 +210,69 @@ pub fn find(s: &VaultSession, q: FindRequest) -> Result<super::preview::Frames> 
     )?;
     backups::check_reply(&vault, s, false)?;
     Ok(frames)
+}
+
+pub use agent_history::chats::ConversationExport;
+
+/// Check reader admission before opening a system dialog. The write checks again when it returns.
+pub fn admit_export(session: &VaultSession, id: &str) -> Result<()> {
+    let (vault, _) = backups::admitted(session, false)?;
+    vault.agent_history()?.reader_header(id)?;
+    Ok(())
+}
+
+/// Save only after the native dialog supplies a destination. A failed read leaves any previous file intact.
+pub fn export(
+    session: &VaultSession,
+    mut q: ConversationExport,
+    target: &std::path::Path,
+) -> Result<Value> {
+    use std::io::Write;
+    delivery::read(|| {
+        let (vault, config) = backups::admitted(session, false)?;
+        use agent_history::chats::ExportLocale;
+        use vault_core::LanguagePreference;
+        q.locale.get_or_insert(match config.preferred_language {
+            LanguagePreference::ZhCn => ExportLocale::Simplified,
+            LanguagePreference::ZhTw => ExportLocale::Traditional,
+            LanguagePreference::System | LanguagePreference::En => ExportLocale::English,
+        });
+        let folder = std::fs::canonicalize(target.parent().ok_or(Refusal::Destination)?)?;
+        let archive = vault.agent_history()?;
+        if folder.starts_with(std::fs::canonicalize(archive.root())?)
+            || backups::selection::device_roots(&vault, &config.capture_policy)?
+                .iter()
+                .any(|r| folder.starts_with(&r.path))
+        {
+            return Err(Refusal::Destination.into());
+        }
+        vault_core::durable_io::atomic_durable_write_with(target, |out| {
+            let mut out = std::io::BufWriter::new(out);
+            archive.export_conversation(
+                &q,
+                &mut out,
+                config.agent_viewer.reader_collapse_tool_calls,
+                config.agent_viewer.reader_show_thinking,
+            )?;
+            out.flush()?;
+            backups::check_reply(&vault, session, false)?;
+            Ok(())
+        })?;
+        Ok(serde_json::json!({"path":target,"bytes":target.metadata()?.len().to_string()}))
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Palette {
+    pub text: String,
+    pub request_id: Option<String>,
+}
+pub fn palette(session: &VaultSession, q: Palette) -> Result<Value> {
+    reader(session, q.request_id.as_deref(), |a, job| {
+        Ok(serde_json::json!({
+            "conversations":a.palette_conversations(&q.text,job)?,
+            "projects":a.palette_projects(&q.text)?
+        }))
+    })
 }

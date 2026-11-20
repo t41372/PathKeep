@@ -234,6 +234,11 @@ pub(crate) fn run_backup<R: Runtime>(
 ) -> Result<vault_core::BackupReport, CommandError> {
     super::update_status(app, BackupStatus::started);
     let session = app.state::<crate::session::SessionState>();
+    if matches!(source, BackupSource::MenuBar)
+        && let Err(error) = vault_worker::data_kinds::backups::start_shared(&session, false)
+    {
+        log::warn!("Menu-bar conversation backup failed: {error:#}");
+    }
     let result = worker_bridge::run_backup_now_impl(due_only, kind_specific, &session, |event| {
         let _ = app.emit(BACKUP_PROGRESS_EVENT, &event);
     });

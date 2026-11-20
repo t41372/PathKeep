@@ -394,6 +394,8 @@ reading allowed within a future approved capture. A tool switch alone grants
 no folder access. The SHA-256 of the serialized policy lets two windows
 compare the choices they saw. The token is computed on demand.
 
+The optional `agentViewer` object in the stamped control stores reader display choices, scratch paths and the three independent Agent AI permissions. First use shows thinking and folds tool calls. AI permissions default off. Saving these preferences uses the same installation binding as capture choices. Snapshot and move export omit them. Restore and move import keep destination settings. Encryption changes preserve them, and wiping the control clears them. Released 0.5.0 refuses the stamped archive before reading preferences.
+
 A control with device choices or dismissed Agent hints carries
 `captureInstallation`. The binding is the SHA-256 digest of a random 256-bit installation identifier
 in `capture-device` beneath the platform local-data directory for

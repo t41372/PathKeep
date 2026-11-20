@@ -81,7 +81,7 @@ pub fn next_scheduled_backup_at(
 }
 
 /// The execution rule's half-wake allowance, shared with the displayed estimate.
-pub(super) fn backup_due_delay(due_after_hours: f64, wake_interval: Duration) -> Duration {
+pub fn backup_due_delay(due_after_hours: f64, wake_interval: Duration) -> Duration {
     backup_interval(due_after_hours).saturating_sub(wake_interval / 2)
 }
 

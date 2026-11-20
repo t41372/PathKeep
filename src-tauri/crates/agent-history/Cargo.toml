@@ -11,6 +11,7 @@ name = "pathkeep-agent-history"
 path = "src/bin/pathkeep-agent-history.rs"
 
 [dependencies]
+tar = "0.4.46"
 regex.workspace = true
 pulldown-cmark = { version = "0.13", default-features = false }
 similar = "2.7.0"

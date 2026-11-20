@@ -10,7 +10,9 @@ use std::{
 };
 
 pub(super) fn has_choices(config: &AppConfig) -> bool {
-    config.capture_policy != Default::default() || !config.dismissed_agent_hints.is_empty()
+    config.agent_viewer != Default::default()
+        || config.capture_policy != Default::default()
+        || !config.dismissed_agent_hints.is_empty()
 }
 
 fn directory() -> Result<PathBuf> {

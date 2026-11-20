@@ -230,6 +230,7 @@ fn device_policy_is_removed_from_a_move_file_and_kept_at_its_destination() {
     let vault = crate::Vault::open_temp().unwrap();
     let mut config = vault.config().clone();
     config.capture_policy.read_git = false;
+    config.agent_viewer.mcp_may_read = true;
     config.capture_policy.selection_ref = Some("source-grant".into());
     config.capture_policy.pending_first_save = Some("source-request".into());
     config.capture_policy.empty_tools_chosen = true;
@@ -265,6 +266,7 @@ fn device_policy_is_removed_from_a_move_file_and_kept_at_its_destination() {
             Ok(())
         })
         .unwrap();
+    config.agent_viewer.reader_show_thinking = false;
     config.dismissed_agent_hints.insert(crate::AgentHint::AutoDelete);
     crate::save_config(&crate::ControlGate::acquire(target.paths()), &config).unwrap();
     let options =
@@ -287,6 +289,7 @@ fn device_policy_is_removed_from_a_move_file_and_kept_at_its_destination() {
     let (_, installed) =
         native::import(target.paths(), Some(&target), None, &bundle, &options, Default::default())
             .unwrap();
+    assert_eq!(installed.vault.config().agent_viewer, config.agent_viewer);
     assert_eq!(installed.vault.config().dismissed_agent_hints, config.dismissed_agent_hints);
     let policy = &installed.vault.config().capture_policy;
     assert_eq!(policy.agent_history, crate::KindState::On);
@@ -304,6 +307,7 @@ fn device_policy_is_removed_from_a_move_file_and_kept_at_its_destination() {
     let key = native::bundle_key(&bundle, "export").unwrap();
     let copied = native::source_control(&bundle, &key).unwrap();
     let copied = crate::config::decode_config(&bundle, &copied).unwrap().config;
+    assert_eq!(copied.agent_viewer, Default::default());
     assert!(copied.dismissed_agent_hints.is_empty());
     assert_eq!(copied.capture_policy, Default::default());
 }

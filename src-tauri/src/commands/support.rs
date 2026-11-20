@@ -38,6 +38,12 @@ pub(crate) async fn open_path_in_file_manager(path: String) -> Result<String, Co
 
 #[cfg(not(test))]
 #[tauri::command]
+pub(crate) async fn reveal_file(path: String) -> Result<String, CommandError> {
+    run_blocking_command("reveal_file", move || crate::worker_bridge::reveal_file_impl(path)).await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// The clock the OS shows: "h12", "h23", or none when it does not say (the language decides).
 pub(crate) fn system_clock() -> Option<&'static str> {
     vault_platform::system_hour_cycle()

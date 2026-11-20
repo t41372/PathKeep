@@ -346,6 +346,35 @@ impl Archive {
     }
 }
 
+impl Archive {
+    /// Palette title matching uses effective titles for every saved root, in recency order.
+    /// Only matching IDs are expanded into cards. A superseded search can leave between rows.
+    pub fn palette_conversations(
+        &self,
+        text: &str,
+        job: &crate::read_model::JobControl,
+    ) -> Result<Vec<Value>> {
+        self.ensure_projects()?;
+        self.ensure_state_visible()?;
+        let needle = text.trim().to_lowercase();
+        let cancel = job.cancel.clone();
+        Ok(self.store.read(Db::AgentHistoryReadModel,move|s|{
+            let mut statement=s.prepare(&format!("SELECT s.id,coalesce(u.title,s.title,''){JOIN} WHERE s.live=1 AND s.root=1 AND u.trashed_at IS NULL AND (?1 OR coalesce(u.put_away,0)=0) ORDER BY s.recent_key DESC"))?;
+            let mut rows=statement.query([i64::from(!needle.is_empty())])?;
+            let mut matches=Vec::new();
+            while let Some(r)=rows.next()?{
+                cancel.check()?;
+                let title=r.get::<String>(1)?;
+                if needle.is_empty()||title.to_lowercase().contains(&needle){
+                    matches.push(r.get::<String>(0)?);
+                    if matches.len()==6{break;}
+                }
+            }
+            matches.into_iter().filter_map(|id|summary(s,&id).transpose()).collect()
+        })?)
+    }
+}
+
 #[cfg(test)]
 mod measurement {
     use super::*;

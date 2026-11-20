@@ -54,12 +54,14 @@ impl Runtime {
 pub(super) struct Active {
     pub intent: Intent,
     pub token: CancelToken,
+    pub index_pause: Arc<agent_history::capture::IndexPause>,
     pub progress: Value,
 }
 pub(super) struct Producer {
     lease: ReservedBackup,
     archive: Arc<Archive>,
     token: CancelToken,
+    index_pause: Arc<agent_history::capture::IndexPause>,
 }
 impl Producer {
     pub fn reserve(
@@ -76,7 +78,9 @@ impl Producer {
         let notify = events.clone();
         let paths = vault.paths().clone();
         let counters = Mutex::new(super::progress::Progress::default());
+        let index_pause = Arc::new(agent_history::capture::IndexPause::default());
         let options = BackupOptions {
+            index_pause: index_pause.clone(),
             approved_directories: Some(
                 intent.scope.roots.iter().map(|r| (r.path.clone(), r.directory.clone())).collect(),
             ),
@@ -91,7 +95,13 @@ impl Producer {
                     return;
                 };
                 let phase = progress["phase"].clone();
-                let actions = if phase == "finishing" { vec![] } else { vec!["cancel"] };
+                let actions = if phase == "finishing" {
+                    vec![]
+                } else if phase == "index" {
+                    vec!["cancel", "pause"]
+                } else {
+                    vec!["cancel"]
+                };
                 let snapshot = super::hash(&(&task, "running", &phase, &actions, false))
                     .expect("task identity is JSON");
                 if let Some(active) = runtime.active.lock().unwrap().as_mut() {
@@ -113,7 +123,7 @@ impl Producer {
             ..Default::default()
         };
         let lease = archive.reserve_backup(options)?;
-        Ok(Self { lease, archive, token })
+        Ok(Self { lease, archive, token, index_pause })
     }
 
     pub fn launch(
@@ -123,10 +133,11 @@ impl Producer {
         intent: Intent,
         run: i64,
         events: Events,
-    ) -> Result<()> {
+    ) -> Result<std::thread::JoinHandle<()>> {
         let active = Active {
             intent: intent.clone(),
             token: self.token.clone(),
+            index_pause: self.index_pause.clone(),
             progress: json!({"phase":"discovery","unit":"files","done":"0","total":null}),
         };
         *runtime.active.lock().unwrap() = Some(active);
@@ -161,7 +172,7 @@ impl Producer {
             return Err(err.into());
         }
         claimed.recv()??;
-        Ok(())
+        Ok(spawn?)
     }
     fn run(self, vault: Vault, owner: Arc<Runtime>, intent: Intent, run: i64, events: Events) {
         let mut final_write_failed = false;

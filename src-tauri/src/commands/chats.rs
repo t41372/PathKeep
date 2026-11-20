@@ -137,3 +137,51 @@ pub(crate) async fn find_in_agent_conversation(
     .await?;
     Ok(super::data_kinds::forward_frames(frames, on_event))
 }
+
+#[tauri::command]
+pub(crate) async fn export_agent_conversation(
+    app: AppHandle,
+    state: State<'_, SessionState>,
+    request: Request<chats::ConversationExport>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("export_agent_conversation", move || {
+        worker_bridge::export_agent_conversation_impl(Some(&app), &session, request.0)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn get_agent_viewer_preferences(
+    request: Request<vault_worker::data_kinds::Empty>,
+) -> Result<Value, CommandError> {
+    run_blocking_command("get_agent_viewer_preferences", move || {
+        worker_bridge::get_agent_viewer_preferences_impl(request.0)
+    })
+    .await
+}
+#[tauri::command]
+pub(crate) async fn set_agent_viewer_preferences(
+    app: AppHandle,
+    request: Request<vault_worker::data_kinds::viewer::Patch>,
+) -> Result<Value, CommandError> {
+    run_blocking_command("set_agent_viewer_preferences", move || {
+        worker_bridge::set_agent_viewer_preferences_impl(
+            request.0,
+            super::data_kinds::desktop_events(app),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn query_agent_palette(
+    state: State<'_, SessionState>,
+    request: Request<chats::Palette>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("query_agent_palette", move || {
+        worker_bridge::query_agent_palette_impl(&session, request.0)
+    })
+    .await
+}

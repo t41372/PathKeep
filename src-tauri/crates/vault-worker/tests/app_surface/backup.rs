@@ -649,3 +649,25 @@ fn resending_authorized_first_save_recovers_a_live_insert_failure() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 }
+
+#[test]
+fn browsing_tasks_page_survives_agent_off_and_pages_terminal_runs() {
+    use serde_json::Value;
+    use vault_worker::data_kinds::backups;
+    let f = Fixture::new(true);
+    let now = chrono::Utc::now().to_rfc3339();
+    f.vault().store().write(vault_store::Db::Archive,vault_store::Priority::Interactive,move|s|{
+        for (id,kind) in [(501,"backup"),(502,"import"),(503,"mcp_query")]{
+            s.execute("INSERT INTO runs(id,run_type,started_at,finished_at,trigger,status) VALUES(?1,?2,?3,?3,'manual','success')",vault_store::params![id,kind,now.as_str()])?;
+        }
+        Ok(())
+    }).unwrap();
+    let request = |cursor: Value| {
+        from_value(json!({"group":"today","kind":"browsing","limit":1,"cursor":cursor})).unwrap()
+    };
+    let first = backups::tasks(&f.session, request(Value::Null)).unwrap();
+    assert_eq!(first["items"][0]["operation"], "import");
+    let next = backups::tasks(&f.session, request(first["nextCursor"].clone())).unwrap();
+    assert_eq!(next["items"][0]["operation"], "backup");
+    assert!(next["items"][0]["runRef"].as_str().unwrap().ends_with("/501"));
+}

@@ -58,6 +58,7 @@ fn layout_of(format: u32) -> Result<vault_layout::ArchiveLayout> {
 /// machine starts without one) and whether the password is remembered in this keychain (export
 /// always writes it off, which would otherwise clear the keychain on every move).
 pub fn keep_machine_settings(config: &mut AppConfig, here: &AppConfig) {
+    config.agent_viewer.clone_from(&here.agent_viewer);
     config.capture_policy = here.capture_policy.clone();
     config.dismissed_agent_hints.clone_from(&here.dismissed_agent_hints);
     config.app_lock = here.app_lock.clone();
@@ -82,6 +83,7 @@ pub fn export(
     config.archive_mode = ArchiveMode::Encrypted;
     config.remember_database_key_in_keyring = false;
     config.capture_policy = Default::default();
+    config.agent_viewer = Default::default();
     config.dismissed_agent_hints.clear();
     config.app_lock = Default::default();
     let key = maintenance::create_envelope(stage.path(), &config, Some(password))?.unwrap();

@@ -1,6 +1,7 @@
 //! Owner admission for a reviewed first save and subsequent manual conversation
 //! backups. The device control grants scope. The evidence role owns run history.
 mod browsing_runs;
+mod browsing_tasks;
 #[cfg(test)]
 mod crash_tests;
 mod ledger;
@@ -9,8 +10,11 @@ mod overview;
 pub(crate) use overview::first_backup;
 pub use overview::{ListSources, Overview, overview, sources};
 mod runs;
+mod shared;
 mod tasks;
 pub use runs::{GetRun, ListRuns, get_run, list_runs};
+pub(crate) use shared::due_anchor;
+pub use shared::{SharedRun, start_shared};
 pub(crate) use tasks::cancel_active;
 pub use tasks::{Control, ListTasks, control, task_summary, tasks};
 mod progress;
@@ -190,7 +194,7 @@ pub fn enable(session: &VaultSession, req: Enable, events: Events) -> Result<Val
 /// Manual tool and kind requests share the same capture slot.
 pub fn start(session: &VaultSession, req: Start, events: Events) -> Result<Value> {
     let skip = |policy: &CapturePolicy| {
-        let reason = policy.backup_skip_reason(DataKind::AgentHistory, false)?;
+        let reason = shared::skip_reason(session, policy)?;
         Some(json!({
             "batchId": req.request_id,
             "kinds": [{"kind": "agent-history", "decision": "skipped", "reason": reason}]
@@ -274,7 +278,7 @@ pub fn start(session: &VaultSession, req: Start, events: Events) -> Result<Value
 fn launch(session: &VaultSession, vault: &Vault, intent: Intent, events: Events) -> Result<()> {
     let producer = Producer::reserve(vault, &session.conversations, &intent, &events)?;
     let run = intent.insert(vault)?;
-    producer.launch(vault.clone(), session.conversations.clone(), intent, run, events)
+    producer.launch(vault.clone(), session.conversations.clone(), intent, run, events).map(drop)
 }
 
 /// Reconcile the live control when this owner first opens the generation.

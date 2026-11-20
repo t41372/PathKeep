@@ -6,6 +6,9 @@
       "title": "StoredSettings",
       "type": "object",
       "properties": {
+        "agentViewer": {
+          "$ref": "#/$defs/AgentViewerSettings"
+        },
         "capturePolicy": {
           "$ref": "#/$defs/CapturePolicy",
           "default": {
@@ -240,6 +243,41 @@
         }
       },
       "$defs": {
+        "AgentViewerSettings": {
+          "type": "object",
+          "properties": {
+            "scratchLocations": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              },
+              "default": null
+            },
+            "readerCollapseToolCalls": {
+              "type": "boolean",
+              "default": true
+            },
+            "readerShowThinking": {
+              "type": "boolean",
+              "default": true
+            },
+            "assistantMayRead": {
+              "type": "boolean",
+              "default": false
+            },
+            "buildSemanticIndex": {
+              "type": "boolean",
+              "default": false
+            },
+            "mcpMayRead": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        },
         "CapturePolicy": {
           "type": "object",
           "properties": {

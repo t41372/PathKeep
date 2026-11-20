@@ -7,7 +7,7 @@ const WIDE: &str = "'doctor','retention_prune','rekey','archive_restore'";
 const PRIVATE: &str = "'system','mcp_query','ai_index','assistant'";
 const COLUMNS: &str = "id,started_at,finished_at,run_type,trigger,status,stats_json,warnings_json";
 
-fn origin(tx: &vault_store::Session<'_>) -> vault_store::Result<String> {
+pub(super) fn origin(tx: &vault_store::Session<'_>) -> vault_store::Result<String> {
     tx.query_one("SELECT value FROM archive_meta WHERE name='runOrigin'", (), |row| Ok(row.get(0)?))
 }
 

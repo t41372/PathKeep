@@ -123,6 +123,21 @@ pub fn schedule_status(
                 now,
             )
             .map(|at| at.to_rfc3339());
+            if config.capture_policy.agent_history == vault_core::KindState::On
+                && config.capture_policy.selection_ref.is_some()
+                && vault.conversation_availability().is_ok()
+            {
+                let anchor = crate::data_kinds::backups::due_anchor(vault)?;
+                status.agent_next_scheduled_backup_at = vault_core::next_scheduled_backup_at(
+                    anchor,
+                    &ledger.attempts,
+                    installed_at,
+                    params.due_after_hours,
+                    wake_interval,
+                    now,
+                )
+                .map(|at| at.to_rfc3339());
+            }
             status.wake_interval_seconds = Some(wake_interval.as_secs());
         }
         status.issues.extend(

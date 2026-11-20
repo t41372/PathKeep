@@ -61,7 +61,7 @@ impl Progress {
         let commit = p.phase == "raw_committed" && !self.first_commit;
         self.first_commit |= commit;
         if !commit
-            && p.phase != "finishing"
+            && !matches!(p.phase.as_str(), "index" | "finishing")
             && self.last.is_some_and(|last| last.elapsed() < Duration::from_millis(100))
         {
             return None;

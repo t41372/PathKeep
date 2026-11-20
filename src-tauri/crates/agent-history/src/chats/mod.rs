@@ -2,12 +2,18 @@
 mod annotations;
 mod attachments;
 pub use attachments::AttachmentQuery;
+mod export;
+mod export_html;
 pub(crate) mod facts;
 mod info;
+mod resume;
+pub use export::{ConversationExport, ConversationFormat};
+pub use export_html::ExportLocale;
 pub(crate) mod list;
 mod mirrors;
 mod operations;
 pub(crate) mod pricing;
+pub const PRICE_TABLE_VERSION: &str = pricing::VERSION;
 mod publish;
 mod reader;
 pub(crate) mod schema;
