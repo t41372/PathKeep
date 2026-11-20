@@ -15,6 +15,9 @@
  *   is only what the tools recorded and the estimate is struck through;
  *   "Show cost" off (Settings' switch, set here through the backend)
  *   takes the cost tile and card away at once;
+ * - the reader's info panel follows the same two saved switches, also
+ *   when they change while it is open: "Show cost" off takes away the
+ *   cost Pi recorded, estimates off take away the price table's estimate;
  * - a tool filter narrows the numbers and the year, and the drill-ins
  *   carry it: the conversations tile opens History with the tool, a day
  *   of the year opens that day's conversations of the tool, and a longest
@@ -23,7 +26,16 @@
  */
 import { expect, test, type Page } from '@playwright/test'
 import { unlockIfLocked } from './support/app'
-import { chatList, chatRow, readerTitle, wireList } from './support/agent-chats'
+import {
+  agentChat,
+  chatList,
+  chatRow,
+  openChat,
+  reader,
+  readerTitle,
+  savedChat,
+  wireList,
+} from './support/agent-chats'
 import {
   compact,
   conversationsName,
@@ -46,6 +58,7 @@ import {
   wirePreferences,
   type WireOverview,
 } from './support/agent-insights'
+import { backend, fixture } from './support/fixture'
 
 async function expectNumbers(page: Page, overview: WireOverview) {
   await expect(conversationsTile(page)).toHaveAccessibleName(
@@ -261,6 +274,72 @@ test('Insights open the Agent space and say what the backend counts', async ({
     await expect(page).toHaveURL(/#\/agent\/chats\?chat=/)
     expect(hashParams(page).get('chat')).toBe(longest.conversationId)
     await expect(readerTitle(page)).toBeVisible()
+  } finally {
+    await setPreferences(before)
+  }
+})
+
+interface WireInfo {
+  total: { recordedUsd?: number | null; estimatedUsd?: number | null }
+}
+
+const wireInfo = (id: string) =>
+  backend<WireInfo>('get_agent_conversation_info', { request: { id } })
+
+test('the reader’s info panel follows the saved cost switches', async ({
+  page,
+}, testInfo) => {
+  const before = await wirePreferences()
+  try {
+    await setPreferences({ showCost: true, estimateCost: true })
+
+    // Pi recorded what its replies cost: that row goes with "Show cost".
+    const pi = fixture().agents.scenes.piUsage
+    const recorded = await savedChat(agentChat(pi.conversation))
+    await openChat(page, recorded.id)
+    await reader(page)
+      .getByRole('button', { name: 'Info', exact: true })
+      .click()
+    const panel = page.getByRole('complementary', {
+      name: 'About this conversation',
+    })
+    const tokens = pi.usage.input + pi.usage.output + pi.usage.cacheRead
+    await expect(panel).toContainText(
+      (tokens + pi.usage.cacheWrite).toLocaleString('en-US'),
+    )
+    await expect(panel).toContainText(usd(pi.usage.cost!))
+    await setPreferences({ showCost: false })
+    await expect(panel).not.toContainText(usd(pi.usage.cost!))
+    await expect(panel).not.toContainText('Pi recorded this amount')
+    await expect(panel).toContainText(
+      (tokens + pi.usage.cacheWrite).toLocaleString('en-US'),
+    )
+    await testInfo.attach('the info panel with “Show cost” off', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    })
+    await setPreferences({ showCost: true })
+    await expect(panel).toContainText(usd(pi.usage.cost!))
+
+    // A Claude Code conversation the price table estimates: that row goes
+    // with the estimate switch.
+    let estimated: string | undefined
+    for (const row of await wireList({ harnesses: ['claude-code'] }))
+      if (((await wireInfo(row.id)).total.estimatedUsd ?? 0) > 0) {
+        estimated = row.id
+        break
+      }
+    expect(estimated, 'a conversation with an estimated cost').toBeDefined()
+    await openChat(page, estimated!)
+    await reader(page)
+      .getByRole('button', { name: 'Info', exact: true })
+      .click()
+    await expect(panel).toContainText('Estimated with the price table')
+    await setPreferences({ estimateCost: false })
+    await expect(panel).not.toContainText('Estimated with the price table')
+    expect((await wireInfo(estimated!)).total.estimatedUsd ?? null).toBeNull()
+    await setPreferences({ estimateCost: true })
+    await expect(panel).toContainText('Estimated with the price table')
   } finally {
     await setPreferences(before)
   }

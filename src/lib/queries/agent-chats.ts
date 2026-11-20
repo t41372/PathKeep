@@ -31,6 +31,7 @@ import {
 import { subscribeToAgentConversations } from '@/lib/ipc/agent-chats-events'
 import { queryClient, queryKeys } from '@/lib/query'
 import { useAgentKind } from './agent-backup'
+import { useInsightsPreferences } from './agent-insights'
 
 /** Rows per list page; the backend's default. */
 const LIST_PAGE = 50
@@ -97,12 +98,25 @@ export function useChatHeader(id: string | null) {
   })
 }
 
+/**
+ * A conversation's facts, with costs as the saved cost switches say
+ * (`agent-history.md` §1.8): turning one off or on reads them again.
+ */
 export function useChatInfo(id: string, enabled: boolean) {
   const { readable } = useAgentKind()
+  const saved = useInsightsPreferences()
+  const showCost = saved.data?.showCost
+  const estimateCost = saved.data?.estimateCost
   return useQuery({
-    queryKey: queryKeys.agentChatInfo(id),
-    queryFn: () => agentChatsClient.info(id),
-    enabled: readable && enabled,
+    queryKey: [
+      ...queryKeys.agentChatInfo(id),
+      showCost ?? null,
+      estimateCost ?? null,
+    ],
+    queryFn: () => agentChatsClient.info(id, { showCost, estimateCost }),
+    // Without the switches (they could not be read) the backend still
+    // applies the saved ones.
+    enabled: readable && enabled && !saved.isPending,
     staleTime: Infinity,
   })
 }

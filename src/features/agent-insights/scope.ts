@@ -6,15 +6,17 @@
  * project's own pages can open its Insights, and nothing else keeps it.
  *
  * Responsibilities: reading and changing those, and the links from the
- * report into History and Projects with the same scope.
- * Not responsible for: the saved choices themselves (`use-preferences.ts`).
+ * report into History with the same scope.
+ * Not responsible for: the saved choices themselves
+ * (`src/lib/queries/agent-insights.ts`, `use-preferences.ts`).
  */
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { InsightsRange } from '@/lib/backend-client/agent-insights'
 import { AGENT_TOOLS, type AgentToolId } from '@/lib/backend-client/data-kinds'
-import { spacePath, type SpaceWithPagesId } from '@/lib/spaces'
-import { useInsightsPreferences, useSavePreferences } from './use-preferences'
+import { useInsightsPreferences } from '@/lib/queries/agent-insights'
+import { spacePath } from '@/lib/spaces'
+import { useSavePreferences } from './use-preferences'
 
 export interface Scope {
   range: InsightsRange
@@ -103,17 +105,4 @@ export function historyOnDay(
 /** One conversation open beside History. */
 export function historyWithChat(id: string) {
   return spacePath('agent', 'chats', `?${new URLSearchParams({ chat: id })}`)
-}
-
-/**
- * The Projects page and one project's page. The same paths as
- * `agentProjectsPath` / `agentProjectPath` in `src/lib/spaces/paths.ts`
- * once Projects is in the registry.
- */
-export function projectsPath() {
-  return `/${'agent' satisfies SpaceWithPagesId}/projects`
-}
-
-export function projectPath(id: string) {
-  return `${projectsPath()}/${encodeURIComponent(id)}`
 }

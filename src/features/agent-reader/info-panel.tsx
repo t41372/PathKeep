@@ -3,8 +3,10 @@
  * (`agent-history.md` §4.7): how long, how much, where, what changed, with
  * what, and how it is kept. A row the tool did not record is left out;
  * only Agent time and tokens say outright that nothing was recorded,
- * which is never shown as 0. Costs follow the two cost switches, both on
- * until Settings › Agent conversations has them.
+ * which is never shown as 0. Costs follow the two saved cost switches
+ * (`agent-history.md` §1.8), the ones Insights' cost card changes: the
+ * backend leaves out what they turn off, and the line about replies
+ * without a price shows only while estimates are on.
  */
 import { ChevronDown, ExternalLink } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -24,6 +26,7 @@ import type {
 import { describeError } from '@/lib/errors'
 import { useI18n, type Formatters, type MessageKey } from '@/lib/i18n'
 import { useChatInfo } from '@/lib/queries/agent-chats'
+import { useInsightsPreferences } from '@/lib/queries/agent-insights'
 import { durationText, tokenTotal, toolLabel } from './reader-words'
 
 function Section({
@@ -148,6 +151,9 @@ function Body({
   onOpenProject: (project: string) => void
 }) {
   const { t, locale } = useI18n()
+  const saved = useInsightsPreferences().data
+  // Unread switches count as on: the backend applies the saved ones anyway.
+  const estimating = (saved?.showCost ?? true) && (saved?.estimateCost ?? true)
   const summary = header.summary
   const tool = toolLabel(t, summary.harness)
   const own = info.own
@@ -257,7 +263,7 @@ function Body({
                 )}
               </Row>
             )}
-            {total.unpricedResponses > 0 && (
+            {estimating && total.unpricedResponses > 0 && (
               <p className="text-[12px] text-muted-foreground">
                 {t('agentInfo.tokens.unpriced', {
                   count: total.unpricedResponses,

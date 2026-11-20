@@ -48,8 +48,8 @@ import {
   setPreferences,
   wireInsights,
   wirePreferences,
-  wireProjectCards,
 } from './support/agent-insights'
+import { wireProjectList } from './support/agent-projects'
 import { fixture, replaceAgents } from './support/fixture'
 
 /** Projects of the fixture Codex never works in (`TOOL_PROJECTS`). */
@@ -87,7 +87,7 @@ test('a conversation without usage reads as unknown, and a project in the addres
     await setPreferences({ range: 'all', showCost: true, estimateCost: true })
 
     // A project with conversations of other tools and none of Codex.
-    const cards = await wireProjectCards()
+    const cards = await wireProjectList()
     let agents = fixture().agents
     const target = agents.projects
       .filter((project) => NOT_CODEX.includes(project.key))

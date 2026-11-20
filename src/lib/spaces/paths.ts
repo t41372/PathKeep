@@ -71,6 +71,17 @@ export function agentChatPath(id: string) {
   return `/${'agent' satisfies SpaceWithPagesId}/chat/${encodeURIComponent(id)}`
 }
 
+/**
+ * The Agent space's Insights (`#/agent/insights`); with a project, only
+ * that project's conversations (`?project=<id>`).
+ */
+export function agentInsightsPath(projectId?: string) {
+  const search = projectId
+    ? `?${new URLSearchParams({ project: projectId }).toString()}`
+    : ''
+  return `/${'agent' satisfies SpaceWithPagesId}/insights${search}`
+}
+
 /** The Agent space's projects (`#/agent/projects`). */
 export function agentProjectsPath(search = '') {
   return `/${'agent' satisfies SpaceWithPagesId}/projects${search}`

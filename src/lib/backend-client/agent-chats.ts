@@ -493,9 +493,16 @@ export const agentChatsClient = {
     call<ChatCounts>('get_agent_conversation_counts', { request }),
   header: (id: string) =>
     call<ChatHeader>('get_agent_conversation', { request: { id } }),
-  info: (id: string, showCost = true, estimateCost = true) =>
+  /**
+   * `costs` are the saved cost switches; the backend applies the saved
+   * ones as well, so an absent switch never shows what they turned off.
+   */
+  info: (
+    id: string,
+    costs: { showCost?: boolean; estimateCost?: boolean } = {},
+  ) =>
     call<ChatInfo>('get_agent_conversation_info', {
-      request: { id, showCost, estimateCost },
+      request: { id, ...costs },
     }),
   window: <Row = ChatRow>(request: ChatWindowQuery) =>
     call<ChatWindow<Row>>('read_agent_conversation_window', { request }),

@@ -16,6 +16,7 @@ export interface WireProject {
   kind: 'repo' | 'folder' | 'scratch'
   mainFolder: string | null
   parentFolder: string | null
+  harnesses: string[]
   conversationCount: number
   lastActivity: number | null
   hasAddedFolders: boolean

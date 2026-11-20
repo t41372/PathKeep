@@ -8,10 +8,12 @@
  * into 0. Not responsible for: the copy (`agentInsights` messages).
  */
 import { hoursText } from '@/features/agent-chats/chat-words'
+import { projectName } from '@/features/agent-projects/project-words'
 import { tokenTotal } from '@/features/agent-reader/reader-words'
 import type {
   BucketUnit,
   EquivalentReading,
+  InsightsProjectChip,
   InsightsRange,
   TokenKinds,
 } from '@/lib/backend-client/agent-insights'
@@ -193,34 +195,33 @@ export function equivalents(
   const workDetail =
     workDays < 22
       ? t('agentInsights.equivalent.detailDays', {
-          workDays: amount(f, workDays),
+          workDays: say('workDayCount', workDays),
         })
       : months < 12
         ? t('agentInsights.equivalent.detailMonths', {
-            workDays: amount(f, workDays),
-            months: amount(f, months),
+            workDays: say('workDayCount', workDays),
+            months: say('monthCount', months),
           })
         : t('agentInsights.equivalent.detailYears', {
-            workDays: amount(f, workDays),
-            months: amount(f, months),
-            years: amount(f, years),
+            workDays: say('workDayCount', workDays),
+            months: say('monthCount', months),
+            years: say('yearCount', years),
           })
   if (total < 24) return { shown: work, other: null, detail: workDetail }
   const nonstop =
     days < 1000 ? say('nonstopDays', days) : say('nonstopYears', days / 365)
-  const detail = `${t('agentInsights.equivalent.detailNonstop', { days: amount(f, days) })} ${workDetail}`
+  const detail = t('agentInsights.equivalent.both', {
+    nonstop: t('agentInsights.equivalent.detailNonstop', {
+      days: say('dayCount', days),
+    }),
+    work: workDetail,
+  })
   return reading === 'nonstop'
     ? { shown: nonstop, other: t('agentInsights.equivalent.asWork'), detail }
     : { shown: work, other: t('agentInsights.equivalent.asNonstop'), detail }
 }
 
-/** A project's name; the loose folders have one of their own. */
-export function projectName(
-  t: Translator,
-  project: { name?: string; displayName?: string; kind: string },
-) {
-  const name = project.name ?? project.displayName ?? ''
-  return (
-    name || (project.kind === 'scratch' ? t('agentInsights.filter.loose') : '')
-  )
+/** A report row's project by name; the loose folders have one of their own. */
+export function chipName(t: Translator, chip: InsightsProjectChip) {
+  return projectName(t, { displayName: chip.name, kind: chip.kind })
 }

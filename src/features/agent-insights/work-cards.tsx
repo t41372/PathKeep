@@ -7,20 +7,21 @@
 import { ArrowRight, MessagesSquare } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { SectionCard } from '@/components/app/section-card'
+import { chatTitle } from '@/features/agent-chats/chat-words'
+import { ProjectIcon } from '@/features/agent-projects/project-icon'
 import { ToolBadge, ToolIcon } from '@/features/data-kinds/tool-badge'
 import { toolName } from '@/features/data-kinds/tools'
-import { chatTitle } from '@/features/agent-chats/chat-words'
+import { useInsightsFormat } from '@/features/insights/zone'
 import type {
   InsightsBreakdowns,
   InsightsOverview,
 } from '@/lib/backend-client/agent-insights'
 import { useI18n } from '@/lib/i18n'
-import { useInsightsFormat } from '@/features/insights/zone'
+import { agentProjectPath, agentProjectsPath } from '@/lib/spaces'
 import { MODEL_COLORS, OTHER_COLOR, TOOL_COLOR } from './colors'
-import { ProjectIcon } from './project-bits'
-import { historyWithChat, projectPath, projectsPath, type Scope } from './scope'
+import { historyWithChat, type Scope } from './scope'
 import { ShareList } from './share-list'
-import { hours, projectName, share, spanKey, tokenTotal } from './words'
+import { chipName, hours, share, spanKey, tokenTotal } from './words'
 
 const quiet = 'text-[13px] text-muted-foreground'
 
@@ -43,7 +44,7 @@ export function TopProjectsCard({
       })}
       action={
         <Link
-          to={projectsPath()}
+          to={agentProjectsPath()}
           className="flex shrink-0 items-center gap-1 text-xs whitespace-nowrap text-muted-foreground hover:text-foreground"
         >
           {t('agentInsightsCards.projects.all', {
@@ -62,15 +63,15 @@ export function TopProjectsCard({
               count: row.conversations,
             })
             const tokens = row.tokens ? tokenTotal(row.tokens) : null
-            const name = row.project ? projectName(t, row.project) : ''
+            const name = row.project ? chipName(t, row.project) : ''
             return {
               key: row.project?.id ?? `none-${index}`,
               label: row.project ? (
                 <Link
-                  to={projectPath(row.project.id)}
+                  to={agentProjectPath(row.project.id)}
                   className="flex min-w-0 items-center gap-1.5 hover:underline"
                 >
-                  <ProjectIcon project={row.project} />
+                  <ProjectIcon project={row.project} className="size-3.5" />
                   <span className="truncate">{name}</span>
                   <span className="flex shrink-0 items-center gap-0.5">
                     {row.harnesses.map((tool) => (
@@ -147,7 +148,7 @@ export function LongestCard({ rows }: { rows: InsightsBreakdowns['longest'] }) {
                     <ToolBadge id={row.harness} className="text-xs" />
                     <span className="truncate">
                       {row.project
-                        ? projectName(t, row.project)
+                        ? chipName(t, row.project)
                         : t('agentInsightsCards.longest.noProject')}{' '}
                       ·{' '}
                       {t('agentInsightsCards.longest.turns', {

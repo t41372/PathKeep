@@ -137,11 +137,3 @@ export type SearchFrame =
       }
     >
   | Frame<'cancelled' | 'error', { code: string; message?: string }>
-
-export function isTerminalFrame(frame: SearchFrame) {
-  return (
-    frame.type === 'finished' ||
-    frame.type === 'cancelled' ||
-    frame.type === 'error'
-  )
-}

@@ -18,10 +18,13 @@ import type { EquivalentReading } from '@/lib/backend-client/agent-insights'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
 import { useAgentKind } from '@/lib/queries/agent-backup'
+import {
+  useAgentProjectsSync,
+  useProjectList,
+} from '@/lib/queries/agent-projects'
 import { CostCard, MethodNote } from './cost-card'
 import { KpiRow } from './kpi-row'
 import { FilterButton, ProjectLine, RangeToggle } from './scope-controls'
-import { useProjectOptions } from './use-projects'
 import { useScope, type Scope } from './scope'
 import {
   EmptyReport,
@@ -75,7 +78,8 @@ export default function AgentInsightsPage() {
       : { ...IDLE, harnesses: [] },
     readable && scope !== null && prefs !== undefined,
   )
-  const projects = useProjectOptions(scope?.projectId != null)
+  useAgentProjectsSync()
+  const projects = useProjectList({}, scope?.projectId != null)
   const project = projects.data?.items.find(
     (item) => item.id === scope?.projectId,
   )

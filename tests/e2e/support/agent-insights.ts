@@ -135,20 +135,6 @@ export function setPreferences(patch: Partial<InsightsPreferences>) {
   })
 }
 
-/** Every project card (`list_agent_projects`), newest activity first. */
-export async function wireProjectCards() {
-  return backend<{
-    total: number
-    items: {
-      id: string
-      displayName: string
-      mainFolder: string | null
-      harnesses: string[]
-      conversationCount: number
-    }[]
-  }>('list_agent_projects', { request: {} })
-}
-
 export async function openInsights(page: Page, search = '') {
   await page.goto(`/#/agent/insights${search}`)
   await unlockIfLocked(page)

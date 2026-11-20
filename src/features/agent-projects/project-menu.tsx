@@ -1,11 +1,12 @@
 /**
  * The project menu (`agent-history.md` §5.6), the same from a row's ⋯, a
  * right-click on the row, and a project page's ⋯: open its conversations
- * (not on its own page), rename, pin or unpin, move to a section, project
- * settings, show the main folder in the file manager. Every change says
+ * (not on its own page), its Insights, rename, pin or unpin, move to a
+ * section, project settings, show the main folder in the file manager. Every change says
  * what it did, with Undo.
  */
 import {
+  ChartColumn,
   Ellipsis,
   FolderInput,
   FolderOpen,
@@ -33,7 +34,7 @@ import { supportClient } from '@/lib/backend-client/support'
 import { cn } from '@/lib/cn'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
-import { agentProjectPath } from '@/lib/spaces'
+import { agentInsightsPath, agentProjectPath } from '@/lib/spaces'
 import {
   placeOf,
   sectionList,
@@ -176,16 +177,20 @@ export function ProjectMenu({
         onClick={(event) => event.stopPropagation()}
       >
         {!onPage && (
-          <>
-            <DropdownMenuItem
-              onSelect={() => void navigate(agentProjectPath(project.id))}
-            >
-              <MessagesSquare aria-hidden />
-              {t('agentProjects.menu.open')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-          </>
+          <DropdownMenuItem
+            onSelect={() => void navigate(agentProjectPath(project.id))}
+          >
+            <MessagesSquare aria-hidden />
+            {t('agentProjects.menu.open')}
+          </DropdownMenuItem>
         )}
+        <DropdownMenuItem
+          onSelect={() => void navigate(agentInsightsPath(project.id))}
+        >
+          <ChartColumn aria-hidden />
+          {t('agentProjects.menu.insights')}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onRename}>
           <Pencil aria-hidden />
           {t('agentProjects.menu.rename')}

@@ -1,11 +1,12 @@
 /**
  * One project (`#/agent/projects/:id`, `agent-history.md` §5.10): its
  * header (back to Projects, its name and place, tools, how many
- * conversations and when last active, Project settings, its menu) over
- * the Records workbench with the project fixed: every conversation of
- * every folder in it, the ones added from other projects included.
+ * conversations and when last active, its Insights, Project settings, its
+ * menu) over the Records workbench with the project fixed: every
+ * conversation of every folder in it, the ones added from other projects
+ * included. A project whose folders went into another one leads there.
  */
-import { ChevronLeft, FolderX, Settings2 } from 'lucide-react'
+import { ChartColumn, ChevronLeft, FolderX, Settings2 } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { dragRegion } from '@/components/app/drag-region'
 import { Button } from '@/components/ui/button'
@@ -23,7 +24,11 @@ import type { ProjectCard } from '@/lib/backend-client/agent-projects'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { useProjectDetail, useProjectList } from '@/lib/queries/agent-projects'
-import { agentProjectsPath } from '@/lib/spaces'
+import {
+  agentInsightsPath,
+  agentProjectPath,
+  agentProjectsPath,
+} from '@/lib/spaces'
 import { ProjectIcon } from './project-icon'
 import { ProjectMenu } from './project-menu'
 import { ToolIcons } from './project-row'
@@ -31,7 +36,11 @@ import { lastActive, projectLocator, projectName } from './project-words'
 import { useProjectsShared } from './projects-context'
 import { ProjectsProvider } from './projects-provider'
 
-function NotFound() {
+/**
+ * No such project. When its folders went into another project (`into`)
+ * and that one is known, it offers to open it.
+ */
+function NotFound({ into }: { into: ProjectCard | undefined }) {
   const { t } = useI18n()
   return (
     <Empty className="animate-rise flex-1">
@@ -46,7 +55,16 @@ function NotFound() {
           {t('agentProjects.page.notFoundBody')}
         </EmptyDescription>
       </EmptyHeader>
-      <EmptyContent>
+      <EmptyContent className="flex-row flex-wrap justify-center gap-2">
+        {into && (
+          <Button asChild size="sm">
+            <Link to={agentProjectPath(into.id)}>
+              {t('agentProjects.page.openInto', {
+                name: projectName(t, into),
+              })}
+            </Link>
+          </Button>
+        )}
         <Button asChild size="sm" variant="outline">
           <Link to={agentProjectsPath()}>{t('agentProjects.page.back')}</Link>
         </Button>
@@ -92,6 +110,12 @@ function Header({ project }: { project: ProjectCard }) {
         })}
       </span>
       <div className="ml-auto flex shrink-0 items-center gap-1">
+        <Button asChild size="sm" variant="ghost">
+          <Link to={agentInsightsPath(project.id)}>
+            <ChartColumn aria-hidden />
+            {t('agentProjects.page.insights')}
+          </Link>
+        </Button>
         <Button
           size="sm"
           variant="ghost"
@@ -152,7 +176,16 @@ export default function ProjectPage() {
           <Skeleton className="h-3.5 w-1/4" />
         </div>
       )
-    if (data.status !== 'ok') return <NotFound />
+    if (data.status !== 'ok')
+      return (
+        <NotFound
+          into={
+            data.status === 'addedInto'
+              ? all.data?.items.find((item) => item.id === data.into)
+              : undefined
+          }
+        />
+      )
     return (
       <>
         <Header project={data.project} />

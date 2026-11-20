@@ -1,11 +1,11 @@
 /**
  * Typed client for the Agent space's Insights (`#/agent/insights`): the
- * viewer's saved choices, the streamed report and its sections, and the
- * projects the filter offers.
+ * viewer's saved choices and the streamed report with its sections. The
+ * projects the filter offers come from `agent-projects.ts`.
  *
  * Responsible for: command names, request envelopes, the wire shapes and
  * the preference event's name. Not responsible for: opening the stream
- * (`src/lib/ipc/agent-insights-stream.ts`), keeping sections current or
+ * (`src/lib/ipc/agent-read-stream.ts`), keeping sections current or
  * any copy (`src/features/agent-insights/`).
  *
  * Source of truth: `docs/architecture/desktop-command-surface.md` (Agent
@@ -15,6 +15,7 @@
  * zero; a measured zero stays `0`.
  */
 import type { ChatRange, TitleSource, TokenKinds } from './agent-chats'
+import type { ProjectKind } from './agent-projects'
 import type { AgentToolId } from './data-kinds'
 import { call } from './shared'
 
@@ -53,17 +54,12 @@ export interface InsightsQuery {
   projectId?: string
 }
 
-export interface InsightsStarted {
-  streamId: string
-  viewToken: string
-}
-
 /** A project as a card shows it: its current name and classification. */
 export interface InsightsProjectChip {
   id: string
   /** Empty for the loose folders, which have a name of their own. */
   name: string
-  kind: 'repo' | 'folder' | 'scratch' | (string & {})
+  kind: ProjectKind
   /** Every folder of it is gone from the disk. */
   gone: boolean
 }
@@ -261,35 +257,6 @@ export type InsightsFrame = FrameBase &
     | { type: 'error'; payload: { code: string } }
   )
 
-export function isTerminalInsightsFrame(frame: InsightsFrame) {
-  return (
-    frame.type === 'finished' ||
-    frame.type === 'cancelled' ||
-    frame.type === 'error'
-  )
-}
-
-/** A project as the filter lists it (one card of `list_agent_projects`). */
-export interface InsightsProjectOption {
-  id: string
-  /** Empty for the loose folders. */
-  displayName: string
-  kind: 'repo' | 'folder' | 'scratch' | (string & {})
-  mainFolder: string | null
-  parentFolder: string | null
-  /** Another project has the same name: its whole path tells them apart. */
-  nameIsShared: boolean
-  gone: boolean
-  harnesses: AgentToolId[]
-}
-
-export interface InsightsProjectList {
-  /** Every project not left empty by the trash. */
-  total: number
-  items: InsightsProjectOption[]
-  homeFolder: string | null
-}
-
 export const agentInsightsClient = {
   preferences: () =>
     call<InsightsPreferences>('get_agent_insights_preferences', {
@@ -298,7 +265,4 @@ export const agentInsightsClient = {
   /** The complete preferences after the change. */
   setPreferences: (request: InsightsPreferencePatch) =>
     call<InsightsPreferences>('set_agent_insights_preferences', { request }),
-  /** Every project, newest activity first. */
-  projects: () =>
-    call<InsightsProjectList>('list_agent_projects', { request: {} }),
 }

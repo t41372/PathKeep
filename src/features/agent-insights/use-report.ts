@@ -35,8 +35,8 @@ import { describeError } from '@/lib/errors'
 import { subscribeToAgentConversations } from '@/lib/ipc/agent-chats-events'
 import {
   openAgentInsights,
-  type AgentInsightsStream,
-} from '@/lib/ipc/agent-insights-stream'
+  type AgentReadStream,
+} from '@/lib/ipc/agent-read-stream'
 
 export type Part = 'report' | 'calendar'
 
@@ -111,7 +111,7 @@ const MAX_RESTARTS = 3
 /** One request to the backend, which may answer for one part or both. */
 interface Live {
   keys: Partial<Record<Part, string>>
-  handle: AgentInsightsStream | null
+  handle: AgentReadStream | null
   closed: boolean
 }
 

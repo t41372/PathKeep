@@ -9,15 +9,18 @@
  * - Rename gives a project a name History shows on its rows and its
  *   filter; an empty name goes back to the folder's;
  * - Add folder takes another project's folders into this one: that
- *   project leaves the list, its address says it is gone, and History's
- *   project filter lists both projects' conversations; Undo on the notice
- *   brings it back, with History as it was;
+ *   project leaves the list, its address (in a second window) says it is
+ *   gone and opens the project it went into, and History's project filter
+ *   lists both projects' conversations; Undo on the notice brings it
+ *   back, with History as it was;
  * - Pin, a new section named in place, and dragging: a pin dropped on the
  *   section goes into it, and a second pin dropped on the top half of the
  *   first goes before it; the order the backend returns is the order on
  *   screen;
  * - a project's page lists its conversations in the Records workbench,
- *   scoped (its own search box, no project filter); an address naming no
+ *   scoped (its own search box, no project filter); its Insights button
+ *   and the row menu's Insights open Insights for the project alone, with
+ *   the backend's number of its conversations; an address naming no
  *   project says so.
  */
 import { expect, test } from '@playwright/test'
@@ -32,6 +35,12 @@ import {
   toast,
   wireList,
 } from './support/agent-chats'
+import {
+  conversationsName,
+  conversationsTile,
+  wireInsights,
+  wirePreferences,
+} from './support/agent-insights'
 import {
   dragTo,
   openProjects,
@@ -130,6 +139,19 @@ test('rename and add a folder, then Undo, with History following', async ({
     status: 'addedInto',
     into: tidepool.id,
   })
+  // Its address, open in another window, leads to the project it went into.
+  const other = await page.context().newPage()
+  await other.goto(`/#/agent/projects/${encodeURIComponent(from!.id)}`)
+  await unlockIfLocked(other)
+  await expect(other.getByText('Can’t find this project')).toBeVisible()
+  await other.getByRole('link', { name: 'Open “tidepool”' }).click()
+  await expect(other).toHaveURL(
+    new RegExp(`#/agent/projects/${encodeURIComponent(tidepool.id)}$`),
+  )
+  await expect(
+    other.getByRole('heading', { name: 'tidepool', level: 1 }),
+  ).toBeVisible()
+  await other.close()
   const joined = await wireList({ projectId: tidepool.id })
   expect(joined).toHaveLength(before.length + theirs.length)
   expect(joined.map((chat) => chat.id)).toEqual(
@@ -268,6 +290,28 @@ test('a project’s page is the Records workbench, scoped to it', async ({
   await listRows(page).first().click()
   await expect.poll(() => hashParam(page, 'chat')).toBe(chats[0].id)
   expect(page.url()).toContain(`#/agent/projects/${tidepool.id}?`)
+
+  // Its Insights: the project alone, as many conversations as the backend
+  // counts for it in the saved range.
+  const { range } = await wirePreferences()
+  const { overview } = await wireInsights({ range, projectId: tidepool.id })
+  const insightsHere = new RegExp(
+    `#/agent/insights\\?project=${encodeURIComponent(tidepool.id)}$`,
+  )
+  await page
+    .getByRole('main')
+    .getByRole('link', { name: 'Insights', exact: true })
+    .click()
+  await expect(page).toHaveURL(insightsHere)
+  await expect(page.getByText('Only this project:')).toContainText('tidepool')
+  await expect(conversationsTile(page)).toHaveAccessibleName(
+    conversationsName(overview.conversationCount),
+  )
+  // The same from the row's menu on the Projects page.
+  await openProjects(page)
+  await projectMenu(page, tidepool.id, 'tidepool', 'Insights')
+  await expect(page).toHaveURL(insightsHere)
+  await expect(page.getByText('Only this project:')).toContainText('tidepool')
 
   await page.goto('/#/agent/projects/p-no-such-project')
   await unlockIfLocked(page)

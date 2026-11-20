@@ -48,7 +48,6 @@ export const agentInsights = defineMessages({
       noMatch: 'No matching projects',
       loading: 'Reading the projects…',
       failed: 'Couldn’t read the projects',
-      loose: 'Loose folders',
     },
     project: {
       only: 'Only this project:',
@@ -137,14 +136,21 @@ export const agentInsights = defineMessages({
       press: 'About {reading}. Press to show it as {other}.',
       asNonstop: 'days nonstop',
       asWork: 'full-time work',
-      detailNonstop:
-        'Back to back, these hours are {days} days without a break.',
-      detailDays:
-        'At 8 hours a day, 5 days a week, they are {workDays} working days.',
+      dayCount_one: '{n} day',
+      dayCount_other: '{n} days',
+      workDayCount_one: '{n} working day',
+      workDayCount_other: '{n} working days',
+      monthCount_one: '{n} month',
+      monthCount_other: '{n} months',
+      yearCount_one: '{n} year',
+      yearCount_other: '{n} years',
+      detailNonstop: 'Back to back, these hours are {days} without a break.',
+      detailDays: 'At 8 hours a day, 5 days a week, they are {workDays}.',
       detailMonths:
-        'At 8 hours a day, 5 days a week, they are {workDays} working days, about {months} months.',
+        'At 8 hours a day, 5 days a week, they are {workDays}, about {months}.',
       detailYears:
-        'At 8 hours a day, 5 days a week, they are {workDays} working days, about {months} months, {years} years.',
+        'At 8 hours a day, 5 days a week, they are {workDays}, about {months}, {years}.',
+      both: '{nonstop} {work}',
     },
     year: {
       title: 'Agent work per day',
@@ -222,7 +228,6 @@ export const agentInsights = defineMessages({
       noMatch: '没有符合的项目',
       loading: '正在读取项目…',
       failed: '读不到项目',
-      loose: '零散文件夹',
     },
     project: {
       only: '只看这个项目：',
@@ -307,13 +312,22 @@ export const agentInsights = defineMessages({
       press: '相当于{reading}。按一下换成{other}。',
       asNonstop: '不眠不休',
       asWork: '8 小时工作制',
-      detailNonstop: '把这些小时连在一起，是 {days} 天不眠不休。',
+      dayCount_one: '{n} 天',
+      dayCount_other: '{n} 天',
+      workDayCount_one: '{n} 个工作日',
+      workDayCount_other: '{n} 个工作日',
+      monthCount_one: '{n} 个月',
+      monthCount_other: '{n} 个月',
+      yearCount_one: '{n} 年',
+      yearCount_other: '{n} 年',
+      detailNonstop: '把这些小时连在一起，是 {days}不眠不休。',
       detailDays:
-        '按 8 小时工作制（每天 8 小时、每周 5 天）算，是 {workDays} 个工作日。',
+        '按 8 小时工作制（每天 8 小时、每周 5 天）算，是 {workDays}。',
       detailMonths:
-        '按 8 小时工作制（每天 8 小时、每周 5 天）算，是 {workDays} 个工作日，约 {months} 个月。',
+        '按 8 小时工作制（每天 8 小时、每周 5 天）算，是 {workDays}，约 {months}。',
       detailYears:
-        '按 8 小时工作制（每天 8 小时、每周 5 天）算，是 {workDays} 个工作日，约 {months} 个月，{years} 年。',
+        '按 8 小时工作制（每天 8 小时、每周 5 天）算，是 {workDays}，约 {months}，{years}。',
+      both: '{nonstop}{work}',
     },
     year: {
       title: '每天的 Agent 工作时间',
@@ -390,7 +404,6 @@ export const agentInsights = defineMessages({
       noMatch: '沒有符合的專案',
       loading: '正在讀取專案…',
       failed: '讀不到專案',
-      loose: '零散資料夾',
     },
     project: {
       only: '只看這個專案：',
@@ -475,13 +488,22 @@ export const agentInsights = defineMessages({
       press: '相當於{reading}。按一下換成{other}。',
       asNonstop: '不眠不休',
       asWork: '8 小時工作制',
-      detailNonstop: '把這些小時連在一起，是 {days} 天不眠不休。',
+      dayCount_one: '{n} 天',
+      dayCount_other: '{n} 天',
+      workDayCount_one: '{n} 個工作天',
+      workDayCount_other: '{n} 個工作天',
+      monthCount_one: '{n} 個月',
+      monthCount_other: '{n} 個月',
+      yearCount_one: '{n} 年',
+      yearCount_other: '{n} 年',
+      detailNonstop: '把這些小時連在一起，是 {days}不眠不休。',
       detailDays:
-        '按 8 小時工作制（每天 8 小時、每週 5 天）算，是 {workDays} 個工作天。',
+        '按 8 小時工作制（每天 8 小時、每週 5 天）算，是 {workDays}。',
       detailMonths:
-        '按 8 小時工作制（每天 8 小時、每週 5 天）算，是 {workDays} 個工作天，約 {months} 個月。',
+        '按 8 小時工作制（每天 8 小時、每週 5 天）算，是 {workDays}，約 {months}。',
       detailYears:
-        '按 8 小時工作制（每天 8 小時、每週 5 天）算，是 {workDays} 個工作天，約 {months} 個月，{years} 年。',
+        '按 8 小時工作制（每天 8 小時、每週 5 天）算，是 {workDays}，約 {months}，{years}。',
+      both: '{nonstop}{work}',
     },
     year: {
       title: '每天的 Agent 工作時間',

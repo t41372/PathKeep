@@ -25,19 +25,21 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { ProjectIcon } from '@/features/agent-projects/project-icon'
+import {
+  projectLocator,
+  projectName,
+} from '@/features/agent-projects/project-words'
 import { ToolIcon } from '@/features/data-kinds/tool-badge'
 import { toolName } from '@/features/data-kinds/tools'
-import type {
-  InsightsProjectOption,
-  InsightsRange,
-} from '@/lib/backend-client/agent-insights'
+import type { InsightsRange } from '@/lib/backend-client/agent-insights'
+import type { ProjectCard } from '@/lib/backend-client/agent-projects'
 import { AGENT_TOOLS, type AgentToolId } from '@/lib/backend-client/data-kinds'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
-import { ProjectIcon } from './project-bits'
+import { useProjectList } from '@/lib/queries/agent-projects'
 import type { Scope } from './scope'
-import { useProjectOptions } from './use-projects'
-import { RANGES, projectName, rangeKey } from './words'
+import { RANGES, rangeKey } from './words'
 
 export function RangeToggle({
   range,
@@ -88,16 +90,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-function parentOf(
-  t: ReturnType<typeof useI18n>['t'],
-  project: InsightsProjectOption,
-) {
-  if (project.kind === 'scratch') return t('agentInsights.filter.loose')
-  return (
-    (project.nameIsShared ? project.mainFolder : project.parentFolder) ?? ''
-  )
-}
-
 export function FilterButton({
   scope,
   project,
@@ -106,13 +98,13 @@ export function FilterButton({
 }: {
   scope: Scope
   /** The chosen project, once the list has it. */
-  project: InsightsProjectOption | undefined
+  project: ProjectCard | undefined
   onTool: (tool: AgentToolId) => void
   onProject: (id: string | null) => void
 }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
-  const projects = useProjectOptions(open || scope.projectId !== null)
+  const projects = useProjectList({}, open || scope.projectId !== null)
   const conditions = scope.harnesses.length + (scope.projectId ? 1 : 0)
   const list = projects.data
   const tools =
@@ -207,7 +199,7 @@ export function FilterButton({
                 <CommandGroup>
                   {list.items.map((option) => {
                     const name = projectName(t, option)
-                    const parent = parentOf(t, option)
+                    const place = projectLocator(t, option, list.homeFolder)
                     return (
                       <CommandItem
                         key={option.id}
@@ -218,10 +210,10 @@ export function FilterButton({
                           )
                         }
                       >
-                        <ProjectIcon project={option} />
+                        <ProjectIcon project={option} className="size-3.5" />
                         <span className="truncate">{name}</span>
                         <span className="ml-auto truncate text-xs text-muted-foreground">
-                          {parent}
+                          {place}
                         </span>
                         {scope.projectId === option.id && (
                           <Check className="size-3.5" aria-hidden />
@@ -244,7 +236,7 @@ export function ProjectLine({
   project,
   onClear,
 }: {
-  project: InsightsProjectOption | undefined
+  project: ProjectCard | undefined
   onClear: () => void
 }) {
   const { t } = useI18n()
@@ -253,7 +245,7 @@ export function ProjectLine({
       {t('agentInsights.project.only')}
       {project && (
         <span className="flex min-w-0 items-center gap-1 font-medium text-foreground">
-          <ProjectIcon project={project} />
+          <ProjectIcon project={project} className="size-3.5" />
           <span className="truncate">{projectName(t, project)}</span>
         </span>
       )}
