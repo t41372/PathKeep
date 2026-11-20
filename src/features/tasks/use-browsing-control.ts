@@ -1,18 +1,24 @@
 /**
- * Pause, continue, cancel or try again on a browsing row of the background
- * tasks page: each row names the queue command its state allows, and this
- * calls it the way the queue's own list does (the same notices, the same
- * queues read again), then reads the page's browsing groups again.
+ * Pause, continue, cancel, try again or dismiss on a ledger row of the
+ * background tasks page: each row names the command its state allows. A
+ * queue command is called the way the queue's own list does it (the same
+ * notices, the same queues read again); dismissing takes a failed or
+ * partial row out of "Needs a look" (its history stays). Then the page's
+ * ledger groups and the rail's summary are read again.
  *
  * Responsibilities: one command at a time, and which one is on its way.
  * Not responsible for: which commands a row offers (the backend's
  * `commands`), or conversation backups (`use-task-control.ts`).
  */
 import { useState } from 'react'
-import type {
-  BrowsingTask,
-  BrowsingTaskCommand,
+import { toast } from 'sonner'
+import {
+  backgroundTasksClient,
+  type BrowsingTask,
+  type BrowsingTaskCommand,
 } from '@/lib/backend-client/background-tasks'
+import { describeError } from '@/lib/errors'
+import { useI18n } from '@/lib/i18n'
 import { refetchBrowsingTasks } from '@/lib/queries/background-tasks'
 import {
   useAiJobActions,
@@ -27,6 +33,7 @@ export function browsingActionKey(
 }
 
 export function useBrowsingControl() {
+  const { t } = useI18n()
   const runtime = useRuntimeJobActions()
   const ai = useAiJobActions()
   const [busy, setBusy] = useState<string | null>(null)
@@ -55,9 +62,16 @@ export function useBrowsingControl() {
         case 'replay_ai_job':
           await ai.replay.mutateAsync(jobId)
           break
+        case 'dismiss':
+          await backgroundTasksClient.dismiss(task.taskId).catch((error) => {
+            toast.error(t('agentTasks.control.failed'), {
+              description: describeError(error),
+            })
+          })
+          break
       }
     } catch {
-      // The command's own notice already said what went wrong.
+      // A queue command's own notice already said what went wrong.
     } finally {
       setBusy(null)
       void refetchBrowsingTasks()

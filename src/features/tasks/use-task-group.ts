@@ -3,8 +3,9 @@
  * conversation backups (kept current by the backend's task events, as the
  * frame already does), the conversations' semantic index build (listed on
  * the backups' first page; its events keep it current, see
- * `useAgentSemanticSync`) and browsing history's work (read again while it
- * works; see `useBrowsingTasks`).
+ * `useAgentSemanticSync`) and the run ledger's rows: browsing history's
+ * work and work on the whole archive (read again on the ledger's event;
+ * see `useBrowsingTasks`).
  *
  * Responsibilities: reading both, a page at a time; merging them newest
  * first (`mergeNewestFirst`); reading on from whichever kind holds the next
@@ -39,10 +40,10 @@ export interface TaskGroupRows {
   loadMore: () => void
 }
 
-export function useTaskGroup(group: TaskGroup, pollBrowsing: boolean) {
+export function useTaskGroup(group: TaskGroup) {
   const agentKind = useAgentKind()
   const agent = useKindTasks(group)
-  const browsing = useBrowsingTasks(group, pollBrowsing)
+  const browsing = useBrowsingTasks(group)
   const agentShown = agentKind.readable
 
   const merged = useMemo(() => {

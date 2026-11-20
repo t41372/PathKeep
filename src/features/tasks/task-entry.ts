@@ -1,9 +1,9 @@
 /**
  * One row of the background tasks page, whichever kind of data its task
  * serves: a conversation backup (with its snapshot-token actions), the
- * conversations' semantic index build (with its job's controls), or
- * browsing history's work (a backup or import from the run ledger, or a
- * queue job, with the queue command it offers).
+ * conversations' semantic index build (with its job's controls), or a row
+ * of the run ledger: browsing history's work (a backup or import, or a
+ * queue job, with the command it offers) or work on the whole archive.
  *
  * Responsibilities: the row's sort time in each group; merging the two
  * kinds' pages, each newest first, into one list that never shows a row
@@ -115,6 +115,11 @@ export function mergeNewestFirst(sources: readonly MergeSource[]): {
 const runNames: Record<string, MessageKey> = {
   backup: 'tasks.browsing.backup',
   import: 'backup.runs.types.import',
+  // Work on the whole archive.
+  doctor: 'backup.runs.types.doctor',
+  rekey: 'backup.runs.types.rekey',
+  retention_prune: 'backup.runs.types.retention_prune',
+  archive_restore: 'backup.runs.types.archive_restore',
   snapshot_restore: 'backup.runs.types.snapshot_restore',
   rollback: 'backup.runs.types.rollback',
   restore: 'backup.runs.types.restore',

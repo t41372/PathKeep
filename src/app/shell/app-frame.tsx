@@ -9,8 +9,9 @@
  * the panel fades when the space changes (`space-panel.tsx`). The frame
  * keeps the kinds of data's states current for the whole shell
  * (`useDataKindsSync`), conversation backups with their notices
- * (`useAgentBackupNotices`) and the conversations' semantic index build
- * (`useAgentSemanticSync`), and holds the dialogs that turn Agent
+ * (`useAgentBackupNotices`), the conversations' semantic index build
+ * (`useAgentSemanticSync`) and the run ledger's background tasks
+ * (`useBackgroundTasksSync`), and holds the dialogs that turn Agent
  * conversations on (`?enable=agent`) and repair them (`?repair=agent`),
  * which open over any screen.
  */
@@ -22,6 +23,7 @@ import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
 import { subscribeToOpenCommandPalette } from '@/lib/ipc/desktop-events'
 import { useAgentSemanticSync } from '@/lib/queries/agent-semantic'
+import { useBackgroundTasksSync } from '@/lib/queries/background-tasks'
 import { useDataKindsSync } from '@/lib/queries/data-kinds'
 import { isMacOsHost } from '@/lib/runtime'
 import { spaceKeyIndex, spacesOn } from '@/lib/spaces'
@@ -95,6 +97,7 @@ export function AppFrame() {
 
   useDataKindsSync()
   useAgentSemanticSync()
+  useBackgroundTasksSync()
   useAgentBackupNotices()
   useSpaceFromUrl(useLocation().pathname)
   const switchTo = useSwitchSpace()
