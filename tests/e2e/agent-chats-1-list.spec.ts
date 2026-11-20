@@ -257,6 +257,11 @@ test('History lists, sorts, groups and filters the saved conversations', async (
   await expect(page.getByRole('option')).toHaveCount(catalog.items.length)
   await page.getByPlaceholder('Find a project…').fill('tidepool')
   await page.getByRole('option', { name: /^tidepool/ }).click()
+  // Choosing closes the project list and leaves the filter open. Esc goes to
+  // the topmost layer, and a list still fading out is one: wait until it
+  // has gone, as a person who sees it close would.
+  await expect(page.getByRole('dialog')).toHaveCount(1)
+  await expect(field).toHaveText('tidepool')
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect
