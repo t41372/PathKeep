@@ -125,7 +125,27 @@ fn prune_publication(tx: &Session<'_>, epoch: i64, limit: i64) -> vault_store::R
         return Ok(0);
     };
     let mut changed = 0;
-    for table in ["ah_reader_member", "ah_reader_line", "ah_reader_dependency", "ah_reader_route"] {
+    for table in [
+        "ah_chat_response",
+        "ah_chat_prompt",
+        "ah_chat_line_stats",
+        "ah_chat_turn",
+        "ah_chat_attachment",
+        "ah_chat_call",
+        "ah_chat_activity",
+        "ah_chat_notice",
+        "ah_chat_variant",
+        "ah_chat_mirror",
+        "ah_chat_mirror_rank",
+        "ah_chat_extra",
+        "ah_chat_insert_rank",
+        "ah_chat_operation",
+        "ah_chat_summary",
+        "ah_reader_member",
+        "ah_reader_line",
+        "ah_reader_dependency",
+        "ah_reader_route",
+    ] {
         changed += delete_batch(tx, table, "publication", &owner, limit)?;
     }
     if changed == 0 {
@@ -164,6 +184,8 @@ fn prune_version(tx: &Session<'_>, row: i64, limit: i64) -> vault_store::Result<
         "ah_reader_sort",
         "ah_reader_ambiguous_stage",
         "ah_reader_leaf",
+        "ah_chat_leaf_size",
+        "ah_chat_leaf_run",
         "ah_reader_walk",
         "ah_reader_walk_run",
     ] {

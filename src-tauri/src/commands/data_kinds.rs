@@ -7,14 +7,14 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, State, ipc::Channel};
 use vault_worker::data_kinds::{self as kinds, preview};
 
-fn desktop_events(app: AppHandle) -> kinds::backups::Events {
+pub(super) fn desktop_events(app: AppHandle) -> kinds::backups::Events {
     std::sync::Arc::new(move |name, event| {
         let _ = app.emit(name, event);
     })
 }
 
 /// Preserve the domain error envelope even when the request wrapper is missing.
-pub(crate) struct Request<T>(T);
+pub(crate) struct Request<T>(pub(super) T);
 impl<'de, R: tauri::Runtime, T: serde::Deserialize<'de>> tauri::ipc::CommandArg<'de, R>
     for Request<T>
 {

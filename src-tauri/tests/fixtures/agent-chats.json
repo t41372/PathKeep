@@ -1,0 +1,492 @@
+{
+  "list_agent_conversations": {
+    "request": {
+      "request": {
+        "sort": "tokens",
+        "limit": 1
+      }
+    },
+    "response": {
+      "items": [
+        {
+          "id": "chat-1",
+          "harness": "pi",
+          "project": {
+            "id": "/src/project",
+            "label": "project",
+            "kind": "folder"
+          },
+          "title": "Look at the image",
+          "titleSource": "firstPrompt",
+          "startedAt": 1794312000000,
+          "lastActivityAt": 1794312120000,
+          "starred": false,
+          "archived": false,
+          "trashed": false,
+          "onlyInPathKeep": false,
+          "childCount": 0,
+          "messages": 1,
+          "turns": 1,
+          "agentMs": 60000,
+          "tokensTotal": 10,
+          "sourceBytes": 596,
+          "lastSavedAt": 1794355500000,
+          "publication": "publication-1"
+        }
+      ],
+      "groups": [],
+      "nextCursor": null,
+      "viewToken": "1:0"
+    }
+  },
+  "get_agent_conversation_counts": {
+    "request": {
+      "request": {}
+    },
+    "response": {
+      "viewToken": "1:0",
+      "savedChildren": 0,
+      "savedOnlyInPathKeep": 0,
+      "folderCount": 1,
+      "matchingRoots": 1,
+      "matchingChildren": 0,
+      "savedRoots": 1,
+      "spaceRoots": 1,
+      "spaceOnlyInPathKeep": 0
+    }
+  },
+  "get_agent_conversation": {
+    "request": {
+      "request": {
+        "id": "chat-1"
+      }
+    },
+    "response": {
+      "summary": {
+        "id": "chat-1",
+        "harness": "pi",
+        "project": {
+          "id": "/src/project",
+          "label": "project",
+          "kind": "folder"
+        },
+        "title": "Look at the image",
+        "titleSource": "firstPrompt",
+        "startedAt": 1794312000000,
+        "lastActivityAt": 1794312120000,
+        "starred": false,
+        "archived": false,
+        "trashed": false,
+        "onlyInPathKeep": false,
+        "childCount": 0,
+        "messages": 1,
+        "turns": 1,
+        "agentMs": 60000,
+        "tokensTotal": 10,
+        "sourceBytes": 596,
+        "lastSavedAt": 1794355500000,
+        "publication": "publication-1"
+      },
+      "viewToken": "1:0",
+      "publication": "publication-1",
+      "currentSource": "source-1",
+      "parentId": null,
+      "parentStatus": "none",
+      "folderState": "gone",
+      "nativeSessionId": "wire-fixture",
+      "resumeCommand": null,
+      "unparsedRecords": 0,
+      "promptCount": 1,
+      "parent": null,
+      "physicalRecords": 3,
+      "visibleRecords": 2,
+      "coverage": {
+        "complete": true,
+        "reason": null
+      },
+      "attachmentsNotKept": 0
+    }
+  },
+  "get_agent_conversation_info": {
+    "request": {
+      "request": {
+        "id": "chat-1",
+        "showCost": false
+      }
+    },
+    "response": {
+      "publication": "publication-1",
+      "own": {
+        "messages": 1,
+        "turns": 1,
+        "calls": 0,
+        "failedCalls": 0,
+        "addedLines": 0,
+        "removedLines": 0,
+        "editedFileCount": 0,
+        "unknownEditCounts": 0,
+        "pullRequests": [],
+        "compactions": 0,
+        "apiErrors": 0,
+        "tokens": {
+          "input": 4,
+          "cacheWrite": 1,
+          "cacheRead": 3,
+          "output": 2
+        },
+        "reasoningTokens": null,
+        "usageResponses": 1,
+        "ownershipPartial": false,
+        "unpricedResponses": 0,
+        "agentMs": 60000,
+        "recordedTurns": 0,
+        "derivedTurns": 1,
+        "unknownDurationTurns": 0
+      },
+      "total": {
+        "messages": 1,
+        "turns": 1,
+        "calls": 0,
+        "failedCalls": 0,
+        "addedLines": 0,
+        "removedLines": 0,
+        "editedFileCount": 0,
+        "unknownEditCounts": 0,
+        "pullRequests": [],
+        "compactions": 0,
+        "apiErrors": 0,
+        "tokens": {
+          "input": 4,
+          "cacheWrite": 1,
+          "cacheRead": 3,
+          "output": 2
+        },
+        "reasoningTokens": null,
+        "usageResponses": 1,
+        "ownershipPartial": false,
+        "unpricedResponses": 0,
+        "agentMs": 60000,
+        "recordedTurns": 0,
+        "derivedTurns": 1,
+        "unknownDurationTurns": 0
+      },
+      "subagentTokens": null,
+      "usageCoverage": {
+        "known": 1,
+        "conversations": 1
+      },
+      "models": [
+        {
+          "model": "synthetic",
+          "outputTokens": 2
+        }
+      ],
+      "primaryModel": "synthetic",
+      "nativeSessionId": "wire-fixture",
+      "launchOrigin": "unknown",
+      "toolVersion": null,
+      "folder": "/src/project",
+      "folderObservation": {
+        "path": "/src/project",
+        "exists": false,
+        "observedAt": 1794355500000
+      },
+      "sourceCount": 1,
+      "physicalRecords": 3,
+      "visibleRecords": 2,
+      "resumeCommand": null,
+      "allErrorsRetried": null,
+      "agentType": null,
+      "currentLineTokens": {
+        "input": 4,
+        "cacheWrite": 1,
+        "cacheRead": 3,
+        "output": 2
+      },
+      "unparsedRecords": 0,
+      "hiddenRecords": 1,
+      "permissionMode": null,
+      "startCommit": null,
+      "effort": null,
+      "sourcePath": "/fixtures/pi/sessions/session.jsonl",
+      "sourceBytes": 596,
+      "lastSavedAt": 1794355500000,
+      "subagentSourceCount": 0,
+      "git": null,
+      "folderState": "gone",
+      "editedFileCount": 0,
+      "timeSource": "derived"
+    }
+  },
+  "read_agent_conversation_window": {
+    "request": {
+      "request": {
+        "id": "chat-1",
+        "publication": "publication-1",
+        "anchor": {
+          "kind": "end"
+        },
+        "limit": 2
+      }
+    },
+    "response": {
+      "publication": "publication-1",
+      "first": 0,
+      "total": 2,
+      "previous": null,
+      "next": null,
+      "rows": [
+        {
+          "sourceId": "source-1",
+          "ordinal": 1,
+          "nativeId": "prompt",
+          "parentId": null,
+          "kind": "message",
+          "role": "user",
+          "at": 1794312060000,
+          "parts": [
+            {
+              "kind": "text",
+              "text": "Look at the image"
+            }
+          ],
+          "notices": [],
+          "bytes": 227,
+          "truncated": false,
+          "boundary": null,
+          "turnOrdinal": 1,
+          "turnNumber": 1,
+          "versionCount": 1,
+          "footer": null,
+          "response": null,
+          "operations": [],
+          "attachments": [
+            {
+              "kind": "attachment",
+              "availability": "inline",
+              "key": "inline-0",
+              "mimeType": "image/png",
+              "bytes": 8,
+              "sourceId": "source-1",
+              "ordinal": 1
+            }
+          ]
+        },
+        {
+          "sourceId": "source-1",
+          "ordinal": 2,
+          "nativeId": "answer",
+          "parentId": "prompt",
+          "kind": "message",
+          "role": "assistant",
+          "at": 1794312120000,
+          "parts": [
+            {
+              "kind": "text",
+              "text": "Answer"
+            }
+          ],
+          "notices": [],
+          "bytes": 262,
+          "truncated": false,
+          "boundary": null,
+          "turnOrdinal": 1,
+          "turnNumber": 1,
+          "versionCount": null,
+          "footer": {
+            "ordinal": 1,
+            "lastOrdinal": 2,
+            "footerOrdinal": 2,
+            "prompt": "Look at the image",
+            "startedAt": 1794312060000,
+            "endedAt": 1794312120000,
+            "endReason": "completed",
+            "durationSource": "derived",
+            "model": "synthetic",
+            "facts": {
+              "messages": 1,
+              "turns": 1,
+              "calls": 0,
+              "failedCalls": 0,
+              "addedLines": 0,
+              "removedLines": 0,
+              "editedFileCount": 0,
+              "unknownEditCounts": 0,
+              "pullRequests": [],
+              "compactions": 0,
+              "apiErrors": 0,
+              "tokens": {
+                "input": 4,
+                "cacheWrite": 1,
+                "cacheRead": 3,
+                "output": 2
+              },
+              "reasoningTokens": null,
+              "recordedUsd": 0.0,
+              "estimatedUsd": null,
+              "unpricedResponses": 0,
+              "agentMs": 60000,
+              "recordedTurns": 0,
+              "derivedTurns": 1,
+              "unknownDurationTurns": 0,
+              "usageResponses": 1,
+              "ownershipPartial": false
+            }
+          },
+          "response": {
+            "ordinal": 2,
+            "at": 1794312120000,
+            "estimatedUsd": null,
+            "tokens": {
+              "input": 4,
+              "cacheWrite": 1,
+              "cacheRead": 3,
+              "output": 2
+            },
+            "reasoningTokens": null,
+            "recordedUsd": 0.0,
+            "durationMs": null,
+            "model": "synthetic"
+          },
+          "operations": [],
+          "attachments": []
+        }
+      ]
+    }
+  },
+  "read_agent_attachment": {
+    "request": {
+      "request": {
+        "id": "chat-1",
+        "publication": "publication-1",
+        "sourceId": "source-1",
+        "ordinal": 1,
+        "key": "inline-0",
+        "offset": 1,
+        "limit": 4
+      }
+    },
+    "response": {
+      "bytes": [80, 78, 71, 13],
+      "totalBytes": 8,
+      "next": 5
+    }
+  },
+  "read_agent_record": {
+    "request": {
+      "request": {
+        "id": "chat-1",
+        "publication": "publication-1",
+        "sourceId": "source-1",
+        "ordinal": 0,
+        "offset": 0,
+        "limit": 4096
+      }
+    },
+    "response": {
+      "bytes": [
+        123, 34, 116, 121, 112, 101, 34, 58, 34, 115, 101, 115, 115, 105, 111,
+        110, 34, 44, 34, 118, 101, 114, 115, 105, 111, 110, 34, 58, 51, 44, 34,
+        105, 100, 34, 58, 34, 119, 105, 114, 101, 45, 102, 105, 120, 116, 117,
+        114, 101, 34, 44, 34, 99, 119, 100, 34, 58, 34, 47, 115, 114, 99, 47,
+        112, 114, 111, 106, 101, 99, 116, 34, 44, 34, 116, 105, 109, 101, 115,
+        116, 97, 109, 112, 34, 58, 34, 50, 48, 50, 54, 45, 49, 49, 45, 49, 48,
+        84, 49, 50, 58, 48, 48, 58, 48, 48, 90, 34, 125, 10
+      ],
+      "next": null
+    }
+  },
+  "list_agent_conversation_branches": {
+    "request": {
+      "request": {
+        "id": "chat-1"
+      }
+    },
+    "response": {
+      "publication": "publication-1",
+      "sources": [
+        {
+          "id": "source-1",
+          "nativeId": "wire-fixture",
+          "path": "/fixtures/pi/sessions/session.jsonl",
+          "bytes": 596,
+          "savedAt": 1794355500000,
+          "lastSeenAt": 1794355500000,
+          "missingSince": null,
+          "current": true,
+          "copyOf": null,
+          "base": null,
+          "forkId": null,
+          "physicalRecords": 3,
+          "visibleRecords": 2,
+          "awaitingRebuild": false,
+          "rawHeadCurrent": true
+        }
+      ],
+      "sourcesAfter": null,
+      "children": [],
+      "versions": null,
+      "childrenAfter": null,
+      "leaves": {
+        "ordinals": [2],
+        "total": 1,
+        "latestRecorded": 2
+      },
+      "leafNext": null
+    }
+  },
+  "edit_agent_conversation": {
+    "request": {
+      "request": {
+        "id": "chat-1",
+        "action": "star",
+        "on": true
+      }
+    },
+    "response": {
+      "summary": {
+        "id": "chat-1",
+        "harness": "pi",
+        "project": {
+          "id": "/src/project",
+          "label": "project",
+          "kind": "folder"
+        },
+        "title": "Look at the image",
+        "titleSource": "firstPrompt",
+        "startedAt": 1794312000000,
+        "lastActivityAt": 1794312120000,
+        "starred": true,
+        "archived": false,
+        "trashed": false,
+        "onlyInPathKeep": false,
+        "childCount": 0,
+        "messages": 1,
+        "turns": 1,
+        "agentMs": 60000,
+        "tokensTotal": 10,
+        "sourceBytes": 596,
+        "lastSavedAt": 1794355500000,
+        "publication": "publication-1"
+      },
+      "viewToken": "1:1",
+      "publication": "publication-1",
+      "currentSource": "source-1",
+      "parentId": null,
+      "parentStatus": "none",
+      "folderState": "gone",
+      "nativeSessionId": "wire-fixture",
+      "resumeCommand": null,
+      "unparsedRecords": 0,
+      "promptCount": 1,
+      "parent": null,
+      "physicalRecords": 3,
+      "visibleRecords": 2,
+      "coverage": {
+        "complete": true,
+        "reason": null
+      },
+      "attachmentsNotKept": 0
+    }
+  }
+}

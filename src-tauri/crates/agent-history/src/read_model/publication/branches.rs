@@ -5,7 +5,7 @@ use crate::{Archive, query::page_limit};
 use vault_store::{OptionalRow, params};
 
 impl Archive {
-    pub(super) fn member_version(
+    pub(crate) fn member_version(
         &self,
         h: &ReaderPublication,
         source: &str,

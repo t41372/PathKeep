@@ -209,6 +209,14 @@ impl Producer {
                 }),
             );
         }
+        if let Ok(archive) = vault.agent_history()
+            && let Ok(view) = archive.chat_view_token()
+        {
+            events(
+                "pathkeep://agent-conversations-changed",
+                json!({"id":null,"viewToken":view,"runRef":detail["runRef"]}),
+            );
+        }
         let reasons = row
             .report
             .get("captureOutcome")

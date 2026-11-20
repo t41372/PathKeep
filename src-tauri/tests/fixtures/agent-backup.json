@@ -69,6 +69,11 @@
       "viewToken": "904e92d66d1a50686fa4dd2b8d1783142107b8f2392bf9e770badde1b5c9c0b1",
       "domains": ["backup", "sources"]
     },
+    "pathkeep://agent-conversations-changed": {
+      "id": null,
+      "viewToken": "1:0",
+      "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d"
+    },
     "pathkeep://kind-backup-finished": {
       "batchId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
       "taskId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",

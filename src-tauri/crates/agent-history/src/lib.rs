@@ -7,6 +7,7 @@
 pub mod adapters;
 pub mod archive;
 pub mod capture;
+pub mod chats;
 pub mod error;
 pub mod export;
 pub mod model;

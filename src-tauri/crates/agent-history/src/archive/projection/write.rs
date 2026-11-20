@@ -65,13 +65,14 @@ impl Archive {
                         continue;
                     }
                     if let Ok(key) = super::super::references::reference_key(reference) {
-                        *references.entry(key).or_insert(0_i64) += 1;
+                        let name=(!reference.target.starts_with("data:")).then(||reference.target.split(['?', '#']).next().unwrap_or("").rsplit(['/', '\\']).next().unwrap_or(""));
+                        *references.entry((key,reference.kind.as_str(),name)).or_insert(0_i64) += 1;
                     }
                 }
-                for (key, count) in references {
+                for ((key,kind,name), count) in references {
                     tx.execute(
-                        "INSERT INTO ah_event_references VALUES(?1,?2,?3,?4)",
-                        params![attempt.id, ordinal, key, count],
+                        "INSERT INTO ah_event_references(projection_id,ordinal,reference_key,occurrences,display_kind,display_name) VALUES(?1,?2,?3,?4,?5,?6)",
+                        params![attempt.id, ordinal, key, count,kind,name],
                     )?;
                 }
                 insert.execute(params![

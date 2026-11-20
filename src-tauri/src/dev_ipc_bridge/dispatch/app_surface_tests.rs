@@ -769,3 +769,6 @@ fn conversation_repair_screen_wire_contract() {
         state.session.close_vault().unwrap();
     });
 }
+
+#[path = "chat_wire_tests.rs"]
+mod chat_wire;

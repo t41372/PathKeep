@@ -125,10 +125,46 @@ pub(crate) fn parts(event: &NativeEvent) -> Vec<RecordPart> {
     }
 }
 
-pub(crate) fn boundary(event: &NativeEvent) -> Option<crate::read_model::StructuralBoundary> {
+pub(crate) fn boundary(payload: &Value) -> Option<crate::read_model::StructuralBoundary> {
     use crate::read_model::{BoundaryKind, StructuralBoundary};
-    (event.payload["type"] == "compacted"
-        || (event.payload["type"] == "event_msg"
-            && event.payload["payload"]["type"] == "context_compacted"))
+    (payload["type"] == "compacted"
+        || (payload["type"] == "event_msg" && payload["payload"]["type"] == "context_compacted"))
         .then_some(StructuralBoundary { kind: BoundaryKind::Compaction, tokens_before: None })
+}
+
+/// Inclusive Codex input already contains cache hits.
+pub(crate) fn counter(v: &Value) -> Option<crate::read_model::usage::Tokens> {
+    let mut n = crate::read_model::usage::fields(
+        v,
+        ["input_tokens", "cache_creation_input_tokens", "cached_input_tokens", "output_tokens"],
+    )?;
+    n.input -= n.cache_read;
+    (n.input >= 0).then_some(n)
+}
+
+/// Count new work since the inherited cut. Equal cumulative samples are
+/// repeated observations; the first explicit zero on a fresh rollout is known.
+pub(crate) fn usage(
+    previous: &mut crate::read_model::usage::Counter,
+    info: &Value,
+) -> (Option<crate::read_model::usage::Tokens>, Option<i64>) {
+    let Some(next) = counter(&info["total_token_usage"]) else { return (None, None) };
+    let delta = match previous.tokens.replace(next) {
+        Some(old) if old == next => None,
+        Some(old) => next.difference(old),
+        None if previous.from_start => Some(next),
+        None => counter(&info["last_token_usage"]),
+    };
+    let reasoning = info
+        .pointer("/total_token_usage/reasoning_output_tokens")
+        .and_then(Value::as_i64)
+        .and_then(|n| {
+            previous.reasoning.replace(n).and_then(|old| (n >= old).then_some(n - old)).or_else(
+                || {
+                    info.pointer("/last_token_usage/reasoning_output_tokens")
+                        .and_then(Value::as_i64)
+                },
+            )
+        });
+    (delta, reasoning)
 }

@@ -700,7 +700,10 @@ fn upgrade_recovers_the_parent_from_the_elected_child_descriptor() {
                 .iter()
                 .position(|sql| sql.starts_with("ALTER TABLE ah_reader_head ADD COLUMN parent "))
                 .unwrap();
-            migrations.truncate(migrations.len() - 1 - schema::TABLES.len() + first_new);
+            migrations.truncate(
+                migrations.len() - crate::chats::schema::TABLES.len() - 1 - schema::TABLES.len()
+                    + first_new,
+            );
         }
         cfg.migrations = MigrationRegistry::default();
         cfg.migrations.register(DB, migrations);

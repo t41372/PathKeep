@@ -1,6 +1,7 @@
 //! Interactive reads and guarded changes to device capture policy. This module
 //! does not start a backup or grant access to an unreviewed source directory.
 pub mod backups;
+pub mod chats;
 pub mod delivery;
 mod hints;
 mod snapshot;

@@ -12,7 +12,7 @@ use super::{
     Reference, SessionMetadata, SourceRoot,
 };
 use events::event_time;
-pub(crate) use events::{boundary, native_event, parts};
+pub(crate) use events::{boundary, counter, native_event, parts, usage};
 use metadata::origin;
 use serde_json::Value;
 use std::collections::HashSet;

@@ -10,6 +10,7 @@ mod annotations;
 mod app;
 mod archive;
 mod blocking;
+mod chats;
 mod data_kinds;
 mod desktop;
 mod import;
@@ -25,7 +26,7 @@ mod update;
 #[cfg(not(test))]
 /// Re-exports the full production command surface for `tauri::generate_handler!`.
 pub(crate) use self::{
-    ai_chat::*, annotations::*, app::*, archive::*, data_kinds::*, desktop::*, import::*,
+    ai_chat::*, annotations::*, app::*, archive::*, chats::*, data_kinds::*, desktop::*, import::*,
     intelligence::*, migration::*, schedule::*, search::*, security::*, stars::*, support::*,
     update::*,
 };

@@ -70,7 +70,7 @@ fn can_deliver(paths: &ProjectPaths) -> bool {
     // Only capture producers call this. They already own an explicit device grant.
     admitted_config(paths).is_ok_and(|c| c.capture_policy.agent_history != KindState::Off)
 }
-fn admitted(session: &VaultSession, allow_off: bool) -> Result<(Vault, AppConfig)> {
+pub(super) fn admitted(session: &VaultSession, allow_off: bool) -> Result<(Vault, AppConfig)> {
     let mut config = admitted_config(&vault_core::project_paths()?)?;
     if !config.initialized {
         return Err(Refusal::NotInitialized.into());
@@ -87,7 +87,11 @@ fn admitted(session: &VaultSession, allow_off: bool) -> Result<(Vault, AppConfig
     }
     Ok((vault, config))
 }
-fn check_reply(vault: &Vault, session: &VaultSession, allow_off: bool) -> Result<CapturePolicy> {
+pub(super) fn check_reply(
+    vault: &Vault,
+    session: &VaultSession,
+    allow_off: bool,
+) -> Result<CapturePolicy> {
     let config = admitted_config(vault.paths())?;
     if session.current_vault().is_none_or(|v| !Arc::ptr_eq(v.store(), vault.store())) {
         return Err(Refusal::Replaced.into());

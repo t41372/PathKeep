@@ -271,6 +271,7 @@ impl Archive {
                 awaiting = Some(heads);
                 Ok(required)
             });
+            crate::chats::switch_summaries(tx)?;
             tx.execute("DELETE FROM ah_reader_build",())?;
             Ok(awaiting)
         })?;
@@ -301,6 +302,7 @@ impl Archive {
     fn prior_head(&self, id: &str) -> Result<Option<ServingHead>> {
         let id = id.to_owned();
         Ok(self.store.read(DB,move|tx|{
+            if !tx.query_one("SELECT EXISTS(SELECT 1 FROM ah_chat_summary WHERE id=?1 AND live=1)",[id.as_str()],|r|Ok(r.get::<i64>(0)?!=0))?{return Ok(None)}
             match manifest::valid_head(tx,&id){
                 Ok(true)=>{},Ok(false)=>return Ok(None),
                 Err(e) if e.is_row_data_error()=>return Ok(None),Err(e)=>return Err(e)
@@ -396,10 +398,22 @@ impl Archive {
             Ok(token)
         })?;
         let (current, digest) = self.prepare_membership(id, Some(&token), &mut resolver, cancel)?;
+        if let Some(source) = &current {
+            let (id, p, source, control) =
+                (id.to_owned(), token.clone(), source.clone(), cancel.clone());
+            self.store.write(DB, Priority::Batch, move |s| {
+                crate::chats::stage_summary(s, &id, &p, &source, &control)
+            })?;
+            let job =
+                crate::read_model::JobControl { cancel: cancel.clone(), ..Default::default() };
+            self.prepare_extra_walks(&token, &job)?;
+            self.selected_leaf_facts(&token, current.as_ref().unwrap(), None, &job)?;
+        }
         let manifest =
             self.publication_manifest(id, &token, &digest, current.as_deref(), cancel)?;
         let id = id.to_owned();
         self.store.write(DB,Priority::Batch,move|tx|{
+                    if current.is_some(){super::line_facts::line_facts(tx,&token)?;super::supplement::build(tx,&token)?;super::stage_prompts(tx,&token)?;}
                     let members=tx.query_one("SELECT count(*) FROM ah_reader_member WHERE publication=?1",[token.as_str()],|r|Ok(r.get::<i64>(0)?))?;
                     let stamp=if let Some(current)=current.as_ref(){
                         let (parent,status,awaiting)=tx.query_one("SELECT json_extract(descriptor,'$.parent_id'),json_extract(descriptor,'$.parent_status'),

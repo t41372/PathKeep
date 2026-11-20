@@ -23,6 +23,7 @@ pub fn schema_steps(db: Db) -> Vec<Migration> {
                 PROJECTION,
                 crate::read_model::publication::schema::TABLES,
                 &[vault_store::PAIR_SCHEMA],
+                crate::chats::schema::TABLES,
             ]
             .concat(),
         ),

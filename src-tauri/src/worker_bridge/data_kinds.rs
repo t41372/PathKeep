@@ -20,6 +20,10 @@ pub(crate) fn surface_result<T>(result: anyhow::Result<T>) -> Result<T, CommandE
                 envelope.action_hint = Some("unlock".into());
                 envelope.retry_hint = Some("retry-after-action".into());
             }
+        } else if let Some(reader) = error.downcast_ref::<kinds::chats::ReaderError>()
+            && envelope.code.is_none()
+        {
+            envelope.code = Some(reader.code().into());
         } else if envelope.code.is_none() {
             envelope.code = Some("kind-unavailable".into())
         }

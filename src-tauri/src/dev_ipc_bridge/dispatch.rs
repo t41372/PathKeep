@@ -147,6 +147,39 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "list_agent_sources" => {
             worker_bridge::list_agent_sources_impl(&state.session, surface_request(payload)?)
         }
+        "list_agent_conversations" => {
+            worker_bridge::list_agent_conversations_impl(&state.session, surface_request(payload)?)
+        }
+        "get_agent_conversation_counts" => worker_bridge::get_agent_conversation_counts_impl(
+            &state.session,
+            surface_request(payload)?,
+        ),
+        "get_agent_conversation" => {
+            worker_bridge::get_agent_conversation_impl(&state.session, surface_request(payload)?)
+        }
+        "get_agent_conversation_info" => worker_bridge::get_agent_conversation_info_impl(
+            &state.session,
+            surface_request(payload)?,
+        ),
+        "read_agent_conversation_window" => worker_bridge::read_agent_conversation_window_impl(
+            &state.session,
+            surface_request(payload)?,
+        ),
+        "list_agent_conversation_branches" => worker_bridge::list_agent_conversation_branches_impl(
+            &state.session,
+            surface_request(payload)?,
+        ),
+        "read_agent_attachment" => {
+            worker_bridge::read_agent_attachment_impl(&state.session, surface_request(payload)?)
+        }
+        "read_agent_record" => {
+            worker_bridge::read_agent_record_impl(&state.session, surface_request(payload)?)
+        }
+        "edit_agent_conversation" => worker_bridge::edit_agent_conversation_impl(
+            &state.session,
+            surface_request(payload)?,
+            backup_events(state),
+        ),
         "get_agent_overview" => {
             worker_bridge::get_agent_overview_impl(&state.session, surface_request(payload)?)
         }

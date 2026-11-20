@@ -11,9 +11,12 @@ name = "pathkeep-agent-history"
 path = "src/bin/pathkeep-agent-history.rs"
 
 [dependencies]
+similar = "2.7.0"
+base64 = "0.22.1"
 vault-fs = { path = "../vault-fs" }
 vault-layout = { path = "../vault-layout" }
 chrono.workspace = true
+chrono-tz = "0.10"
 directories.workspace = true
 hex.workspace = true
 libc.workspace = true

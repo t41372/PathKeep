@@ -60,3 +60,23 @@ cargo clean -p agent-history --release
 The hidden-gap fixture publishes a plain Claude JSONL revision of 14,400,000 physical records. Only the first and last contain visible messages. The public rank window must return physical ordinals 0 and 14,399,999 and their independently known texts. The test counts logical reader-page fetches on a separate traced read, then times 40 first reads after eviction and reopen, each followed by a warm read. The timer covers the public window call. The trace counts page lookups across all reader families, including the outline. It does not measure filesystem page faults.
 
 The many-root fixture also checks the actual Turso plan of the child-list query for a seek by parent on `ah_reader_children`. Removing just that index still produces the correct empty result but fails the plan assertion. The [round-two release output](validation/reader-round2-macos.jsonl) contains the hidden-gap timings and the five bound query plans.
+
+### Conversation screen queries
+
+Run these ignored tests from `src-tauri` in a Linux release build.
+
+```sh
+cargo test --locked --release -p agent-history --lib -- --ignored --nocapture --test-threads=1 list_keysets_at_120000_roots chat_screen_large_tail
+```
+
+The list fixture writes **120,000 root summaries** into the normal on-disk Turso schema. Each represents 30 turns, with 120 distinct working folders across the corpus and four-way ties on activity time. It measures the public list with its default day grouping and 50-row pages. An independent arithmetic sequence checks every ID and tie position on every read. The deep cursor starts after 108,000 higher-ranked rows. `firstUs` includes computing the page's group counts; the repeated measurements reuse the counts for the same view. The recorded query plans include both the page seek and the uncached group count.
+
+The separate reader fixture backs up a **264,000,000-byte** Codex rollout in one native zstd frame, with 23,812 physical records and 11,906 visible rows. Each sample reads the screen header, requests the end window, and serializes its 200 rows to wire JSON. The oracle checks every physical ordinal and marker. Both measurements use an already-open archive; neither evicts the operating-system page cache. [Linux measurements and query plans](validation/chat-screen-linux.jsonl)
+
+The 4-vCPU, 16 GiB Linux run produced these times in milliseconds.
+
+| Query                      | First invocation |    p50 |    p95 |
+| -------------------------- | ---------------: | -----: | -----: |
+| List, first 50             |            6.728 |  0.504 |  0.656 |
+| List, deep 50              |           13.801 |  0.877 |  1.039 |
+| Reader header and tail 200 |           30.396 | 16.973 | 22.147 |

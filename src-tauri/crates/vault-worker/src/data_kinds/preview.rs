@@ -198,6 +198,7 @@ pub(super) fn policy_changed(root: &Path, before: &str, after: &str, keep: Optio
 pub fn cancel(request: CancelRequest) -> Result<Value> {
     let paths = vault_core::project_paths()?;
     admitted_config(&paths)?;
+    super::chats::cancel_window(&paths.app_root, &request.request_id_or_stream_id);
     let mut registry = REGISTRY.lock().unwrap();
     if let Some(permit) = registry.streams.get(&request.request_id_or_stream_id)
         && permit.paths.app_root == paths.app_root

@@ -427,3 +427,59 @@ fn long_hidden_gap_at_scale() {
         "cold":(!cold.is_empty()).then(||measurement::timings(cold)),"warm":measurement::timings(warm)})
     );
 }
+
+#[test]
+#[ignore = "release screen open and end window, 264 MB single native frame"]
+fn chat_screen_large_tail() {
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path().join("codex");
+    let sessions = root.join("sessions");
+    fs::create_dir_all(&sessions).unwrap();
+    generate(
+        &sessions.join(format!("rollout-2026-11-10T12-00-00-{ID}.jsonl.zst")),
+        &lengths(264_000_000, 23_812),
+        true,
+    );
+    let archive = Archive::create_unencrypted(&t.path().join("archive")).unwrap();
+    archive
+        .backup(
+            &[SourceRoot { root, harness: Harness::Codex }],
+            &BackupOptions { read_git: false, ..Default::default() },
+        )
+        .unwrap();
+    let id = archive.chat_list(&Default::default()).unwrap()["items"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut times = vec![];
+    for _ in 0..40 {
+        let clock = Instant::now();
+        let h = archive.chat_header(&id).unwrap();
+        let q = serde_json::from_value(
+            json!({"id":id,"publication":h["publication"],"limit":200,"anchor":{"kind":"end"}}),
+        )
+        .unwrap();
+        let window = archive.chat_window(&q, &Default::default()).unwrap();
+        let wire = serde_json::to_vec(&window).unwrap();
+        times.push(clock.elapsed().as_micros());
+        assert!(!wire.is_empty());
+        for (i, row) in window["rows"].as_array().unwrap().iter().enumerate() {
+            let expected = 23_811 - (199 - i) * 2;
+            assert_eq!(row["ordinal"], expected);
+            assert!(
+                row["parts"][0]["text"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with(&format!("record-{expected} "))
+            );
+        }
+        assert_eq!(window["rows"].as_array().unwrap().len(), 200);
+    }
+    let first = times[0];
+    times.sort_unstable();
+    println!(
+        "{}",
+        json!({"decodedBytes":264000000,"physical":23812,"visible":11906,"rows":200,"samples":40,"firstUs":first,"p50Us":times[19],"p95Us":times[37],"p99Us":times[39]})
+    );
+    assert!(times[37] <= 100_000);
+}

@@ -77,6 +77,7 @@ pub struct Archive {
     pub(crate) jobs: Arc<lifetime::Jobs>,
     pub(crate) root: PathBuf,
     pub(crate) search_gate: Mutex<()>,
+    pub(crate) chat_days: Arc<Mutex<crate::chats::DayCounts>>,
     pub(crate) initial_search: crate::search::InitialSearch,
     pub(crate) reader_finalization_pending: AtomicBool,
     /// The publication gate serializes head switches. Initialize the notification
@@ -174,6 +175,7 @@ impl Archive {
             jobs,
             root,
             search_gate: Mutex::new(()),
+            chat_days: Default::default(),
             initial_search: Default::default(),
             reader_finalization_pending: AtomicBool::new(false),
             awaiting_reader_heads: Mutex::new(None),

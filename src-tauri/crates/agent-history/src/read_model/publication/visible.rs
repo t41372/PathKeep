@@ -125,7 +125,7 @@ impl Archive {
             Ok(result)
         })
     }
-    fn append_visible(
+    pub(super) fn append_visible(
         &self,
         owner: &str,
         lo: u64,
@@ -182,5 +182,33 @@ impl Archive {
         window.physical(owner, ordinals);
 
         Ok(())
+    }
+}
+
+/// A prompt builder walks ordinals in order and reuses the decoded rank page.
+#[derive(Default)]
+pub(crate) struct RankCursor {
+    first: u64,
+    blocks: Vec<RankBlock>,
+}
+impl RankCursor {
+    pub(crate) fn at(
+        &mut self,
+        s: &Session<'_>,
+        owner: &str,
+        n: u64,
+    ) -> vault_store::Result<Option<u64>> {
+        let block = n / 256;
+        if !(self.first..self.first + self.blocks.len() as u64).contains(&block) {
+            (self.first, self.blocks) = pages::in_snapshot(s, owner, RANK, block)?;
+        }
+        let b = &self.blocks[(block - self.first) as usize];
+        let bit = (n % 256) as usize;
+        if b.mask[bit / 8] & (1 << (bit % 8)) == 0 {
+            return Ok(None);
+        }
+        let whole: u64 = b.mask[..bit / 8].iter().map(|x| u64::from(x.count_ones())).sum();
+        let partial = b.mask[bit / 8] & ((1u16 << (bit % 8)) - 1) as u8;
+        Ok(Some(b.before + whole + u64::from(partial.count_ones())))
     }
 }

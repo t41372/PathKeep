@@ -21,7 +21,7 @@ pub enum RecordContext {
 }
 
 impl RecordContext {
-    pub(super) fn new(harness: Harness) -> Self {
+    pub(crate) fn new(harness: Harness) -> Self {
         match harness {
             Harness::ClaudeCode => Self::Claude,
             Harness::Codex => Self::Codex,
@@ -71,14 +71,21 @@ impl RecordContext {
             Self::Continue => session_json::message_event(value, n, true).0,
             Self::Cline | Self::RooCode => session_json::message_event(value, n, false).0,
         };
-        let boundary = match self {
-            Self::Claude => claude::boundary(&event),
-            Self::Codex => codex::boundary(&event),
-            Self::Pi { .. } => pi::boundary(&event),
-            Self::Deepseek { version } => deepseek::boundary(&event, *version),
-            Self::Cline | Self::RooCode => session_json::summary_boundary(&event),
-            Self::Continue => None,
-        };
+        let boundary = self.boundary(&event.kind, &event.payload);
         Ok(InterpretedRecord { boundary, parts: parts::render(self, &event), event })
+    }
+    pub(crate) fn boundary(
+        &self,
+        kind: &str,
+        payload: &Value,
+    ) -> Option<super::StructuralBoundary> {
+        match self {
+            Self::Claude => claude::boundary(kind, payload),
+            Self::Codex => codex::boundary(payload),
+            Self::Pi { .. } => pi::boundary(kind, payload),
+            Self::Deepseek { version } => deepseek::boundary(kind, *version),
+            Self::Cline | Self::RooCode => session_json::summary_boundary(payload),
+            Self::Continue => None,
+        }
     }
 }

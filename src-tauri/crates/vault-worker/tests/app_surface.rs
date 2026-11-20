@@ -445,5 +445,7 @@ fn paused_without_a_grant_can_only_activate_via_a_readable_preview() {
 #[path = "app_surface/outcomes.rs"]
 mod outcomes;
 
+#[path = "app_surface/conversations.rs"]
+mod conversations;
 #[path = "app_surface/source_rules.rs"]
 mod source_rules;

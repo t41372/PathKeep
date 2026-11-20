@@ -9,6 +9,7 @@ mod framing;
 mod interpreter;
 pub(crate) mod parts;
 mod transport;
+pub(crate) mod usage;
 mod window;
 
 use crate::{Diagnostic, Error, NativeEvent, Result};

@@ -440,16 +440,27 @@ pub(crate) fn parts(event: &NativeEvent) -> Vec<RecordPart> {
     content.map_or_else(|| parts::single(kind, &event.text), |c| parts::content(c, kind))
 }
 
-pub(crate) fn boundary(event: &NativeEvent) -> Option<crate::read_model::StructuralBoundary> {
+pub(crate) fn boundary(
+    kind: &str,
+    payload: &Value,
+) -> Option<crate::read_model::StructuralBoundary> {
     use crate::read_model::{BoundaryKind, StructuralBoundary};
-    match event.kind.as_str() {
+    match kind {
         "compaction" => Some(StructuralBoundary {
             kind: BoundaryKind::Compaction,
-            tokens_before: event.payload["tokensBefore"].as_u64(),
+            tokens_before: payload["tokensBefore"].as_u64(),
         }),
         "context_edit" => {
             Some(StructuralBoundary { kind: BoundaryKind::ContextEdit, tokens_before: None })
         }
         _ => None,
     }
+}
+
+/// Convert this tool's per-response usage to the reader's four disjoint units.
+pub(crate) fn usage(v: &Value) -> (Option<crate::read_model::usage::Tokens>, Option<i64>) {
+    (
+        crate::read_model::usage::fields(v, ["input", "cacheWrite", "cacheRead", "output"]),
+        v["reasoningTokens"].as_i64().or(v["reasoning_tokens"].as_i64()),
+    )
 }

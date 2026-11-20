@@ -249,6 +249,9 @@ pub fn overview(session: &VaultSession, req: Overview) -> Result<Value> {
         result["archiveBytes"] = json!(vault.conversation_archive_bytes()?.to_string());
     }
     if matches!(req.purpose, Purpose::Space) {
+        let counts = vault.agent_history()?.chat_counts(&Default::default())?;
+        result["roots"] = Value::String(counts["spaceRoots"].to_string());
+        result["onlyInPathkeep"] = Value::String(counts["spaceOnlyInPathKeep"].to_string());
         result["lag"] = Value::Null;
     }
     if check_reply(&vault, session, false)? != c.capture_policy {

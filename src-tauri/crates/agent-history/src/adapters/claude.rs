@@ -356,15 +356,29 @@ pub(crate) fn parts(event: &NativeEvent) -> Vec<RecordPart> {
     content.map(|c| parts::content(c, PartKind::Text)).unwrap_or_default()
 }
 
-pub(crate) fn boundary(event: &NativeEvent) -> Option<crate::read_model::StructuralBoundary> {
+pub(crate) fn boundary(
+    kind: &str,
+    payload: &Value,
+) -> Option<crate::read_model::StructuralBoundary> {
     use crate::read_model::{BoundaryKind, StructuralBoundary};
-    (event.kind == "system" && event.payload["subtype"] == "compact_boundary").then(|| {
-        StructuralBoundary {
-            kind: BoundaryKind::Compaction,
-            tokens_before: event
-                .payload
-                .pointer("/compactMetadata/preTokens")
-                .and_then(Value::as_u64),
-        }
+    (kind == "system" && payload["subtype"] == "compact_boundary").then(|| StructuralBoundary {
+        kind: BoundaryKind::Compaction,
+        tokens_before: payload.pointer("/compactMetadata/preTokens").and_then(Value::as_u64),
     })
+}
+
+/// Convert this tool's per-response usage to the reader's four disjoint units.
+pub(crate) fn usage(v: &Value) -> (Option<crate::read_model::usage::Tokens>, Option<i64>) {
+    (
+        crate::read_model::usage::fields(
+            v,
+            [
+                "input_tokens",
+                "cache_creation_input_tokens",
+                "cache_read_input_tokens",
+                "output_tokens",
+            ],
+        ),
+        v["reasoningTokens"].as_i64().or(v["reasoning_tokens"].as_i64()),
+    )
 }
