@@ -1,21 +1,24 @@
 /**
- * ⌘K palette: jump to a page, run an action, switch spaces, or find a
- * record. Groups, in order:
+ * ⌘K palette ("Search and commands"): jump to a page, a conversation or a
+ * project, run an action, switch spaces, or find a record. Groups, in
+ * order (`data-spaces.md` §6):
  * - Go to: every page of every space that is on, written
- *   `{space} · {page}`, then Ask and Settings;
+ *   `{space} · {page}`, then Ask, Background tasks and Settings;
  * - Actions: "Back up now" backs up every kind that is on (as "Back up
  *   everything now" does); with two or more spaces on, each also has its
  *   own, which backs up only that kind, also while it is paused, like its
  *   backup page's button;
  * - Switch to: the other spaces, when two or more are on;
- * - from two typed characters, each space's own results (registry
- *   `palette`), ending in a row that searches its list page for the words
- *   when that page can search.
+ * - each space's own results (registry `palette`): from two typed
+ *   characters, or from the start for a space that lists recent records
+ *   (Agent conversations and their projects); ending, once words are
+ *   typed, in a row that searches its list page for them.
  *
  * Not responsible for: what a space's results are or how they are found;
  * each space brings its own.
  */
 import {
+  ListChecks,
   Lock,
   MessageCircle,
   MessageCirclePlus,
@@ -120,6 +123,12 @@ export function CommandPalette({
         run: () => go('/ask'),
       },
       {
+        id: 'page:/tasks',
+        icon: ListChecks,
+        label: t('spaces.tasks.title'),
+        run: () => go('/tasks'),
+      },
+      {
         id: 'page:/settings',
         icon: Settings,
         label: t('shell.nav.settings'),
@@ -202,8 +211,8 @@ export function CommandPalette({
     <CommandDialog
       open={open}
       onOpenChange={(next) => (next ? onOpenChange(true) : close())}
-      title={t('shell.nav.palette', { keys: shortcutLabel('K') })}
-      description={t('shell.palette.placeholder')}
+      title={t('shell.palette.title')}
+      description={t('shell.palette.description')}
       shouldFilter={false}
       className="sm:max-w-xl"
     >
@@ -246,10 +255,10 @@ export function CommandPalette({
           </CommandGroup>
         )}
         {open &&
-          term.length >= 2 &&
           on.map(
             (space) =>
-              space.palette && (
+              space.palette &&
+              (term.length >= 2 || space.palette.fromEmpty) && (
                 <SpaceResults
                   key={space.id}
                   space={space}
@@ -284,7 +293,7 @@ function SpaceResults({
   const { Results } = palette
   const heading = t(palette.heading)
   const searchRow =
-    palette.searchRow === false ? null : (
+    palette.searchRow === false || term === '' ? null : (
       <CommandItem
         value={`search:${space.id}`}
         onSelect={() => go(spaceSearchPath(space, term))}

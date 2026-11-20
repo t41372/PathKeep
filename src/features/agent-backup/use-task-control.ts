@@ -1,7 +1,7 @@
 /**
  * Cancel, try again or dismiss a conversation backup, or put away one of
  * its format notices, from wherever it is shown (the rail's task list,
- * Settings › Background work, the save step, a run's details).
+ * the background tasks page, the save step, a run's details).
  *
  * Responsibilities: one action at a time (the others wait, as the spec
  * asks); sending the task's newest `snapshotToken`, which changes with every

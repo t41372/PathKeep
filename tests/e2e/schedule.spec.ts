@@ -1,12 +1,16 @@
 /**
  * Automatic backup with a custom interval: preview, install, verify, remove.
+ * The card is in Settings › Schedule and background work; the browsing
+ * backup page has one row about it (`data-spaces.md` §4).
  *
- * Proves: choosing an interval shows the exact file the scheduler will get
- * and changes nothing until Install (not the saved interval, not the
- * scheduler); Install writes that same file byte for byte and saves the
- * interval; the details sheet reports what the backend verified and the
- * last change; turning it off lists the file it removes, removes it, and
- * keeps the interval for next time.
+ * Proves: the browsing backup page's row says automatic backup is off and
+ * "Set a schedule" opens the card; choosing an interval shows the exact
+ * file the scheduler will get and changes nothing until Install (not the
+ * saved interval, not the scheduler); Install writes that same file byte
+ * for byte and saves the interval, and the row says the new interval; the
+ * details sheet reports what the backend verified and the last change;
+ * turning it off lists the file it removes, removes it, and keeps the
+ * interval for next time.
  *
  * The E2E backend keeps the OS scheduler in a sandbox folder (debug builds
  * only), so nothing reaches the real launchd or Task Scheduler. Linux has
@@ -57,6 +61,10 @@ test('a custom interval is previewed, installed exactly as shown, verified and r
 
   await page.goto('/#/browsing/backup')
   await unlockIfLocked(page)
+  const row = page.locator('[data-schedule-row="browsing"]')
+  await expect(row).toContainText('Automatic backup is off')
+  await row.getByRole('link', { name: 'Set a schedule' }).click()
+  await expect(page).toHaveURL(/#\/settings\/background$/)
   const card = page
     .getByRole('heading', { name: 'Automatic backup' })
     .locator('xpath=ancestor::section[1]')
@@ -97,6 +105,11 @@ test('a custom interval is previewed, installed exactly as shown, verified and r
   expect(await savedInterval()).toBe(CUSTOM_MINUTES / 60)
   await expect(card).toContainText(`Backs up every ${CUSTOM_MINUTES} minutes.`)
   await expect(card).toContainText('installed')
+  // The backup page's row says the same, and leads back to the card.
+  await page.goto('/#/browsing/backup')
+  await expect(row).toContainText(`Every ${CUSTOM_MINUTES} minutes`)
+  await row.getByRole('link', { name: 'Change schedule' }).click()
+  await expect(page).toHaveURL(/#\/settings\/background$/)
   if (process.platform === 'darwin') {
     // The plan for this interval, as the backend builds it; the dialog
     // showed it and the sandboxed LaunchAgents folder now holds it.

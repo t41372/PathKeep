@@ -36,7 +36,7 @@ function savedFiles() {
   )
 }
 
-/** The Export history row; Move to another computer has an "Export…" too. */
+/** The Export history row, in Settings › Browsing history. */
 const exportRow = (page: Page) =>
   page.getByText('Export history', { exact: true }).locator('xpath=../..')
 
@@ -60,7 +60,7 @@ test('quitting during an export asks first, and waiting lets it finish', async (
   page,
 }, testInfo) => {
   test.setTimeout(600_000)
-  await page.goto('/#/settings/storage')
+  await page.goto('/#/settings/browsing')
   await unlockIfLocked(page)
   const pid = await runningPid()
   expect(pid, 'the app answers').not.toBeNull()

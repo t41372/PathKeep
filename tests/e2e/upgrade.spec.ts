@@ -19,8 +19,9 @@
  * that its chats stayed behind; it opens with the archive password and
  * replaces the archive with the same visits, stars and note.
  *
- * Runs after wipe.spec and semantic-empty-archive.spec, when the data folder
- * is empty and nothing is open, so the running app finds the old folder on
+ * Runs after wipe.spec and the specs after it that set up an archive and
+ * delete it again (`empty`, `onboarding-agent`, `view-only`), when the data
+ * folder is empty and nothing is open, so the running app finds the old folder on
  * its next launch check, as an updated app would.
  */
 import { execFileSync } from 'node:child_process'
@@ -264,6 +265,12 @@ test('a file exported by PathKeep 0.3.0 opens and replaces the archive', async (
   )
   await expect(importing).toContainText(
     'Files from PathKeep 0.3 don’t include Ask chats; they stay on the other computer.',
+  )
+  await expect(importing).toContainText(
+    /Agent conversations\s*None in this file/,
+  )
+  await expect(importing).toContainText(
+    'Files from PathKeep 0.5 and earlier have no Agent conversations.',
   )
   const replace = importing.getByRole('button', { name: 'Replace my archive' })
   await importing.getByLabel('Password of this file').fill('not the password')

@@ -60,7 +60,7 @@ closing the Vault releases all sessions. App Lock keeps the Vault open.
 - §1 依頁面類型、來源途徑、run / 匯入批次篩選；依單一 profile 篩選（現在只能依瀏覽器種類）。
 - §1 單條記錄的可選顯示欄位（訪問次數、來源途徑、分類、provenance、metadata versions…）與其設定。
 - §1 詳情面板的 typed count、來源途徑與 referrer、provenance（run id）、標題歷史版本與 diff。
-- §1 從 History 直接匯出目前篩選結果（Settings → Storage 只能匯出整個歷史）。
+- §1 從 History 直接匯出目前篩選結果（Settings → 瀏覽紀錄只能匯出整個歷史）。
 - §2 Audit Ledger 的 run timeline 篩選、與上一筆的 summary delta、展開預覽某次 run 寫入的記錄、回滾 / 取消回滾**備份** run（現在只有匯入批次能復原）、archive 快照的手動觸發。Settings → Storage「從安全副本還原」可列出 archive 快照，並還原其中的瀏覽紀錄（Agent 對話不動）。
 
 ---
@@ -138,7 +138,7 @@ closing the Vault releases all sessions. App Lock keeps the Vault open.
 
 - M1 已交付：Explorer 的 regex toggle、client-side validation、`?regex=1` URL 參數、post-filter 執行路徑。（v0.4：History 的 `?mode=regex`，後端執行。）
 - 目前 regex 支援 URL 和 title 欄位的匹配；不支援 page content 或 enrichment 欄位。
-- regex 搜尋結果與 關鍵詞搜尋結果共用相同的 list / detail 介面，切換模式不改變下游 UX。（v0.4 的 History 沒有匯出；整個 archive 的匯出在 Settings → Storage。）
+- regex 搜尋結果與 關鍵詞搜尋結果共用相同的 list / detail 介面，切換模式不改變下游 UX。（v0.4 的 History 沒有匯出；整個歷史的匯出在 Settings → 瀏覽紀錄。）
 
 ### 單條記錄顯示
 

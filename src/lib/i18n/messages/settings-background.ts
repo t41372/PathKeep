@@ -1,9 +1,11 @@
 import { defineMessages } from '../define'
 
 /**
- * Settings → Background work: the queues that rebuild Insights, the search
- * index and page summaries, link-preview fetching, and the data worked out
- * from the history (what it is, how fresh, clearing it).
+ * Background work: the switch and the limit (Settings › Schedule and
+ * background work), and on the background tasks page the queues that
+ * rebuild Insights, the search index and page summaries, link-preview
+ * fetching, and the data worked out from the history (what it is, how
+ * fresh, clearing it).
  */
 export const settingsBackground = defineMessages({
   en: {
@@ -116,8 +118,7 @@ export const settingsBackground = defineMessages({
     },
     summaries: {
       title: 'Page summaries',
-      off: 'Off. Turn on “Page summaries” in General to fetch short summaries of pages you visited.',
-      openGeneral: 'General settings',
+      off: 'Off. Turn on “Page summaries” in the settings of Browsing history to fetch short summaries of pages you visited.',
       stored_one: '{count} page summarized.',
       stored_other: '{count} pages summarized.',
       fetch: 'Fetch now',
@@ -132,7 +133,7 @@ export const settingsBackground = defineMessages({
     },
     previews: {
       title: 'Link previews',
-      off: 'Off. Turn on “Link previews” in General to show the picture a page offers for sharing.',
+      off: 'Off. Turn on “Link previews” in the settings of Browsing history to show the picture a page offers for sharing.',
       coverage:
         '{withImage} of {eligible} pages have a preview image. {checked} checked so far.',
       coverageLoading: 'Counting pages…',
@@ -239,11 +240,11 @@ export const settingsBackground = defineMessages({
     intro:
       '每次备份后，PathKeep 会更新洞察；如果你开启了，也会更新搜索索引和网页摘要。备份从不等这些工作完成。',
     run: {
-      title: '运行后台任务',
+      title: '运行后台工作',
       on: '更新会自动进行。',
       paused: '已暂停。新任务会在这里等候，直到你重新开启。备份照常进行。',
-      pausedToast: '后台任务已暂停。',
-      resumedToast: '后台任务已恢复。',
+      pausedToast: '后台工作已暂停。',
+      resumedToast: '后台工作已恢复。',
     },
     concurrency: {
       title: '同时运行的任务数',
@@ -270,7 +271,7 @@ export const settingsBackground = defineMessages({
       'index-build': '建立搜索索引',
       'index-clear': '清除搜索索引',
       assistant: '助手回答',
-      unknown: '后台任务',
+      unknown: '后台工作',
     },
     when: {
       queued: '{when}加入',
@@ -315,7 +316,7 @@ export const settingsBackground = defineMessages({
       confirmTitle: '重建洞察？',
       confirmBody:
         '这会让洞察跟上你的全部历史记录，已经是最新的部分会跳过。若要从头计算，请先清除下方的洞察数据。它在后台运行，你的历史记录不会被改动。',
-      pausedNote: '后台任务已暂停，重建会等到你恢复后才开始。',
+      pausedNote: '后台工作已暂停，重建会等到你恢复后才开始。',
       started: '重建已加入队列。',
       failed: '无法开始重建',
     },
@@ -335,13 +336,12 @@ export const settingsBackground = defineMessages({
       pausedBy: {
         user: '你暂停了它。',
         service: '服务没能运行模型，已暂停：{message}',
-        queue: '随所有后台任务一起暂停。',
+        queue: '随所有后台工作一起暂停。',
       },
     },
     summaries: {
       title: '网页摘要',
-      off: '已关闭。在“通用”中开启“网页摘要”，即可抓取你访问过网页的简短摘要。',
-      openGeneral: '通用设置',
+      off: '已关闭。在“浏览记录”的设置中开启“网页摘要”，即可抓取你访问过网页的简短摘要。',
       stored_one: '已为 {count} 个网页生成摘要。',
       stored_other: '已为 {count} 个网页生成摘要。',
       fetch: '立即抓取',
@@ -355,7 +355,7 @@ export const settingsBackground = defineMessages({
     },
     previews: {
       title: '链接预览',
-      off: '已关闭。在“通用”中开启“链接预览”，即可显示网页提供的分享图片。',
+      off: '已关闭。在“浏览记录”的设置中开启“链接预览”，即可显示网页提供的分享图片。',
       coverage:
         '{eligible} 个网页中有 {withImage} 个有预览图。目前已检查 {checked} 个。',
       coverageLoading: '正在统计网页…',
@@ -560,8 +560,7 @@ export const settingsBackground = defineMessages({
     },
     summaries: {
       title: '網頁摘要',
-      off: '已關閉。在「一般」中開啟「網頁摘要」，即可抓取你造訪過網頁的簡短摘要。',
-      openGeneral: '一般設定',
+      off: '已關閉。在「瀏覽紀錄」的設定中開啟「網頁摘要」，即可抓取你造訪過網頁的簡短摘要。',
       stored_one: '已為 {count} 個網頁產生摘要。',
       stored_other: '已為 {count} 個網頁產生摘要。',
       fetch: '立即抓取',
@@ -575,7 +574,7 @@ export const settingsBackground = defineMessages({
     },
     previews: {
       title: '連結預覽',
-      off: '已關閉。在「一般」中開啟「連結預覽」，即可顯示網頁提供的分享圖片。',
+      off: '已關閉。在「瀏覽紀錄」的設定中開啟「連結預覽」，即可顯示網頁提供的分享圖片。',
       coverage:
         '{eligible} 個網頁中有 {withImage} 個有預覽圖。目前已檢查 {checked} 個。',
       coverageLoading: '正在統計網頁…',

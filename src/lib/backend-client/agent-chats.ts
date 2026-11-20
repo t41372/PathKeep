@@ -486,7 +486,38 @@ export interface AgentConversationsChangedEvent {
   runRef?: string
 }
 
+/**
+ * What "Export ▸" writes: Markdown and HTML follow the line the reader
+ * shows; JSONL is the normalized events; `originals` is a tar of the tool's
+ * own files, subagents included.
+ */
+export type ChatExportFormat = 'markdown' | 'html' | 'jsonl' | 'originals'
+
+export interface ChatExportRequest {
+  id: string
+  format: ChatExportFormat
+  /** The publication the reader shows; a newer one ends the export. */
+  publication?: string
+  /** A Pi leaf: the line that ends there. */
+  leaf?: number
+  /** The window's language, for the words the file itself writes. */
+  locale?: 'en' | 'zh-CN' | 'zh-TW'
+}
+
+/** Where the file went and its size (a decimal string). */
+export interface ChatExportResult {
+  path: string
+  bytes: string
+}
+
 export const agentChatsClient = {
+  /**
+   * Opens the system's save dialog, then writes the whole file there.
+   * `null`: the person cancelled the dialog. There is no progress and no
+   * way to stop it once the place is chosen.
+   */
+  exportConversation: (request: ChatExportRequest) =>
+    call<ChatExportResult | null>('export_agent_conversation', { request }),
   list: (request: ChatListQuery) =>
     call<ChatListPage>('list_agent_conversations', { request }),
   counts: (request: ChatListQuery) =>

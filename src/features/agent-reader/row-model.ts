@@ -30,12 +30,15 @@ function hasCalls(row: ChatRow) {
   )
 }
 
-/** A row that is only tool calls and results: it joins its neighbours. */
-export function isToolOnly(row: ChatRow) {
+/**
+ * A row that is only tool calls and results: it joins its neighbours.
+ * Thinking keeps a row on its own only while thinking is shown.
+ */
+export function isToolOnly(row: ChatRow, showThinking = true) {
   return (
     hasCalls(row) &&
     !hasText(row) &&
-    !row.parts.some((p) => p.kind === 'thinking')
+    !(showThinking && row.parts.some((p) => p.kind === 'thinking'))
   )
 }
 

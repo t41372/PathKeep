@@ -134,7 +134,7 @@ export const settingsAi = defineMessages({
       continue: 'Continue',
       pause: 'Pause',
       cancelBuild: 'Cancel',
-      inBackground: 'Background work',
+      inBackground: 'Background tasks',
       pausedByUser: 'Paused at {done} of {total} visits.',
       pausedByService:
         '{name} could not run the model, so building the index is paused. It said: {message}',
@@ -436,7 +436,7 @@ export const settingsAi = defineMessages({
       etaMinutes_one: '本阶段大约还要 {count} 分钟',
       etaMinutes_other: '本阶段大约还要 {count} 分钟',
       etaHours: '本阶段大约还要 {hours} 小时 {minutes} 分钟',
-      indexWaiting: '正在等其他后台任务完成…',
+      indexWaiting: '正在等其他后台工作完成…',
       needsBuild:
         '{model} 还没有索引。建立索引会在后台读取 {count} 条访问记录，随时可以暂停。',
       needsBuildCounting:
@@ -464,7 +464,7 @@ export const settingsAi = defineMessages({
       pausedByUser: '已暂停：{done} / {total} 条访问记录。',
       pausedByService:
         '{name} 没能运行这个模型，建立索引已暂停。它的回复：{message}',
-      pausedByQueue: '所有后台任务都已暂停，恢复后会继续建立索引。',
+      pausedByQueue: '所有后台工作都已暂停，恢复后会继续建立索引。',
       actionFailed: '没能完成这个操作。{message}',
       autoUpdate: '每次备份后为新的访问记录建立索引',
       autoUpdateNote: '索引完成后才会开始。',
@@ -771,7 +771,7 @@ export const settingsAi = defineMessages({
       continue: '繼續',
       pause: '暫停',
       cancelBuild: '取消',
-      inBackground: '背景工作',
+      inBackground: '背景任務',
       pausedByUser: '已暫停：{done} / {total} 次造訪。',
       pausedByService:
         '{name} 沒能執行這個模型，建立索引已暫停。它的回覆：{message}',

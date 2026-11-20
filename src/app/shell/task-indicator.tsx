@@ -10,7 +10,8 @@
  *
  * Hovering or focusing it opens a small list of what runs after a short
  * pause, and the list stays open while the pointer or the focus is inside
- * it; a click goes to where background work is listed. From the keyboard,
+ * it; a click opens the background tasks page (`#/tasks`), as do its "Open
+ * background tasks" and its line of what needs a look. From the keyboard,
  * ↓ or → moves into the open list and Escape comes back.
  *
  * Responsibilities: drawing the indicator and its list, their two
@@ -26,7 +27,6 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { openRun } from '@/features/backup/run-link'
 import { useBackUpEverything } from '@/features/agent-backup/use-back-up-everything'
 import { useTaskControl } from '@/features/agent-backup/use-task-control'
 import { Button } from '@/components/ui/button'
@@ -36,7 +36,7 @@ import { cn } from '@/lib/cn'
 import { useNow } from '@/lib/hooks/use-now'
 import { useFormat, useI18n } from '@/lib/i18n'
 import {
-  nextScheduledBackup,
+  nextScheduledBackupOfAny,
   scheduleInstalled,
   useScheduleStatus,
 } from '@/lib/queries/schedule'
@@ -46,10 +46,8 @@ import {
   type BackgroundTasks,
 } from './use-background-tasks'
 
-/** Where background work is listed until it has a page of its own. */
-const TASKS_PATH = '/settings/background'
-/** The same, scrolled to conversation backups (`settings/background/conversation-tasks.tsx`). */
-const CONVERSATION_TASKS_PATH = '/settings/background?show=conversations'
+/** The background tasks page, where every group is listed in full. */
+const TASKS_PATH = '/tasks'
 const OPEN_DELAY_MS = 180
 const CLOSE_DELAY_MS = 220
 
@@ -159,7 +157,8 @@ function Idle() {
   const format = useFormat()
   const schedule = useScheduleStatus()
   const now = useNow()
-  const next = nextScheduledBackup(schedule.data, now)
+  // The next backup of any kind: Agent conversations keep their own clock.
+  const next = nextScheduledBackupOfAny(schedule.data, now)
   const text = next
     ? t('spaces.tasks.nextBackup', { time: format.dayAndTime(next) })
     : schedule.data && !scheduleInstalled(schedule.data)
@@ -179,6 +178,7 @@ function TaskList({
   const navigate = useNavigate()
   const everything = useBackUpEverything()
   const { running, queued, failedRun, kindAttention } = tasks
+  const attention = (failedRun !== null ? 1 : 0) + kindAttention
   return (
     <>
       <div className="border-b px-3 py-2 text-[12px] font-semibold text-muted-foreground">
@@ -193,35 +193,22 @@ function TaskList({
           ))}
         </ul>
       )}
-      {(queued > 0 || failedRun !== null || kindAttention > 0) && (
+      {(queued > 0 || attention > 0) && (
         <div className="flex flex-col items-start gap-1 border-t px-3 py-2 text-[12px] text-muted-foreground">
           {queued > 0 && (
             <span>{t('spaces.tasks.queued', { count: queued })}</span>
           )}
-          {failedRun !== null && (
+          {attention > 0 && (
             <button
               type="button"
               onClick={() => {
                 onClose()
-                openRun(failedRun)
+                void navigate(TASKS_PATH)
               }}
               className="flex items-center gap-1 text-red hover:underline"
             >
               <CircleAlert className="size-3.5" aria-hidden />
-              {t('spaces.tasks.needsLook', { count: 1 })}
-            </button>
-          )}
-          {kindAttention > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                onClose()
-                void navigate(CONVERSATION_TASKS_PATH)
-              }}
-              className="flex items-center gap-1 text-red hover:underline"
-            >
-              <CircleAlert className="size-3.5" aria-hidden />
-              {t('agentTasks.rail.needsLook', { count: kindAttention })}
+              {t('spaces.tasks.needsLook', { count: attention })}
             </button>
           )}
         </div>

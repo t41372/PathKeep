@@ -1,6 +1,8 @@
 /**
- * Settings → Background work and search ranking, on the archive the first
- * backup built.
+ * Background work (the switch and how many at a time, in Settings ›
+ * Schedule and background work; the queues and their data, on the
+ * background tasks page `#/tasks`) and search ranking, on the archive the
+ * first backup built.
  *
  * Proves: the Insights work the first backup queued shows up as done; a
  * paused queue really holds a new rebuild (it stays waiting), cancel and
@@ -47,9 +49,9 @@ function rebuildJob(page: Page): Locator {
 test('background work: queue, pause, cancel, retry, clear and rebuild', async ({
   page,
 }, testInfo) => {
-  await page.goto('/#/settings/background')
+  await page.goto('/#/tasks')
   await expect(
-    page.getByRole('heading', { name: 'Background work' }),
+    page.getByRole('heading', { name: 'Background tasks', level: 1 }),
   ).toBeVisible()
 
   // The first backup's Insights work is listed, and finished.
@@ -63,13 +65,18 @@ test('background work: queue, pause, cancel, retry, clear and rebuild', async ({
   ).toContainText('Done')
   await expect(row.locator('li[data-job-state="running"]')).toHaveCount(0)
 
-  // Pause, then queue a rebuild: it waits instead of running.
+  // Pause (in Settings), then queue a rebuild: it waits instead of running.
+  await page.goto('/#/settings/background')
+  await expect(
+    page.getByRole('heading', { name: 'Schedule and background work' }),
+  ).toBeVisible()
   const run = page.getByRole('switch', { name: 'Run background work' })
   await run.click()
   await expect(run).not.toBeChecked()
   await expect
     .poll(async () => (await snapshot()).config.ai.jobQueuePaused)
     .toBe(true)
+  await page.goto('/#/tasks')
   await row.getByRole('button', { name: 'Rebuild' }).click()
   await page
     .getByRole('alertdialog', { name: 'Rebuild Insights?' })
@@ -96,9 +103,11 @@ test('background work: queue, pause, cancel, retry, clear and rebuild', async ({
   await expect(job).toContainText('Waiting')
   expect((await newestFullRebuild())?.state).toBe('queued')
 
-  // Resume: the same job runs to done.
+  // Resume (in Settings): the same job runs to done.
+  await page.goto('/#/settings/background')
   await run.click()
   await expect(run).toBeChecked()
+  await page.goto('/#/tasks')
   await expect(job).toContainText('Done', { timeout: 60_000 })
   const finished = await newestFullRebuild()
   expect(finished?.id).toBe(queued?.id)
@@ -203,8 +212,8 @@ test('the whole job history pages through while the queue works, each job once',
     expect(ids).toEqual(expect.arrayContaining(added))
   }
 
-  // The list in Settings unfolds to all of them, read on as it scrolls.
-  await page.goto('/#/settings/background')
+  // The queue's list unfolds to all of them, read on as it scrolls.
+  await page.goto('/#/tasks')
   const row = insightsRow(page)
   await row.getByRole('button', { name: 'Show all' }).click()
   const list = row.getByRole('list', { name: 'Recent work' })

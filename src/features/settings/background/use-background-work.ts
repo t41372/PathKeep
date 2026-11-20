@@ -1,5 +1,5 @@
 /**
- * The two background queues as Settings → Background work reads them: the
+ * The two background queues as the background tasks page reads them: the
  * Insights queue (`load_intelligence_runtime`: rebuilds, title tidying, page
  * summaries) and the search-index / assistant queue (`load_ai_queue_status`).
  *
@@ -194,7 +194,8 @@ export function useRuntimeJobActions() {
     onError: (error) => failed(error, 'retry_intelligence_job'),
   })
   const cancel = useMutation({
-    mutationFn: (job: JobView) => intelligenceClient.cancelRuntimeJob(job.id),
+    mutationFn: (job: Pick<JobView, 'id' | 'state'>) =>
+      intelligenceClient.cancelRuntimeJob(job.id),
     onSuccess: (snapshot, job) => {
       store(snapshot)
       // A running job only gets a stop request; its worker ends it shortly.

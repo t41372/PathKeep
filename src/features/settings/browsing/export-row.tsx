@@ -1,6 +1,7 @@
 /**
- * Settings → Storage → Export history: one export at a time, how far it has
- * got, and a way to stop it.
+ * Settings › Browsing history › Export history: one export at a time, how
+ * far it has got, and a way to stop it. It exports browsing history only, so
+ * it lives with that kind's settings (`data-spaces.md` §8).
  *
  * The backend asks where to save in the system's dialog and writes the file;
  * this row only polls its progress by id. The id
@@ -25,8 +26,8 @@ import { useFormat, useI18n } from '@/lib/i18n'
 import { commandErrorCode } from '@/lib/ipc/command-error'
 import { queryKeys } from '@/lib/query'
 import type { ExportFormat, ExportProgress } from '@/lib/types'
-import { reveal, revealLabelKey } from './reveal'
-import { RowSelect } from './row-select'
+import { reveal, revealLabelKey } from '../reveal'
+import { RowSelect } from '../row-select'
 
 const formats: ExportFormat[] = ['html', 'markdown', 'text', 'jsonl']
 const exportMutationKey = ['export-history'] as const
@@ -51,21 +52,24 @@ export function ExportRow() {
       // The save dialog was closed: nothing was written and nothing to say.
       if (!result) return
       void client.invalidateQueries({ queryKey: queryKeys.dashboard })
-      toast.success(t('settingsStorage.export.done', { count: result.count }), {
-        description: result.path,
-        action: {
-          label: t(revealLabelKey()),
-          onClick: () =>
-            void reveal(result.path, t('settingsStorage.location.failed')),
+      toast.success(
+        t('settingsBrowsing.export.done', { count: result.count }),
+        {
+          description: result.path,
+          action: {
+            label: t(revealLabelKey()),
+            onClick: () =>
+              void reveal(result.path, t('settingsStorage.location.failed')),
+          },
         },
-      })
+      )
     },
     onError: (error) => {
       if (commandErrorCode(error) === 'export-cancelled') {
-        toast(t('settingsStorage.export.cancelled'))
+        toast(t('settingsBrowsing.export.cancelled'))
         return
       }
-      toast.error(t('settingsStorage.export.failed'), {
+      toast.error(t('settingsBrowsing.export.failed'), {
         description: describeError(error, 'export_history'),
       })
     },
@@ -92,18 +96,18 @@ export function ExportRow() {
 
   return (
     <SettingRow
-      title={t('settingsStorage.export.title')}
-      description={t('settingsStorage.export.description')}
+      title={t('settingsBrowsing.export.title')}
+      description={t('settingsBrowsing.export.description')}
       control={
         <>
           <RowSelect
             value={running?.format ?? kind}
-            label={t('settingsStorage.export.format')}
+            label={t('settingsBrowsing.export.format')}
             disabled={running != null}
             onChange={(value) => setKind(value as ExportFormat)}
             options={formats.map((value) => ({
               value,
-              label: t(`settingsStorage.export.formats.${value}`),
+              label: t(`settingsBrowsing.export.formats.${value}`),
             }))}
           />
           {running ? (
@@ -116,8 +120,8 @@ export function ExportRow() {
             >
               {stopping && <Spinner />}
               {stopping
-                ? t('settingsStorage.export.stopping')
-                : t('settingsStorage.export.stop')}
+                ? t('settingsBrowsing.export.stopping')
+                : t('settingsBrowsing.export.stop')}
             </Button>
           ) : (
             <Button
@@ -127,7 +131,7 @@ export function ExportRow() {
                 start.mutate({ exportId: crypto.randomUUID(), format: kind })
               }
             >
-              {t('settingsStorage.export.action')}
+              {t('settingsBrowsing.export.action')}
             </Button>
           )}
         </>
@@ -168,26 +172,26 @@ function ProgressReadout({
   const size = format.bytes(progress.bytesWritten)
   const parts = [
     total
-      ? t('settingsStorage.export.progress', {
+      ? t('settingsBrowsing.export.progress', {
           written: format.number(rows),
           total: format.number(total),
           size,
         })
-      : t('settingsStorage.export.progressNoTotal', {
+      : t('settingsBrowsing.export.progressNoTotal', {
           written: format.number(rows),
           size,
         }),
   ]
   if (finishing) {
-    parts.push(t('settingsStorage.export.finishing'))
+    parts.push(t('settingsBrowsing.export.finishing'))
   } else if (total && rows > 0 && rows < total) {
     const elapsed = sampledAt - Date.parse(progress.startedAt)
     if (elapsed >= ESTIMATE_AFTER_MS) {
       const seconds = ((total - rows) * elapsed) / rows / 1000
       parts.push(
         seconds < 60
-          ? t('settingsStorage.export.leftUnderMinute')
-          : t('settingsStorage.export.left', {
+          ? t('settingsBrowsing.export.leftUnderMinute')
+          : t('settingsBrowsing.export.left', {
               count: Math.ceil(seconds / 60),
             }),
       )
@@ -198,7 +202,7 @@ function ProgressReadout({
     <div className="flex flex-col gap-1.5">
       <Progress
         value={value}
-        aria-label={t('settingsStorage.export.progressLabel')}
+        aria-label={t('settingsBrowsing.export.progressLabel')}
       />
       <p className="text-[13px] text-muted-foreground tabular-nums">
         {parts.join(' · ')}

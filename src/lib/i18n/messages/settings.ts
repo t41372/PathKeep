@@ -15,10 +15,12 @@ export const settings = defineMessages({
       general: 'General',
       security: 'Security',
       ai: 'AI',
-      background: 'Background work',
+      background: 'Schedule and background work',
       storage: 'Storage',
       about: 'About',
       kinds: 'Manage data types',
+      agent: 'Agent conversations',
+      browsing: 'Browsing history',
       groupApp: 'PathKeep',
       groupKinds: 'Data types',
     },
@@ -75,21 +77,6 @@ export const settings = defineMessages({
           trayTitle: 'Tray icon',
           description: 'Shows backup status and quick search',
         },
-      },
-      online: {
-        title: 'Online',
-        note: 'These two contact websites. Everything else stays on this computer.',
-      },
-      previews: {
-        title: 'Link previews',
-        description:
-          'Download the preview image each page offers. The site sees a request from your computer.',
-      },
-      summaries: {
-        title: 'Page summaries',
-        description:
-          'Fetch a short summary of pages you visited, so search can find them by what they say. Sites never get your cookies or accounts.',
-        loadFailed: 'Could not load this setting.',
       },
     },
     security: {
@@ -225,10 +212,12 @@ export const settings = defineMessages({
       general: '通用',
       security: '安全',
       ai: 'AI',
-      background: '后台任务',
+      background: '排程与后台工作',
       storage: '存储',
       about: '关于',
       kinds: '管理数据类型',
+      agent: 'Agent 对话',
+      browsing: '浏览记录',
       groupApp: 'PathKeep',
       groupKinds: '数据类型',
     },
@@ -283,20 +272,6 @@ export const settings = defineMessages({
           trayTitle: '托盘图标',
           description: '显示备份状态和快速搜索',
         },
-      },
-      online: {
-        title: '联网',
-        note: '只有这两项会访问网站，其他一切都留在这台电脑上。',
-      },
-      previews: {
-        title: '链接预览',
-        description: '下载每个页面提供的预览图。网站会看到来自你电脑的请求。',
-      },
-      summaries: {
-        title: '页面摘要',
-        description:
-          '抓取你看过的页面的简短摘要，让搜索能按内容找到它们。网站不会拿到你的 Cookie 或账号。',
-        loadFailed: '无法加载这项设置。',
       },
     },
     security: {
@@ -423,10 +398,12 @@ export const settings = defineMessages({
       general: '一般',
       security: '安全',
       ai: 'AI',
-      background: '背景工作',
+      background: '排程與背景工作',
       storage: '儲存',
       about: '關於',
       kinds: '管理資料類型',
+      agent: 'Agent 對話',
+      browsing: '瀏覽紀錄',
       groupApp: 'PathKeep',
       groupKinds: '資料類型',
     },
@@ -481,20 +458,6 @@ export const settings = defineMessages({
           trayTitle: '系統匣圖示',
           description: '顯示備份狀態和快速搜尋',
         },
-      },
-      online: {
-        title: '連網',
-        note: '只有這兩項會連線到網站，其他一切都留在這台電腦上。',
-      },
-      previews: {
-        title: '連結預覽',
-        description: '下載每個頁面提供的預覽圖。網站會看到來自你電腦的請求。',
-      },
-      summaries: {
-        title: '頁面摘要',
-        description:
-          '抓取你看過的頁面的簡短摘要，讓搜尋能依內容找到它們。網站不會拿到你的 Cookie 或帳號。',
-        loadFailed: '無法載入這項設定。',
       },
     },
     security: {

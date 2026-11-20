@@ -39,18 +39,25 @@ import {
 type Screen = () => Promise<{ default: ComponentType }>
 
 /**
- * What a space shows in ⌘K once two or more characters are typed: its own
- * group, under `heading`, with its rows and then `searchRow`. A group with
- * no rows and no search row is not drawn at all (an empty heading would be
- * left otherwise: the palette does its own matching).
+ * What a space shows in ⌘K once two or more characters are typed (or from
+ * the start, for a space with `fromEmpty`): its own group, under `heading`,
+ * with its rows and then `searchRow`. A group with no rows and no search
+ * row is not drawn at all (an empty heading would be left otherwise: the
+ * palette does its own matching).
  */
 export interface PaletteResultsProps {
-  /** The debounced words, at least two characters. */
+  /**
+   * The debounced words: at least two characters, or for a space with
+   * `fromEmpty` whatever is typed, nothing at all included.
+   */
   term: string
   /** Closes the palette and goes to `to`. */
   open: (to: string) => void
   heading: string
-  /** "Search … for …", or `null` for a space whose list cannot search. */
+  /**
+   * "Search … for …", or `null` for a space whose list cannot search, and
+   * while nothing is typed.
+   */
   searchRow: ReactNode
 }
 
@@ -122,11 +129,14 @@ export interface Space extends DataSpace {
   /**
    * ⌘K's results group for this space, and its "Search in" row unless
    * `searchRow` is false (a space whose list page cannot search yet).
+   * `fromEmpty`: its results show as soon as the palette opens (recent
+   * records), not only from two typed characters.
    */
   palette?: {
     heading: MessageKey
     Results: ComponentType<PaletteResultsProps>
     searchRow?: boolean
+    fromEmpty?: boolean
   }
 }
 
@@ -196,9 +206,9 @@ const browsing = {
 /**
  * Agent conversations. Its pages are insights, records, projects and
  * backup (`data-spaces-tradeoff.md` §4.1); this build has all four, and
- * the space opens at insights. ⌘K finds its sources and recent backups,
- * with no "Search in" row yet: finding conversations from ⌘K is its own
- * piece of work.
+ * the space opens at insights. ⌘K shows its recent conversations and
+ * projects as soon as it opens, matches their titles and names as words
+ * are typed, and searches the records page for them.
  */
 const agent = {
   id: 'agent',
@@ -252,8 +262,8 @@ const agent = {
   Status: lazy(() => import('@/features/agent-backup/agent-status')),
   palette: {
     heading: 'spaces.agent.name',
-    Results: lazy(() => import('@/features/agent-backup/palette-results')),
-    searchRow: false,
+    Results: lazy(() => import('@/features/agent-palette/palette-results')),
+    fromEmpty: true,
   },
 } as const satisfies Space
 

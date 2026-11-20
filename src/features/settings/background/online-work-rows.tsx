@@ -1,11 +1,11 @@
 /**
- * The two kinds of background work that contact websites, as Background work
- * shows them: page summaries (content fetch: status, "fetch now") and link
- * previews (coverage, when to fetch, how long to keep images, clean up now).
+ * The two kinds of background work that contact websites, as the background
+ * tasks page shows them: page summaries (content fetch: status, "fetch now")
+ * and link previews (coverage, clean up now).
  *
- * The on/off switches stay in Settings → General (the one place that says
- * which features go online); these rows link there when a feature is off.
- * Not responsible for the fetching itself.
+ * The on/off switches, and link previews' two options, are settings: they
+ * are in Settings › Browsing history (`data-spaces.md` §8), and these rows
+ * link there when a feature is off. Not responsible for the fetching itself.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -30,11 +30,9 @@ import { explorerClient } from '@/lib/backend-client/explorer'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
-import type { OgImageSettingsConfig } from '@/lib/types'
-import { RowSelect } from '../row-select'
-import { useSaveSetting } from '../use-save-setting'
+import { keepChoiceOf } from '../browsing/link-preview-keep'
 
-/** Shared with the General → Page summaries switch. */
+/** Shared with the Page summaries switch in Settings › Browsing history. */
 const contentFetchKey = ['content-fetch-settings'] as const
 const coverageKey = ['og-image-coverage'] as const
 const storageKey = ['og-image-storage'] as const
@@ -42,7 +40,6 @@ const storageKey = ['og-image-storage'] as const
 /** How many working-set pages one "Fetch now" queues. */
 const FETCH_NOW_LIMIT = 500
 const POLL_MS = 2000
-const MB = 1024 * 1024
 
 export function PageSummariesRow() {
   const { t } = useI18n()
@@ -114,9 +111,7 @@ export function PageSummariesRow() {
       control={
         data && !data.enabled ? (
           <Button size="sm" variant="outline" asChild>
-            <Link to="/settings/general">
-              {t('settingsBackground.summaries.openGeneral')}
-            </Link>
+            <Link to="/settings/browsing">{t('settingsBrowsing.open')}</Link>
           </Button>
         ) : (
           <Button
@@ -134,32 +129,11 @@ export function PageSummariesRow() {
   )
 }
 
-type KeepChoice = 'off' | 'days30' | 'days90' | 'size100' | 'size500' | 'custom'
-
-const keepRules: Record<
-  Exclude<KeepChoice, 'custom'>,
-  OgImageSettingsConfig['cleanup']
-> = {
-  off: { mode: 'off' },
-  days30: { mode: 'timeTtl', maxAgeDays: 30 },
-  days90: { mode: 'timeTtl', maxAgeDays: 90 },
-  size100: { mode: 'lru', maxBytes: 100 * MB },
-  size500: { mode: 'lru', maxBytes: 500 * MB },
-}
-
-function keepChoiceOf(cleanup: OgImageSettingsConfig['cleanup']): KeepChoice {
-  const match = (Object.keys(keepRules) as (keyof typeof keepRules)[]).find(
-    (key) => JSON.stringify(keepRules[key]) === JSON.stringify(cleanup),
-  )
-  return match ?? 'custom'
-}
-
 export function LinkPreviewsRow() {
   const { t } = useI18n()
   const format = useFormat()
   const client = useQueryClient()
   const og = useSnapshot().config.ogImage
-  const { save, saving } = useSaveSetting()
   const [confirm, setConfirm] = useState(false)
   const on = Boolean(og?.fetchEnabled && og.fetchMode !== 'off')
   // Counting is a full pass over the archive's pages: read once per visit,
@@ -190,19 +164,6 @@ export function LinkPreviewsRow() {
   if (!og) return null
   const keep = keepChoiceOf(og.cleanup)
 
-  const setMode = (mode: string) =>
-    void save((config) => {
-      if (config.ogImage)
-        config.ogImage.fetchMode = mode as 'on_demand' | 'background'
-      return config
-    })
-  const setKeep = (choice: string) =>
-    void save((config) => {
-      if (config.ogImage && choice in keepRules)
-        config.ogImage.cleanup = keepRules[choice as keyof typeof keepRules]
-      return config
-    })
-
   const stats = coverage.data
   return (
     <SettingRow
@@ -223,48 +184,13 @@ export function LinkPreviewsRow() {
       control={
         !on && (
           <Button size="sm" variant="outline" asChild>
-            <Link to="/settings/general">
-              {t('settingsBackground.summaries.openGeneral')}
-            </Link>
+            <Link to="/settings/browsing">{t('settingsBrowsing.open')}</Link>
           </Button>
         )
       }
     >
       {on && (
         <div className="flex flex-col gap-2.5 border-t pt-3 text-[13px]">
-          <div className="flex items-center justify-between gap-4">
-            <label htmlFor="settings-previews-mode">
-              {t('settingsBackground.previews.mode.label')}
-            </label>
-            <RowSelect
-              id="settings-previews-mode"
-              value={og.fetchMode}
-              disabled={saving}
-              onChange={setMode}
-              options={(['on_demand', 'background'] as const).map((mode) => ({
-                value: mode,
-                label: t(`settingsBackground.previews.mode.${mode}`),
-              }))}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <label htmlFor="settings-previews-keep">
-              {t('settingsBackground.previews.keep.label')}
-            </label>
-            <RowSelect
-              id="settings-previews-keep"
-              value={keep}
-              disabled={saving}
-              onChange={setKeep}
-              options={[
-                ...(keep === 'custom' ? (['custom'] as const) : []),
-                ...(Object.keys(keepRules) as (keyof typeof keepRules)[]),
-              ].map((choice) => ({
-                value: choice,
-                label: t(`settingsBackground.previews.keep.${choice}`),
-              }))}
-            />
-          </div>
           <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">
               {t('settingsBackground.previews.cleanHint')}

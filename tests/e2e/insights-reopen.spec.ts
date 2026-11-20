@@ -1,5 +1,5 @@
 /**
- * Insights cleared in Settings → Background work are built again the next
+ * Insights cleared on the background tasks page are built again the next
  * time the app opens the archive.
  *
  * Proves: after "Clear Insights data" nothing builds them again by itself
@@ -27,11 +27,11 @@ const visitDetails = (page: Page) =>
     .getByRole('list', { name: 'Insights data' })
     .locator('li[data-module="visit-derived-facts"]')
 
-test('Insights cleared in Background work are built again when the app opens next', async ({
+test('Insights cleared on the background tasks page are built again when the app opens next', async ({
   page,
 }) => {
   test.setTimeout(600_000)
-  await page.goto('/#/settings/background')
+  await page.goto('/#/tasks')
   await unlockIfLocked(page)
   await expect(insightsRow(page).getByText('Nothing running.')).toBeVisible({
     timeout: 120_000,
@@ -58,7 +58,7 @@ test('Insights cleared in Background work are built again when the app opens nex
   await killAndRestartApp()
   await page.reload()
   await unlockIfLocked(page)
-  await page.goto('/#/settings/background')
+  await page.goto('/#/tasks')
   await expect(visitDetails(page)).toContainText('Up to date', {
     timeout: 300_000,
   })

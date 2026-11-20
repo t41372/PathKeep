@@ -9,6 +9,8 @@
  * fixture's facts (`fixture().agents`): its tool and its title, which is
  * the name the tool recorded or the first thing the person typed.
  */
+import { rmSync, statSync } from 'node:fs'
+import path from 'node:path'
 import { expect, type Locator, type Page } from '@playwright/test'
 import type { AgentConversation } from '../../../scripts/fixtures/synthetic-agents.mjs'
 import { unlockIfLocked } from './app'
@@ -45,6 +47,8 @@ export interface WireHeader {
   summary: WireChat
   publication: string
   nativeSessionId: string | null
+  /** A checked resume command (`cd … && …`), or null: Continue copies the ID. */
+  resumeCommand: string | null
   visibleRecords: number
   physicalRecords: number
   promptCount: number
@@ -292,4 +296,33 @@ export async function expectSwitcherLine(
     `${conversationsText(roots)} · ${onlyInPathKeep} only in PathKeep`,
   )
   await page.keyboard.press('Escape')
+}
+
+/** Where exports land: the save dialog's suggested name in PATHKEEP_TEST_SAVE_DIR. */
+export const savedDir = () => path.join(fixture().root, 'saved')
+
+/**
+ * The open reader's ⋯ › Export › `format` (a menu item's name starts with
+ * it), and the file the backend says it wrote: `conversation.<extension>`
+ * in the save folder, deleted first so an older one can't pass for it.
+ */
+export async function exportConversation(
+  page: Page,
+  format: RegExp,
+  extension: string,
+) {
+  const file = path.join(savedDir(), `conversation.${extension}`)
+  rmSync(file, { force: true })
+  const answered = page.waitForResponse((response) =>
+    response.url().endsWith('/commands/export_agent_conversation'),
+  )
+  await reader(page).getByRole('button', { name: 'More', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Export', exact: true }).click()
+  await page.getByRole('menuitem', { name: format }).click()
+  const response = await answered
+  expect(response.ok()).toBe(true)
+  const saved = (await response.json()) as { path: string; bytes: string }
+  expect(saved.path).toBe(file)
+  expect(statSync(saved.path).size).toBe(Number(saved.bytes))
+  return saved
 }

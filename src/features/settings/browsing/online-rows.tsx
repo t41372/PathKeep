@@ -1,9 +1,12 @@
 /**
  * The two features that contact websites: link preview images and page
  * summaries. Everything else in PathKeep stays on this computer, so these
- * switches are where the user decides whether any site hears from it.
+ * switches are where the user decides whether any site hears from it. Both
+ * belong to browsing history, so they sit in Settings › Browsing history
+ * (`data-spaces.md` §8), with link previews' two options under its switch.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { toast } from 'sonner'
 import { SettingRow } from '@/components/app/setting-row'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -13,21 +16,14 @@ import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { queryKeys } from '@/lib/query'
 import { useSnapshot } from '@/lib/queries/app'
-import { useSaveSetting } from './use-save-setting'
+import { useSaveSetting } from '../use-save-setting'
+import { LinkPreviewOptions } from './link-preview-options'
 
-export function OnlineRows() {
-  return (
-    <>
-      <LinkPreviewsRow />
-      <PageSummariesRow />
-    </>
-  )
-}
-
-function LinkPreviewsRow() {
+export function LinkPreviewsSwitchRow() {
   const { t } = useI18n()
   const snapshot = useSnapshot()
   const { save, saving } = useSaveSetting()
+  const still = !!useReducedMotion()
   const og = snapshot.config.ogImage
   const on = Boolean(og?.fetchEnabled && og.fetchMode !== 'off')
 
@@ -43,8 +39,8 @@ function LinkPreviewsRow() {
 
   return (
     <SettingRow
-      title={t('settings.general.previews.title')}
-      description={t('settings.general.previews.description')}
+      title={t('settingsBrowsing.previews.title')}
+      description={t('settingsBrowsing.previews.description')}
       htmlFor="settings-link-previews"
       control={
         <Switch
@@ -54,13 +50,36 @@ function LinkPreviewsRow() {
           onCheckedChange={toggle}
         />
       }
-    />
+    >
+      <AnimatePresence initial={false}>
+        {on && (
+          // The row's gap is taken back while the options open and close, so
+          // they slide in from nothing instead of jumping by the gap.
+          <motion.div
+            key="options"
+            initial={still ? { opacity: 0 } : { height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={still ? { opacity: 0 } : { height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="-mt-3 overflow-hidden"
+          >
+            <div
+              role="group"
+              aria-label={t('settingsBrowsing.previews.options')}
+              className="mt-3 flex flex-col gap-2.5 border-t pt-3 text-[13px]"
+            >
+              <LinkPreviewOptions />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </SettingRow>
   )
 }
 
 const contentFetchKey = ['content-fetch-settings'] as const
 
-function PageSummariesRow() {
+export function PageSummariesSwitchRow() {
   const { t } = useI18n()
   const client = useQueryClient()
   const query = useQuery({
@@ -86,14 +105,14 @@ function PageSummariesRow() {
   const pending = change.isPending ? change.variables : undefined
   return (
     <SettingRow
-      title={t('settings.general.summaries.title')}
+      title={t('settingsBrowsing.summaries.title')}
       description={
         query.isError ? (
           <span className="text-destructive">
-            {t('settings.general.summaries.loadFailed')}
+            {t('settingsBrowsing.summaries.loadFailed')}
           </span>
         ) : (
-          t('settings.general.summaries.description')
+          t('settingsBrowsing.summaries.description')
         )
       }
       htmlFor="settings-page-summaries"

@@ -6,7 +6,8 @@
  * - With the archive as first-run left it (encrypted, its password in the
  *   keychain, no automatic-backup trouble) Home shows no alerts.
  * - A failed automatic backup, recorded the way the scheduled worker records
- *   it, shows on Home with what it means and leads to Backup; once a later
+ *   it, shows on Home with what it means and leads to the automatic-backup
+ *   card in Settings › Schedule and background work; once a later
  *   run succeeds, the alert is gone.
  * - Taking the password out of the keychain in Settings → Security shows on
  *   Home that only the user has it. "Save it in the keychain" leads back to
@@ -115,8 +116,8 @@ test('Home shows what needs fixing and where, and nothing once it is fixed', asy
   await expect(failed).toContainText(
     'New history is not saved until this is fixed.',
   )
-  await failed.getByRole('link', { name: 'Open Backup' }).click()
-  await expect(page).toHaveURL(/#\/browsing\/backup$/)
+  await failed.getByRole('link', { name: 'Open schedule settings' }).click()
+  await expect(page).toHaveURL(/#\/settings\/background$/)
 
   // The next run went through.
   recordScheduledRun('e2e-2', new Date(Date.now() - 60_000), 'success')

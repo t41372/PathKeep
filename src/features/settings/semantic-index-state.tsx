@@ -34,9 +34,7 @@ export function IndexState({ index }: { index: SemanticIndex }) {
   if (build && progress) {
     const backgroundLink = (
       <Button size="xs" variant="ghost" asChild>
-        <Link to="/settings/background">
-          {t('settingsAi.semantic.inBackground')}
-        </Link>
+        <Link to="/tasks">{t('settingsAi.semantic.inBackground')}</Link>
       </Button>
     )
     const cancel = (

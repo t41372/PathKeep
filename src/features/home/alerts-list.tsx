@@ -1,18 +1,24 @@
 /**
- * Home's alerts, under the header: one row per problem, each with the place
- * that fixes it when PathKeep has one. Renders nothing when there are none.
- * Which alerts apply is decided in `alerts.ts`.
+ * The alerts under the header of a space's first page (browsing's Home,
+ * Agent's Insights): one row per problem, each with the place that fixes
+ * it when PathKeep has one. Renders nothing when there are none. Which
+ * alerts apply is decided in `alerts.ts`.
  */
 import { CircleAlert, TriangleAlert } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
+import type { SpaceWithPagesId } from '@/lib/spaces'
 import { useHomeAlerts } from './alerts'
 
-export function HomeAlerts() {
+export function HomeAlerts({
+  space = 'browsing',
+}: {
+  space?: SpaceWithPagesId
+}) {
   const { t } = useI18n()
-  const alerts = useHomeAlerts()
+  const alerts = useHomeAlerts(space)
   if (alerts.length === 0) return null
   return (
     <section aria-label={t('home.alerts.label')} className="animate-rise">

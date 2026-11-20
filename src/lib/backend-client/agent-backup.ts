@@ -16,9 +16,12 @@
 import type { AgentToolId, DataKindId, WireCount } from './data-kinds'
 import { call } from './shared'
 
-/** Where a backup came from: the enable flow's first save, a button, a retry, or the schedule. */
+/**
+ * Where a backup came from: the enable flow's first save, a button, a
+ * retry, the schedule (`scheduled`), or the menu bar icon's Back up now.
+ */
 export type BackupTrigger =
-  'enable' | 'manual' | 'retry' | 'schedule' | (string & {})
+  'enable' | 'manual' | 'retry' | 'scheduled' | 'menu-bar' | (string & {})
 
 /** A run's outcome; `running` until it ends. */
 export type RunResult =
@@ -49,12 +52,15 @@ export interface ToolProgress {
 
 /**
  * `queued`: a first save the backend has recorded but not yet begun; it
- * offers no action for that moment and reads as still at work.
+ * offers no action for that moment and reads as still at work. `paused`:
+ * its last step, making what it saved searchable, held by the person
+ * (only that step pauses); it waits with Continue and Cancel.
  */
 export type TaskState =
   | 'queued'
   | 'running'
   | 'cancelling'
+  | 'paused'
   | 'succeeded'
   | 'partial'
   | 'interrupted'

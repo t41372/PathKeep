@@ -16,11 +16,13 @@
  *   backend's task events (`useAgentBackupSync`); it is read only while
  *   Agent conversations are on or paused and their store opens.
  *
- * It adds no polling. So it leaves out what nothing follows
- * outside Settings › Background work: the Insights queue's jobs, and a live
+ * It adds no polling. So it leaves out what nothing follows outside the
+ * background tasks page (`#/tasks`): the Insights queue's jobs, and a live
  * percentage for an index job (the snapshot's figure would stand still).
  *
- * Not responsible for: drawing (`task-indicator.tsx`).
+ * Not responsible for: drawing (`task-indicator.tsx`), or the page's full
+ * lists (`features/tasks/`), which take the window's own work from
+ * `useWindowWork`.
  */
 import { useMemo } from 'react'
 import { useBackupRunner } from '@/app/backup-runner'
@@ -57,7 +59,7 @@ export interface BackgroundTasks {
   queued: number
   /** The last backup when it failed, to open its details. */
   failedRun: number | null
-  /** Conversation backups that need a look (Settings › Background work lists them). */
+  /** Conversation backups that need a look (the background tasks page lists them). */
   kindAttention: number
 }
 
@@ -67,17 +69,16 @@ function clampPercent(value: number | null | undefined) {
     : Math.min(100, Math.max(0, value))
 }
 
-export function useBackgroundTasks(): BackgroundTasks {
+/**
+ * Browsing work this window started and follows live: a backup with its
+ * progress events, and the two imports. The background tasks page puts
+ * these figures on the matching rows of the run ledger.
+ */
+export function useWindowWork(): BackgroundTask[] {
   const { t } = useI18n()
-  const format = useFormat()
   const backup = useBackupRunner()
-  const summaryQuery = useTaskSummary()
-  // A kind turned off keeps its last answer in the cache; it is not current.
-  const summary = useAgentKind().readable ? summaryQuery.data : undefined
   const takeout = useTakeoutImport().state
   const browserFile = useBrowserImport().state
-  const { aiStatus, recentRuns } = useSnapshot()
-  const { fromAiQueue } = useJobViews()
 
   return useMemo(() => {
     const running: BackgroundTask[] = []
@@ -145,6 +146,22 @@ export function useBackgroundTasks(): BackgroundTasks {
           browserFile.progress,
         ),
       )
+    return running
+  }, [t, backup.running, backup.progress, takeout, browserFile])
+}
+
+export function useBackgroundTasks(): BackgroundTasks {
+  const { t } = useI18n()
+  const format = useFormat()
+  const windowWork = useWindowWork()
+  const summaryQuery = useTaskSummary()
+  // A kind turned off keeps its last answer in the cache; it is not current.
+  const summary = useAgentKind().readable ? summaryQuery.data : undefined
+  const { aiStatus, recentRuns } = useSnapshot()
+  const { fromAiQueue } = useJobViews()
+
+  return useMemo(() => {
+    const running: BackgroundTask[] = [...windowWork]
 
     for (const job of aiStatus.recentJobs) {
       if (job.state !== 'running') continue
@@ -175,16 +192,5 @@ export function useBackgroundTasks(): BackgroundTasks {
       failedRun: last?.status === 'failed' ? last.id : null,
       kindAttention: wireNumber(summary?.attentionCount),
     }
-  }, [
-    t,
-    format,
-    summary,
-    backup.running,
-    backup.progress,
-    takeout,
-    browserFile,
-    aiStatus,
-    recentRuns,
-    fromAiQueue,
-  ])
+  }, [t, format, summary, windowWork, aiStatus, recentRuns, fromAiQueue])
 }

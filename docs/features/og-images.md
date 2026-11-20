@@ -167,16 +167,18 @@ CREATE INDEX idx_og_images_last_shown   ON og_images(last_shown_at)   WHERE last
 
 設定入口：
 
-- **Settings → General →「連結預覽」開關**（`src/features/settings/online-rows.tsx`）：
+- **Settings → 瀏覽紀錄 →「連結預覽」開關**（`src/features/settings/browsing/online-rows.tsx`）：
   寫 `AppConfig.ogImage.fetchEnabled`；打開時若 `fetchMode` 是 `off`，同時改成
   `background`。說明文字：「下載每頁提供的預覽圖，網站會看到一個來自你電腦的請求」。
-- **Settings → Storage →「連結預覽圖」**（`src/features/settings/storage-section.tsx`）：
+  開著時下面滑出兩個選項（`browsing/link-preview-options.tsx`）：「何時抓取」（顯示時 / 每次備份後）
+  與「保留圖片」（直到清除 / 30 天 / 90 天 / 最多 100 MB / 最多 500 MB；存著別的規則時多一項「自訂」，
+  照原樣顯示，不會被改寫）。「一般」只留一列「連網」指到這裡（[data-spaces.md](data-spaces.md) §8）。
+- **Settings → 瀏覽紀錄 →「連結預覽圖」**（`src/features/settings/browsing/preview-images-row.tsx`）：
   張數與大小，「清除…」確認後呼叫 `clear_og_image_cache`。
 - **Settings → 背景工作 →「連結預覽」**（`src/features/settings/background/online-work-rows.tsx` 的
   `LinkPreviewsRow`）：抓取開著時，用 `get_og_image_coverage_stats` 寫出多少網頁有預覽圖、已檢查幾個
-  （每次打開讀一次，不輪詢）；可選「何時抓取」（顯示時 / 每次備份後）與「保留圖片」（直到清除 / 30 天 /
-  90 天 / 最多 100 MB / 最多 500 MB），「立即清理」確認後呼叫 `run_og_image_cleanup`。抓取關著時只說明並連到
-  Settings → General。
+  （每次打開讀一次，不輪詢）；「立即清理」確認後照「保留圖片」的規則呼叫 `run_og_image_cleanup`。
+  抓取關著時只說明並連到 Settings → 瀏覽紀錄。
 
 沒有 per-domain blocklist 介面。
 
@@ -184,7 +186,7 @@ CREATE INDEX idx_og_images_last_shown   ON og_images(last_shown_at)   WHERE last
 `triggerOgImageRefetch`、`getOgImageStorageStats`、`getOgImageCoverageStats`、`clearOgImageCache`、
 `runOgImageCleanup` 有呼叫者。沒有畫面用過的手動預抓命令 `prefetch_og_images` 於 2026-10-12 移除。
 
-onboarding 的完成步驟告知預設會下載每個頁面的預覽圖（「連網」一列），並說可在 Settings → General 關閉。
+onboarding 的完成步驟告知預設會下載每個頁面的預覽圖（「連網」一列），並說可在 Settings → 瀏覽紀錄關閉。
 
 E2E（`tests/e2e/history-tools.spec.ts`）量測預覽框在讀取中與最終狀態的大小一致、最終狀態與後端記錄的
 `fetch_status` 相符，並在傳輸層把一頁的回應換成一張 PNG，確認圖片畫出且回報 `mark_og_images_shown`；

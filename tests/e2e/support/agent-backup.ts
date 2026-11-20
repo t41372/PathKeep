@@ -1,6 +1,6 @@
 /**
  * Backing up Agent conversations, for the agent-backup specs: the backup
- * page, the rail's task list, Settings › Background work, and what the
+ * page, the rail's task list, the background tasks page, and what the
  * backend says about the same runs (`list_archive_runs`, `get_archive_run`
  * with every page of its warnings and notes, `get_agent_overview`,
  * `list_agent_sources`), to check the screens against.
@@ -273,9 +273,36 @@ export function idleIndicatorName(n: number) {
     : `Background tasks: ${n} need${n === 1 ? 's' : ''} a look`
 }
 
-/** The list's line that leads to conversation backups needing a look. */
+/**
+ * The list's line that leads to the background tasks page when `n` things
+ * need a look (`railAttention`: conversation backups and a failed browsing
+ * backup, counted together).
+ */
 export function needsLookText(n: number) {
-  return `${n} conversation backup${n === 1 ? ' needs' : 's need'} a look`
+  return `${n} need${n === 1 ? 's' : ''} a look`
+}
+
+/**
+ * A row of one group on the background tasks page (`#/tasks`), reading on
+ * with "Show more" until it is there: a group lists 20 rows at first, and
+ * a day of backups and queue jobs can hold more.
+ */
+export async function taskRow(page: Page, group: string, selector: string) {
+  const section = page.locator(`section[data-task-group="${group}"]`)
+  const row = section.locator(selector)
+  await expect(async () => {
+    if ((await row.count()) === 0) {
+      const more = section.getByRole('button', { name: 'Show more' })
+      if (await more.isVisible()) await more.click()
+    }
+    expect(await row.count()).toBe(1)
+  }).toPass({ timeout: 30_000 })
+  return row
+}
+
+/** The group a browsing run is listed under on that page once it ended. */
+export function browsingRunGroup(status: string) {
+  return status === 'failed' || status === 'partial' ? 'attention' : 'today'
 }
 
 /** Hovers the indicator and waits for its list. */
@@ -316,6 +343,8 @@ export async function chooseAndStart(
 export interface WireKindRow {
   kind: string
   state: string
+  /** Visits or conversations, as a decimal string; absent when the store can't be opened. */
+  archiveCount?: string
   hasBackupSource?: boolean
   sourceReviewRequired?: boolean
 }

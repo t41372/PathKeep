@@ -35,7 +35,7 @@ function exportFiles() {
   }
 }
 
-/** The Export history row; Move to another computer has an "Export…" too. */
+/** The Export history row, in Settings › Browsing history. */
 const exportRow = (page: Page) =>
   page.getByText('Export history', { exact: true }).locator('xpath=../..')
 
@@ -61,7 +61,7 @@ test('an export can be followed, left, stopped, and finished', async ({
   const total = visits.length.toLocaleString('en-US')
   expect(exportFiles(), 'no export has run yet').toEqual([])
 
-  await page.goto('/#/settings/storage')
+  await page.goto('/#/settings/browsing')
   await startJsonlExport(page)
 
   // The bar moves and the line counts against the archive's size.
@@ -75,7 +75,7 @@ test('an export can be followed, left, stopped, and finished', async ({
   await expect(
     page.getByRole('searchbox', { name: 'Search history' }),
   ).toBeVisible()
-  await page.goto('/#/settings/storage')
+  await page.goto('/#/settings/browsing')
   await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible()
   await expect(
     exportRow(page).getByRole('button', { name: 'Export…', exact: true }),

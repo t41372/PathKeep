@@ -1,19 +1,27 @@
 /**
- * What Home warns about (`archive.md`: a failing or stalled automatic backup,
- * a browser PathKeep can't read, and the archive password at risk must not
- * stay hidden in Backup or Security). Each alert says what is wrong and links
- * to the place that fixes it; when nothing is wrong there are none.
+ * What the first page of a space warns about (`archive.md`: a failing or
+ * stalled automatic backup, a browser PathKeep can't read, and the archive
+ * password at risk must not stay hidden in Backup or Security;
+ * `data-spaces.md` §3.4). Each alert says what is wrong and links to the
+ * place that fixes it; when nothing is wrong there are none.
+ *
+ * The whole archive's alerts (the schedule, the keychain, the password)
+ * show on the first page of every space, because PathKeep opens on the
+ * space used last and browsing can be off. A browser PathKeep can't read
+ * is browsing's own and shows only on browsing's Home. A scheduler problem
+ * links to Settings › Schedule and background work, where the
+ * automatic-backup card is, whichever space shows it.
  *
  * Responsible for: deciding which alerts apply, from the snapshot and the
  * scheduler's status. Not responsible for: rendering (`alerts-list.tsx`) or
- * the fixes themselves, which live in Backup and Settings → Security.
+ * the fixes themselves, which live in Backup and Settings.
  */
 import { useMemo } from 'react'
 import { scheduleCopy } from '@/features/backup/schedule-copy'
 import { useI18n } from '@/lib/i18n'
 import { browserDiscoveryState } from '@/lib/platform-guidance'
 import { useSaveConfig, useSnapshot } from '@/lib/queries/app'
-import { spacePath } from '@/lib/spaces'
+import { spaceBackupPath, type SpaceWithPagesId } from '@/lib/spaces'
 import { useScheduleStatus } from '@/lib/queries/schedule'
 
 export interface HomeAlert {
@@ -28,10 +36,12 @@ export interface HomeAlert {
   dismiss?: { label: string; run: () => void }
 }
 
-const BACKUP = spacePath('browsing', 'backup')
 const SECURITY = '/settings/security'
+const SCHEDULE = '/settings/background'
 
-export function useHomeAlerts(): HomeAlert[] {
+export function useHomeAlerts(
+  space: SpaceWithPagesId = 'browsing',
+): HomeAlert[] {
   const { t } = useI18n()
   const snapshot = useSnapshot()
   const schedule = useScheduleStatus()
@@ -39,8 +49,12 @@ export function useHomeAlerts(): HomeAlert[] {
 
   return useMemo(() => {
     const alerts: HomeAlert[] = []
-    const openBackup = { label: t('home.alerts.openBackup'), to: BACKUP }
+    const openBackup = {
+      label: t('home.alerts.openBackup'),
+      to: spaceBackupPath(space),
+    }
     const openSecurity = { label: t('home.alerts.openSecurity'), to: SECURITY }
+    const openSchedule = { label: t('home.alerts.openSchedule'), to: SCHEDULE }
 
     for (const issue of schedule.data?.issues ?? []) {
       // Dismissible issues describe what this platform can't check (Linux
@@ -55,14 +69,17 @@ export function useHomeAlerts(): HomeAlert[] {
           scheduleCopy(t, issue.consequenceKey) ??
           scheduleCopy(t, issue.detailKey) ??
           '',
-        action: openBackup,
+        action: openSchedule,
       })
     }
 
-    const discovery = browserDiscoveryState(
-      snapshot.browserDiscoveryIssue,
-      snapshot.browserProfiles.length,
-    )
+    const discovery =
+      space === 'browsing'
+        ? browserDiscoveryState(
+            snapshot.browserDiscoveryIssue,
+            snapshot.browserProfiles.length,
+          )
+        : null
     if (discovery === 'full-disk-access' || discovery === 'discovery-error') {
       const key =
         discovery === 'full-disk-access' ? 'fullDiskAccess' : 'discoveryError'
@@ -115,5 +132,5 @@ export function useHomeAlerts(): HomeAlert[] {
       }
     }
     return alerts
-  }, [t, snapshot, schedule.data, saveConfig])
+  }, [t, snapshot, schedule.data, saveConfig, space])
 }

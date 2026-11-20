@@ -2,16 +2,15 @@
  * The Agent space's backup page (`#/agent/backup`, `data-spaces.md` §4 and
  * `agent-history.md` §6): is this kind's data safe, and back it up now.
  * The header with its states, format versions PathKeep cannot read yet
- * (with Dismiss), the automatic backup card (the same one the browsing page
- * has: one schedule for every kind), Claude Code's
+ * (with Dismiss), the automatic-backup row (one schedule for every kind;
+ * its card is in Settings › Schedule and background work), Claude Code's
  * auto-delete reminder, the sources, recent backups with their details, and
  * the sizes.
  *
  * Responsibilities: the layout, and the states that replace it: a skeleton
  * at once, a store that will not open (browsing is unaffected), an archive
  * not set up yet; and, under the header, the notice for conversations that
- * can't be read while the rest open. The page grows with the window: on a wide one the
- * schedule moves beside the sources instead of above them.
+ * can't be read while the rest open. The page grows with the window.
  * Not responsible for: a kind that is off (`app/shell/kind-gate.tsx` shows
  * its page) or the lock (the frame is gone while locked).
  */
@@ -26,13 +25,14 @@ import {
   useAgentOverview,
   useAgentRuns,
   useAgentSources,
+  useKindTasks,
   useTaskSummary,
   wireNumber,
 } from '@/lib/queries/agent-backup'
 import { useDataKindSizes } from '@/lib/queries/data-kinds'
 import { spaceById } from '@/lib/spaces'
 import { ParkedNotice } from '@/features/agent-repair/parked-notice'
-import { ScheduleCard } from '@/features/backup/schedule-card'
+import { ScheduleRow } from '@/features/backup/schedule-row'
 import { StoreDamage } from '@/features/data-kinds/store-damage'
 import { useRetryStore } from '@/features/data-kinds/use-retry-store'
 import { AgentRunSheet } from './agent-run-sheet'
@@ -130,6 +130,8 @@ export default function AgentBackupPage() {
   const overview = useAgentOverview('backup')
   const runs = useAgentRuns()
   const summary = useTaskSummary()
+  // A backup paused in its last step waits there; it is still this kind's backup.
+  const waiting = useKindTasks('waiting')
   const retry = useRetryStore()
   const space = spaceById('agent')!
 
@@ -170,7 +172,9 @@ export default function AgentBackupPage() {
   }
 
   const data = overview.data
-  const running = summary.data?.running[0]
+  const running =
+    summary.data?.running[0] ??
+    waiting.data?.pages[0]?.items.find((task) => task.state === 'paused')
   const items = runs.data?.pages.flatMap((page) => page.items) ?? []
   const claude = data?.perTool.find((tool) => tool.tool === 'claude-code')
   const claudeHere =
@@ -196,24 +200,18 @@ export default function AgentBackupPage() {
           onRetry={() => void overview.refetch()}
         />
       )}
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(340px,400px)] xl:items-start">
-        <div className="flex min-w-0 flex-col gap-5 xl:col-start-2 xl:row-start-1">
-          <ScheduleCard />
-        </div>
-        <div className="flex min-w-0 flex-col gap-5 xl:col-start-1 xl:row-start-1">
-          {claudeHere && (
-            <AutoDeleteReminder
-              onlyInPathkeep={wireNumber(claude?.onlyInPathkeep)}
-            />
-          )}
-          <SourcesCard
-            overview={data}
-            running={running !== undefined}
-            viewOnly={viewOnly || review === 'choose-folders'}
-          />
-          <RecentRuns />
-        </div>
-      </div>
+      <ScheduleRow kind="agent-history" />
+      {claudeHere && (
+        <AutoDeleteReminder
+          onlyInPathkeep={wireNumber(claude?.onlyInPathkeep)}
+        />
+      )}
+      <SourcesCard
+        overview={data}
+        running={running !== undefined}
+        viewOnly={viewOnly || review === 'choose-folders'}
+      />
+      <RecentRuns />
       {data && <Footer sourceBytes={data.sourceBytes} />}
       <AgentRunSheet />
     </FluidPage>

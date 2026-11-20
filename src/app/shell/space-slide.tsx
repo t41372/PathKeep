@@ -68,6 +68,8 @@ export function SpaceSlide({
       <AnimatePresence initial={false} mode="popLayout" custom={dir}>
         <motion.div
           key={id}
+          // Which space's items these are, while two sets pass each other.
+          data-space-slide={id}
           custom={dir}
           variants={groupVariants}
           initial="enter"

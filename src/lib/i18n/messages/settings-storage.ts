@@ -1,6 +1,6 @@
 import { defineMessages } from '../define'
 
-/** Settings → Storage: space, export, moving computers, safety copies, restore and delete. */
+/** Settings → Storage: space, moving computers, safety copies, restore and delete. */
 export const settingsStorage = defineMessages({
   en: {
     moveGroup: 'Move and restore',
@@ -61,45 +61,6 @@ export const settingsStorage = defineMessages({
       done: 'Freed {size}.',
       failed: 'Nothing was deleted. {message}',
     },
-    previews: {
-      title: 'Link preview images',
-      description_one: '{count} image, {size}',
-      description_other: '{count} images, {size}',
-      statsFailed: 'Could not measure the preview images.',
-      action: 'Clear…',
-      confirmTitle: 'Delete all link preview images?',
-      confirmBody_one:
-        '{count} image ({size}) is deleted. PathKeep downloads previews again only if link previews are on.',
-      confirmBody_other:
-        '{count} images ({size}) are deleted. PathKeep downloads previews again only if link previews are on.',
-      cleared: 'Freed {size}.',
-      clearFailed: 'Could not delete the preview images',
-    },
-    export: {
-      title: 'Export history',
-      description: 'Save your whole history as one file',
-      format: 'Export format',
-      formats: {
-        html: 'HTML',
-        markdown: 'Markdown',
-        text: 'Plain text',
-        jsonl: 'JSON Lines',
-      },
-      action: 'Export…',
-      stop: 'Stop',
-      stopping: 'Stopping…',
-      cancelled: 'Export stopped. No file was saved.',
-      progressLabel: 'Export progress',
-      progress: '{written} of about {total} visits · {size}',
-      progressNoTotal: '{written} visits · {size}',
-      finishing: 'Saving the file…',
-      leftUnderMinute: 'Less than a minute left',
-      left_one: 'About {count} minute left',
-      left_other: 'About {count} minutes left',
-      done_one: 'Exported {count} visit.',
-      done_other: 'Exported {count} visits.',
-      failed: 'Export failed',
-    },
     move: {
       title: 'Move to another computer',
       description:
@@ -152,6 +113,20 @@ export const settingsStorage = defineMessages({
           'Files from PathKeep 0.3 don’t include Ask chats; they stay on the other computer.',
         copies:
           'Files from PathKeep 0.5 and earlier also hold the safety copies of the computer they were made on. Any in this file are added to the ones here.',
+        agent: 'Agent conversations',
+        agentState: {
+          paused: 'Readable, not backed up',
+          on: 'On',
+          off: 'Kept, hidden',
+          none: 'None in this file',
+        },
+        agentNote: {
+          paused:
+            'Any Agent conversations in the file come along. This computer hasn’t chosen to back any up, so you can read and search them in the Agent space, and nothing here is backed up until you set it up.',
+          on: 'Any Agent conversations in the file come along, and Agent conversations stay on here. If the file doesn’t carry which folders this computer backs up, you choose them again after opening it.',
+          off: 'Any Agent conversations in the file are kept in the archive but stay hidden, because Agent conversations are off on this computer. Turn them on in Manage data types to see them.',
+          none: 'Files from PathKeep 0.5 and earlier have no Agent conversations.',
+        },
       },
     },
     restore: {
@@ -236,7 +211,7 @@ export const settingsStorage = defineMessages({
       final:
         'This cannot be undone. Export or move your data first if you might want it.',
       scheduleFailed:
-        'Your data is deleted, but automatic backup could not be removed. {message} Turn it off in Backup after setup.',
+        'Your data is deleted, but automatic backup could not be removed. {message} Turn it off in Settings › Schedule and background work after setup.',
       unfinished:
         'Deleting did not finish. {message} PathKeep finishes it before you set up again.',
       stopped:
@@ -302,45 +277,6 @@ export const settingsStorage = defineMessages({
       done: '已释放 {size}。',
       failed: '没有删除任何内容。{message}',
     },
-    previews: {
-      title: '链接预览图',
-      description_one: '{count} 张图片，{size}',
-      description_other: '{count} 张图片，{size}',
-      statsFailed: '无法计算预览图占用的空间。',
-      action: '清除…',
-      confirmTitle: '要删除所有链接预览图吗？',
-      confirmBody_one:
-        '将删除 {count} 张图片（{size}）。只有开启链接预览时，PathKeep 才会重新下载。',
-      confirmBody_other:
-        '将删除 {count} 张图片（{size}）。只有开启链接预览时，PathKeep 才会重新下载。',
-      cleared: '已释放 {size}。',
-      clearFailed: '无法删除预览图',
-    },
-    export: {
-      title: '导出历史',
-      description: '把你的全部历史保存为一个文件',
-      format: '导出格式',
-      formats: {
-        html: 'HTML',
-        markdown: 'Markdown',
-        text: '纯文本',
-        jsonl: 'JSON Lines',
-      },
-      action: '导出…',
-      stop: '停止',
-      stopping: '正在停止…',
-      cancelled: '导出已停止，没有保存文件。',
-      progressLabel: '导出进度',
-      progress: '已写入 {written} / 约 {total} 条记录 · {size}',
-      progressNoTotal: '已写入 {written} 条记录 · {size}',
-      finishing: '正在保存文件…',
-      leftUnderMinute: '剩余不到一分钟',
-      left_one: '大约还要 {count} 分钟',
-      left_other: '大约还要 {count} 分钟',
-      done_one: '已导出 {count} 条记录。',
-      done_other: '已导出 {count} 条记录。',
-      failed: '导出失败',
-    },
     move: {
       title: '迁移到另一台电脑',
       description: '把所有内容打包成一个文件，或打开在另一台电脑上制作的文件。',
@@ -390,6 +326,20 @@ export const settingsStorage = defineMessages({
           'PathKeep 0.3 导出的文件不含助理对话；它们仍留在原来的电脑上。',
         copies:
           'PathKeep 0.5 及更早版本导出的文件还带着原来那台电脑的安全副本；这个文件里的会加到这台电脑的安全副本中。',
+        agent: 'Agent 对话',
+        agentState: {
+          paused: '可以看，不备份',
+          on: '开着',
+          off: '保留，不显示',
+          none: '文件里没有',
+        },
+        agentNote: {
+          paused:
+            '文件里如果有 Agent 对话，会一起带过来。这台电脑还没选择备份哪些，所以可以在 Agent 空间里阅读和搜索；在你设置好之前，这台电脑上的不会备份。',
+          on: '文件里如果有 Agent 对话，会一起带过来；这台电脑上的 Agent 对话仍然开着。如果文件不带这台电脑要备份哪些文件夹，打开后要重新选择。',
+          off: '文件里如果有 Agent 对话，会保存在存档里，但不会显示，因为这台电脑关闭了 Agent 对话。要看的话，在“管理数据类型”里打开。',
+          none: 'PathKeep 0.5 及更早版本导出的文件里没有 Agent 对话。',
+        },
       },
     },
     restore: {
@@ -466,7 +416,7 @@ export const settingsStorage = defineMessages({
       schedule: '自动备份也会关闭，并从系统中移除：',
       final: '此操作无法撤销。如果以后可能还需要，请先导出或迁移你的数据。',
       scheduleFailed:
-        '数据已删除，但自动备份没能移除。{message} 设置完成后，请到「备份」关闭它。',
+        '数据已删除，但自动备份没能移除。{message} 设置完成后，请到「设置 › 排程与后台工作」关闭它。',
       unfinished:
         '删除没有完成。{message} 重新设置之前，PathKeep 会先把它完成。',
       stopped:
@@ -532,45 +482,6 @@ export const settingsStorage = defineMessages({
       done: '已釋放 {size}。',
       failed: '沒有刪除任何內容。{message}',
     },
-    previews: {
-      title: '連結預覽圖',
-      description_one: '{count} 張圖片，{size}',
-      description_other: '{count} 張圖片，{size}',
-      statsFailed: '無法計算預覽圖佔用的空間。',
-      action: '清除…',
-      confirmTitle: '要刪除所有連結預覽圖嗎？',
-      confirmBody_one:
-        '將刪除 {count} 張圖片（{size}）。只有開啟連結預覽時，PathKeep 才會重新下載。',
-      confirmBody_other:
-        '將刪除 {count} 張圖片（{size}）。只有開啟連結預覽時，PathKeep 才會重新下載。',
-      cleared: '已釋放 {size}。',
-      clearFailed: '無法刪除預覽圖',
-    },
-    export: {
-      title: '匯出歷史',
-      description: '把你的全部歷史存成一個檔案',
-      format: '匯出格式',
-      formats: {
-        html: 'HTML',
-        markdown: 'Markdown',
-        text: '純文字',
-        jsonl: 'JSON Lines',
-      },
-      action: '匯出…',
-      stop: '停止',
-      stopping: '正在停止…',
-      cancelled: '匯出已停止，沒有儲存檔案。',
-      progressLabel: '匯出進度',
-      progress: '已寫入 {written} / 約 {total} 筆記錄 · {size}',
-      progressNoTotal: '已寫入 {written} 筆記錄 · {size}',
-      finishing: '正在儲存檔案…',
-      leftUnderMinute: '剩不到一分鐘',
-      left_one: '大約還要 {count} 分鐘',
-      left_other: '大約還要 {count} 分鐘',
-      done_one: '已匯出 {count} 筆記錄。',
-      done_other: '已匯出 {count} 筆記錄。',
-      failed: '匯出失敗',
-    },
     move: {
       title: '搬到另一台電腦',
       description: '把所有內容打包成一個檔案，或開啟在另一台電腦上製作的檔案。',
@@ -620,6 +531,20 @@ export const settingsStorage = defineMessages({
           'PathKeep 0.3 匯出的檔案不含助理對話；它們仍留在原來的電腦上。',
         copies:
           'PathKeep 0.5 及更早版本匯出的檔案還帶著原來那台電腦的安全副本；這個檔案裡的會加到這台電腦的安全副本裡。',
+        agent: 'Agent 對話',
+        agentState: {
+          paused: '可以看，不備份',
+          on: '開著',
+          off: '保留，不顯示',
+          none: '檔案裡沒有',
+        },
+        agentNote: {
+          paused:
+            '檔案裡如果有 Agent 對話，會一起帶過來。這台電腦還沒選擇要備份哪些，所以可以在 Agent 空間裡閱讀和搜尋；在你設定好之前，這台電腦上的不會備份。',
+          on: '檔案裡如果有 Agent 對話，會一起帶過來；這台電腦上的 Agent 對話仍然開著。如果檔案不帶這台電腦要備份哪些資料夾，打開後要重新選擇。',
+          off: '檔案裡如果有 Agent 對話，會存在存檔裡，但不會顯示，因為這台電腦關閉了 Agent 對話。要看的話，在「管理資料類型」裡打開。',
+          none: 'PathKeep 0.5 及更早版本匯出的檔案裡沒有 Agent 對話。',
+        },
       },
     },
     restore: {
@@ -696,7 +621,7 @@ export const settingsStorage = defineMessages({
       schedule: '自動備份也會關閉，並從系統中移除：',
       final: '此操作無法復原。如果之後可能還需要，請先匯出或搬移你的資料。',
       scheduleFailed:
-        '資料已刪除，但自動備份沒能移除。{message} 設定完成後，請到「備份」關閉它。',
+        '資料已刪除，但自動備份沒能移除。{message} 設定完成後，請到「設定 › 排程與背景工作」關閉它。',
       unfinished:
         '刪除沒有做完。{message} 重新設定之前，PathKeep 會先把它做完。',
       stopped:

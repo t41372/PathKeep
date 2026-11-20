@@ -7,7 +7,9 @@
  * it. "Back up everything now" there runs a backup; while it runs the
  * indicator's name reports one task, and its list shows the backup with its
  * progress. When the backup ends the indicator is idle again, and "Open
- * background tasks" leads to Settings › Background work.
+ * background tasks" leads to the background tasks page (`#/tasks`), which
+ * lists that backup (done today, or needing a look if it ended short) with
+ * a link to its details.
  * From the keyboard, ↓ on the indicator moves into its list and Escape comes
  * back to it.
  *
@@ -18,7 +20,11 @@
  * queued, so the specs after it start from an idle queue.
  */
 import { expect, test, type Page } from '@playwright/test'
-import type { IntelligenceRuntimeSnapshot } from '../../src/lib/types'
+import type {
+  AppSnapshot,
+  IntelligenceRuntimeSnapshot,
+} from '../../src/lib/types'
+import { browsingRunGroup, taskRow } from './support/agent-backup'
 import { unlockIfLocked } from './support/app'
 import { backend } from './support/fixture'
 
@@ -119,10 +125,23 @@ test('the indicator shows a running backup with its progress, and says when noth
   await idle.hover()
   await expect(list.getByText(/^Nothing is running\./)).toBeVisible()
   await list.getByRole('button', { name: 'Open background tasks' }).click()
-  await expect(page).toHaveURL(/#\/settings\/background$/)
+  await expect(page).toHaveURL(/#\/tasks$/)
   await expect(
-    page.getByRole('heading', { name: 'Background work' }),
+    page.getByRole('heading', { name: 'Background tasks', level: 1 }),
   ).toBeVisible()
+  // The backup just made: done today, or needing a look if it ended short.
+  const { recentRuns } = await backend<AppSnapshot>('app_snapshot')
+  const run = recentRuns[0]
+  const row = await taskRow(
+    page,
+    browsingRunGroup(run.status),
+    `li[data-task-id="browsing:run/${run.id}"]`,
+  )
+  await expect(row).toContainText('Back up browsing history')
+  await expect(row.getByRole('link')).toHaveAttribute(
+    'href',
+    `#/browsing/backup?run=${run.id}`,
+  )
 
   // Leave the Insights work this backup queued done for the specs after it.
   await expect
