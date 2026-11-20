@@ -14,6 +14,7 @@
  * decimal strings (`WireCount`); times are UTC epoch milliseconds.
  */
 import { isSemanticTask, type SemanticTask } from './agent-semantic'
+import { isLedgerTask, type BrowsingTask } from './background-tasks'
 import type { AgentToolId, DataKindId, WireCount } from './data-kinds'
 import { call } from './shared'
 
@@ -108,11 +109,26 @@ export interface KindTask {
   progress?: BackupProgress
 }
 
+/**
+ * What the rail counts, for every kind at once: Agent conversations,
+ * browsing history and work on the whole archive. The counts are the
+ * backend's own totals (waiting includes paused work; needing a look
+ * includes failed and partial ledger rows nobody dismissed).
+ */
 export interface TaskSummary {
   runningCount: number
   queuedCount: number
   attentionCount: WireCount
+  /** Running conversation backups only (see `ledger` and `semantic`). */
   running: KindTask[]
+  /**
+   * Running browsing and whole-archive work from the run ledger and the
+   * queues, which the backend lists among `running` too; this client
+   * keeps them apart so a reader of a backup's fields sees backups only.
+   */
+  ledger: BrowsingTask[]
+  /** Kinds whose store would not open; the counts leave them out. */
+  unavailableKinds?: DataKindId[]
   /**
    * The semantic index build, when one is active. The backend lists it with
    * the backups (and counts it: running in `runningCount`, paused in
@@ -127,11 +143,18 @@ export interface TaskPage extends CursorPage<KindTask> {
   semantic: SemanticTask | null
 }
 
-/** Separates the semantic build from the backups the backend listed it among. */
-function splitSemantic(rows: (KindTask | SemanticTask)[]) {
+/**
+ * Separates the backups from what the backend listed among them: the
+ * semantic build, and (in the summary) the ledger's running rows.
+ */
+function splitSemantic(rows: (KindTask | SemanticTask | BrowsingTask)[]) {
   return {
-    rows: rows.filter((row): row is KindTask => !isSemanticTask(row)),
-    semantic: rows.find(isSemanticTask) ?? null,
+    rows: rows.filter(
+      (row): row is KindTask => !isSemanticTask(row) && !isLedgerTask(row),
+    ),
+    semantic:
+      rows.find((row): row is SemanticTask => isSemanticTask(row)) ?? null,
+    ledger: rows.filter(isLedgerTask),
   }
 }
 
@@ -486,12 +509,12 @@ export const agentBackupClient = {
     }),
   taskSummary: async (): Promise<TaskSummary> => {
     const wire = await call<
-      Omit<TaskSummary, 'running' | 'semantic'> & {
-        running: (KindTask | SemanticTask)[]
+      Omit<TaskSummary, 'running' | 'semantic' | 'ledger'> & {
+        running: (KindTask | SemanticTask | BrowsingTask)[]
       }
     >('get_task_summary', { request: {} })
-    const { rows, semantic } = splitSemantic(wire.running)
-    return { ...wire, running: rows, semantic }
+    const { rows, semantic, ledger } = splitSemantic(wire.running)
+    return { ...wire, running: rows, semantic, ledger }
   },
   tasks: async (
     group: TaskGroup,

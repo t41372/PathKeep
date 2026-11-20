@@ -177,8 +177,7 @@ function TaskList({
   const { t } = useI18n()
   const navigate = useNavigate()
   const everything = useBackUpEverything()
-  const { running, queued, failedRun, kindAttention } = tasks
-  const attention = (failedRun !== null ? 1 : 0) + kindAttention
+  const { running, queued, attention } = tasks
   return (
     <>
       <div className="border-b px-3 py-2 text-[12px] font-semibold text-muted-foreground">
@@ -264,14 +263,13 @@ export function TaskIndicator() {
     setOpen(false)
   }
 
-  const { running, failedRun, kindAttention } = tasks
+  const { running, attention } = tasks
   const known = running.every((task) => task.percent !== null)
   const overall =
     running.length > 0 && known
       ? running.reduce((sum, task) => sum + (task.percent ?? 0), 0) /
         running.length
       : null
-  const attention = (failedRun !== null ? 1 : 0) + kindAttention
   const label = running.length
     ? t('spaces.tasks.running', { count: running.length })
     : attention

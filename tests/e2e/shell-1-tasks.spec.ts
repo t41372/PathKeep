@@ -15,24 +15,30 @@
  *   indicator is idle again;
  * - Try again on it backs up the same scope once more, to the end, and that
  *   backup is listed as ended today;
+ * - the last step of a conversation backup (making what it saved
+ *   searchable) pauses from its row: it waits, says you paused it, holds
+ *   past its step's time, counts as waiting on the rail, shows paused on
+ *   the backup page, and Continue takes it to the end;
  * - Settings › Schedule and background work keeps the schedule and the
  *   limits only, and leads to this page, where the queues and their data
  *   now are.
  *
  * Conversation backups are paced (`PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US`),
- * so one runs long enough to be seen and cancelled. Pausing one is not
- * tested: only its last step (making it searchable) pauses, and nothing
- * paces that step (see the report on this work).
+ * so one runs long enough to be seen and cancelled, and their last step
+ * waits a few seconds before it starts (`PATHKEEP_TEST_AGENT_INDEX_DELAY_US`),
+ * so Pause can be pressed in it.
  */
 import { expect, test, type Page } from '@playwright/test'
 import {
   agentRuns,
+  agentTasks,
   browsingRunGroup,
-  idleIndicatorName,
+  expectIdleIndicator,
   lastBrowsingRun,
-  railAttention,
+  newestRunRef,
   taskIndicator,
   taskRow,
+  taskSummary,
   waitForBrowsingRunAfter,
   waitForRunAfter,
 } from './support/agent-backup'
@@ -134,10 +140,7 @@ test('a backup of both kinds from ⌘K runs on the tasks page; cancelled, tried 
     'href',
     `#/browsing/backup?run=${browsing.id}`,
   )
-  await expect(taskIndicator(page)).toHaveAccessibleName(
-    idleIndicatorName(await railAttention()),
-    { timeout: 30_000 },
-  )
+  await expectIdleIndicator(page)
   await testInfo.attach('the cancelled backup under Done today', {
     body: await page.screenshot({ fullPage: true }),
     contentType: 'image/png',
@@ -164,10 +167,100 @@ test('a backup of both kinds from ⌘K runs on the tasks page; cancelled, tried 
   await expect(
     group(page, 'running').locator('li[data-kind="agent-history"]'),
   ).toHaveCount(0)
-  await expect(taskIndicator(page)).toHaveAccessibleName(
-    idleIndicatorName(await railAttention()),
-    { timeout: 30_000 },
+  await expectIdleIndicator(page)
+})
+
+test('the last step of a conversation backup pauses and continues from the tasks page', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(300_000)
+  await page.goto('/#/tasks')
+  await unlockIfLocked(page)
+  const previous = await newestRunRef()
+  const name = 'Back up Agent conversations'
+
+  // Conversations only, from ⌘K (both kinds are on).
+  await page.keyboard.press('ControlOrMeta+k')
+  const palette = page.getByRole('dialog', { name: 'Search and commands' })
+  await palette.getByRole('combobox').fill('back up')
+  await palette
+    .getByRole('option', { name: 'Back up Agent conversations only' })
+    .click()
+
+  // Its last step offers Pause; nothing before it does.
+  const running = group(page, 'running').locator(
+    'li[data-kind="agent-history"]',
   )
+  await expect(running).toBeVisible({ timeout: 30_000 })
+  const pause = running.getByRole('button', { name: `Pause “${name}”` })
+  await expect(pause).toBeVisible({ timeout: 60_000 })
+  await expect(running).toContainText('Making what was saved searchable')
+  await pause.click()
+
+  // Paused: it waits, says so, and offers Continue and Cancel.
+  const waiting = await taskRow(
+    page,
+    'waiting',
+    'li[data-kind="agent-history"][data-state="paused"]',
+  )
+  await expect(waiting).toContainText('Paused')
+  await expect(waiting).toContainText('You paused it')
+  const resume = waiting.getByRole('button', { name: `Continue “${name}”` })
+  await expect(resume).toBeVisible()
+  await expect(
+    waiting.getByRole('button', { name: `Cancel “${name}”` }),
+  ).toBeVisible()
+  await expect(running).toHaveCount(0)
+  const taskId = await waiting.getAttribute('data-task-id')
+  const task = (await agentTasks('waiting')).find(
+    (item) => item.taskId === taskId,
+  )
+  expect(task?.state).toBe('paused')
+  expect(task?.actions).toEqual(expect.arrayContaining(['resume', 'cancel']))
+  await testInfo.attach('a paused backup under Waiting', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  })
+
+  // It holds past the time its step waits before it starts.
+  await page.waitForTimeout(6_000)
+  expect((await agentRuns(1))[0].result).toBe('running')
+  await expect(waiting).toHaveAttribute('data-state', 'paused')
+
+  // The rail: nothing runs; its list says something waits.
+  expect((await taskSummary()).queuedCount).toBeGreaterThan(0)
+  await expectIdleIndicator(page)
+  await taskIndicator(page).hover()
+  const list = page.getByRole('dialog').filter({ hasText: 'Background tasks' })
+  await expect(list.getByText(/^\d+ more waiting$/)).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // The backup page says it is paused.
+  await page.goto('/#/agent/backup')
+  await unlockIfLocked(page)
+  await expect(
+    page.getByText(/Making what was saved searchable · You paused it/),
+  ).toBeVisible()
+  await page.goto('/#/tasks')
+  await unlockIfLocked(page)
+
+  // Continue: it goes on to the end and is listed as ended today.
+  await (
+    await taskRow(page, 'waiting', `li[data-task-id="${taskId}"]`)
+  )
+    .getByRole('button', { name: `Continue “${name}”` })
+    .click()
+  const run = await waitForRunAfter(previous, 120_000)
+  expect(['success', 'partial']).toContain(run.result)
+  await taskRow(
+    page,
+    run.result === 'success' ? 'today' : 'attention',
+    `li[data-run-ref="${run.runRef}"]`,
+  )
+  await expect(
+    group(page, 'waiting').locator('li[data-kind="agent-history"]'),
+  ).toHaveCount(0)
+  await expectIdleIndicator(page)
 })
 
 test('Settings keeps the schedule and the limits; the queues are on the tasks page', async ({

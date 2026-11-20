@@ -12,6 +12,7 @@
  * Agent conversations, where its state is told in full.
  * Not responsible for: what a button does.
  */
+import { Archive } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
@@ -22,8 +23,9 @@ import type { BrowsingTask } from '@/lib/backend-client/background-tasks'
 import { cn } from '@/lib/cn'
 import { useFormat, useI18n, type MessageKey } from '@/lib/i18n'
 import { isActive } from '@/lib/queries/agent-backup'
+import { useKindState } from '@/lib/queries/data-kinds'
 import { spaceBackupPath, spaceOfKind } from '@/lib/spaces'
-import type { BackgroundTask } from '@/app/shell/use-background-tasks'
+import type { LiveWork } from '@/app/shell/use-background-tasks'
 import { SpaceTile } from '@/app/shell/space-switcher'
 import { NoticeLine } from '@/features/agent-backup/notice-line'
 import {
@@ -67,10 +69,15 @@ function stateTone(state: string) {
 function Owner({ kind }: { kind: string }) {
   const { t } = useI18n()
   const space = spaceOfKind(kind as Parameters<typeof spaceOfKind>[0])
+  // Work on the whole archive belongs to no space: a plain tile, and the
+  // words after the task's name (`RowLayout`).
   if (!space)
     return (
-      <span className="w-7 shrink-0 text-[11px] leading-tight text-muted-foreground">
-        {t('tasks.owner.whole')}
+      <span
+        aria-hidden
+        className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-[9px] bg-muted text-muted-foreground"
+      >
+        <Archive className="size-4" strokeWidth={1.8} />
       </span>
     )
   return (
@@ -81,10 +88,7 @@ function Owner({ kind }: { kind: string }) {
   )
 }
 
-/** The figures this window follows live for a browsing backup or import, by run type. */
-export type { Controls }
-
-export type LiveWork = Partial<Record<string, BackgroundTask>>
+export type { Controls, LiveWork }
 
 /** What a row shows, whichever kind its task is. */
 interface RowView {
@@ -187,10 +191,12 @@ function useBrowsingView(
 ): RowView {
   const { t } = useI18n()
   const format = useFormat()
+  const browsingOff = useKindState('browsing') === 'off'
   const name = browsingTaskName(t, task)
   const running = task.state === 'running'
   // This window's own backup or import knows more than the ledger's row.
-  const window = running ? live[task.operation] : undefined
+  const window =
+    running && task.kind === 'browsing' ? live[task.operation] : undefined
   const progress = task.progress
   const percent = window
     ? window.percent
@@ -220,11 +226,15 @@ function useBrowsingView(
     still: !running,
     bar: running || task.state === 'paused',
     detail: [detail],
-    // A run opens its details on the browsing backup page; a queue job has none.
+    // A run opens its audit details on the browsing backup page; a queue
+    // job has none. Work on the whole archive shows there too, or on the
+    // Agent backup page (by its reference) while browsing history is off.
     link:
-      task.runRef !== null
-        ? spaceBackupPath('browsing', `?run=${task.jobId}`)
-        : null,
+      task.runRef === null
+        ? null
+        : task.kind === 'archive' && browsingOff
+          ? spaceBackupPath('agent', `?run=${encodeURIComponent(task.runRef)}`)
+          : spaceBackupPath('browsing', `?run=${task.jobId}`),
     actions: <BrowsingActions task={task} name={name} controls={controls} />,
     notices: null,
   }
@@ -306,6 +316,11 @@ function RowLayout({
             </Link>
           ) : (
             <span className="font-medium">{view.name}</span>
+          )}
+          {view.kind === 'archive' && (
+            <span className="text-xs text-muted-foreground">
+              {t('tasks.owner.whole')}
+            </span>
           )}
           {!running && (
             <Badge

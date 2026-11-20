@@ -182,6 +182,7 @@ export function SemanticActions({
 const browsingOrder: BrowsingTaskCommand[] = [
   'retry_intelligence_job',
   'replay_ai_job',
+  'dismiss',
   'pause_ai_job',
   'cancel_intelligence_job',
   'cancel_ai_job',
@@ -202,6 +203,20 @@ export function BrowsingActions({
   return browsingOrder
     .filter((command) => task.commands.includes(command))
     .map((command) => {
+      // Dismiss reads as it does on a conversation backup's row.
+      if (command === 'dismiss')
+        return (
+          <ActionButton
+            key={command}
+            label={t('agentTasks.actions.dismiss')}
+            aria={t('agentTasks.actions.dismissLabel', { name })}
+            disabled={controls.busy}
+            pressing={
+              controls.browsing.busy === browsingActionKey(task, command)
+            }
+            onClick={() => void controls.browsing.send(task, command)}
+          />
+        )
       const kind = command.startsWith('cancel')
         ? 'cancel'
         : command === 'pause_ai_job'

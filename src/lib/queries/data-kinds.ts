@@ -35,6 +35,8 @@ export function useKindState(kind: DataKindId) {
 function refetchPolicy() {
   void queryClient.invalidateQueries({ queryKey: queryKeys.dataKinds })
   void queryClient.invalidateQueries({ queryKey: queryKeys.agentSettings })
+  // The rail's summary counts only the kinds that are on or paused.
+  void queryClient.invalidateQueries({ queryKey: queryKeys.taskSummary })
 }
 
 /**
