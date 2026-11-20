@@ -78,11 +78,51 @@ export const settingsAgent = defineMessages({
         'The assistant can quote your Agent conversations in its answers. It uses the model you set up in “AI”; if that is an online service, the quoted parts are sent there.',
       semantic: 'Build a semantic search index',
       semanticHint:
-        'Turns conversations into vectors, so search also finds passages that mean the same in other words. The vectors stay in the archive on this computer; with an online embedding service, the text is sent there.',
+        'Turns conversations into vectors, so search also finds passages that mean the same in other words. The vectors stay in the archive on this computer; with an online embedding service, the conversations’ text and your searches are sent there.',
       mcp: 'MCP can read Agent conversations',
       mcpHint:
         'Tools connected to PathKeep’s MCP server (Agent tools included) can search and read these conversations. Never while the archive is locked.',
       allOff: 'With all three off, Agent conversations aren’t sent anywhere.',
+      index: {
+        title: 'Semantic search index',
+        loading: 'Reading the index…',
+        loadFailed: 'Couldn’t read the index.',
+        retry: 'Try again',
+        ready: 'Ready',
+        readyDetail_one: '{count} passage, built {when} with {model}.',
+        readyDetail_other: '{count} passages, built {when} with {model}.',
+        stale: 'Behind',
+        staleDetail:
+          'Conversations changed after it was built {when}. Semantic search finds what changed once it’s updated.',
+        building: 'Building',
+        buildingFirst:
+          'Semantic search can be used once it’s done. Lexical search works meanwhile.',
+        buildingUpdate:
+          'Semantic search uses the index built {when} until this one is done.',
+        paused: 'Paused',
+        pausedDetail: 'Nothing is built while it’s paused.',
+        stopping: 'Stopping',
+        stoppingDetail: 'The part built in this run is thrown away.',
+        none: 'Not built yet',
+        noneDetail: 'Records search can’t search by meaning until it’s built.',
+        failed: 'The last build failed',
+        failedDetail:
+          'Try again. If it fails again, check the embedding model in Settings › AI.',
+        cancelled: 'You cancelled the last build.',
+        aiOff: 'Off in AI settings',
+        aiOffDetail:
+          'Semantic search is off in Settings › AI, so nothing is built and the index isn’t used.',
+        noModel: 'Needs an embedding model',
+        noModelDetail: 'Choose the model that builds it in Settings › AI.',
+        openAi: 'Open AI settings',
+        build: 'Build now',
+        update: 'Update now',
+        controlFailed: 'Couldn’t change the index build',
+        whenOn:
+          'Turning this off stops any build and stops search from using the index. What’s built stays on this computer, unused.',
+        whenOff:
+          'Off: nothing is built and search doesn’t use the index. If one was built before, it stays on this computer, unused.',
+      },
     },
     resume: {
       title: 'Continue',
@@ -163,11 +203,48 @@ export const settingsAgent = defineMessages({
         '助手回答时可以引用你的 Agent 对话。用的是你在“AI”里设置的模型；如果那是远程服务，引用到的段落会发送过去。',
       semantic: '建立语义搜索索引',
       semanticHint:
-        '把对话内容转成向量，让搜索也能找到意思相近、字面不同的段落。向量存在本机存档里；用远程 embedding 服务时，内容会发送过去。',
+        '把对话内容转成向量，让搜索也能找到意思相近、字面不同的段落。向量存在本机存档里；用远程 embedding 服务时，对话内容和你搜索的字句会发送过去。',
       mcp: 'MCP 可以读 Agent 对话',
       mcpHint:
         '接上 PathKeep MCP 的工具（包括 Agent 自己）可以搜索和读取这些对话。存档锁定时一律读不到。',
       allOff: '这三项都关着时，Agent 对话不会发送到任何地方。',
+      index: {
+        title: '语义搜索索引',
+        loading: '正在读取索引…',
+        loadFailed: '没能读取索引。',
+        retry: '重试',
+        ready: '已就绪',
+        readyDetail_one: '{count} 个段落，{when}用{model}建立。',
+        readyDetail_other: '{count} 个段落，{when}用{model}建立。',
+        stale: '没跟上',
+        staleDetail:
+          '{when}建立之后对话有变动。更新之后，语义搜索才找得到变动的部分。',
+        building: '正在建立',
+        buildingFirst: '建好之后才能用语义搜索；这期间字面搜索照常可用。',
+        buildingUpdate: '这次建好之前，语义搜索继续用{when}建立的索引。',
+        paused: '已暂停',
+        pausedDetail: '暂停期间什么都不建立。',
+        stopping: '正在停止',
+        stoppingDetail: '这次已建立的部分会丢掉。',
+        none: '还没建立',
+        noneDetail: '建立之前，对话记录不能按意思搜索。',
+        failed: '上次建立失败',
+        failedDetail:
+          '再试一次。如果还是失败，检查“设置 › AI”里的 embedding 模型。',
+        cancelled: '上次建立被你取消了。',
+        aiOff: 'AI 设置里关着',
+        aiOffDetail: '“设置 › AI”里的语义搜索关着，所以不建立索引，也不用它。',
+        noModel: '需要 embedding 模型',
+        noModelDetail: '在“设置 › AI”里选一个用来建立索引的模型。',
+        openAi: '打开 AI 设置',
+        build: '现在建立',
+        update: '现在更新',
+        controlFailed: '没能改变索引的建立',
+        whenOn:
+          '关掉这项会停止建立，搜索也不再用这个索引。已经建好的部分留在本机，不会被用到。',
+        whenOff:
+          '关着：不建立索引，搜索也不用它。之前建过的索引留在本机，不会被用到。',
+      },
     },
     resume: {
       title: '继续对话',
@@ -249,11 +326,49 @@ export const settingsAgent = defineMessages({
         '助理回答時可以引用你的 Agent 對話。用的是你在「AI」裡設定的模型；如果那是遠端服務，引用到的段落會送過去。',
       semantic: '建立語意搜尋索引',
       semanticHint:
-        '把對話內容轉成向量，讓搜尋也能找到意思相近、字面不同的段落。向量存在本機存檔裡；用遠端 embedding 服務時，內容會送過去。',
+        '把對話內容轉成向量，讓搜尋也能找到意思相近、字面不同的段落。向量存在本機存檔裡；用遠端 embedding 服務時，對話內容和你搜尋的字句會送過去。',
       mcp: 'MCP 可以讀 Agent 對話',
       mcpHint:
         '接上 PathKeep MCP 的工具（包括 Agent 自己）可以搜尋和讀取這些對話。存檔鎖定時一律讀不到。',
       allOff: '這三個開關都關著時，Agent 對話不會送到任何地方。',
+      index: {
+        title: '語意搜尋索引',
+        loading: '正在讀取索引…',
+        loadFailed: '沒能讀取索引。',
+        retry: '重試',
+        ready: '已就緒',
+        readyDetail_one: '{count} 個段落，{when}用{model}建立。',
+        readyDetail_other: '{count} 個段落，{when}用{model}建立。',
+        stale: '沒跟上',
+        staleDetail:
+          '{when}建立之後對話有變動。更新之後，語意搜尋才找得到變動的部分。',
+        building: '正在建立',
+        buildingFirst: '建好之後才能用語意搜尋；這段期間字面搜尋照常可用。',
+        buildingUpdate: '這次建好之前，語意搜尋繼續用{when}建立的索引。',
+        paused: '已暫停',
+        pausedDetail: '暫停期間什麼都不建立。',
+        stopping: '正在停止',
+        stoppingDetail: '這次已建立的部分會丟掉。',
+        none: '還沒建立',
+        noneDetail: '建立之前，對話紀錄不能按意思搜尋。',
+        failed: '上次建立失敗',
+        failedDetail:
+          '再試一次。如果還是失敗，檢查「設定 › AI」裡的 embedding 模型。',
+        cancelled: '上次建立被你取消了。',
+        aiOff: 'AI 設定裡關著',
+        aiOffDetail:
+          '「設定 › AI」裡的語意搜尋關著，所以不建立索引，也不用它。',
+        noModel: '需要 embedding 模型',
+        noModelDetail: '在「設定 › AI」裡選一個用來建立索引的模型。',
+        openAi: '打開 AI 設定',
+        build: '現在建立',
+        update: '現在更新',
+        controlFailed: '沒能改變索引的建立',
+        whenOn:
+          '關掉這項會停止建立，搜尋也不再用這個索引。已經建好的部分留在本機，不會被用到。',
+        whenOff:
+          '關著：不建立索引，搜尋也不用它。之前建過的索引留在本機，不會被用到。',
+      },
     },
     resume: {
       title: '繼續對話',

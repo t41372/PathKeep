@@ -7,13 +7,14 @@
  * Responsibilities: the five groups in the spec's order: grouping into
  * projects (scratch folders, the folders waiting to be confirmed),
  * the reader, usage and cost (the same two switches as Insights' cost
- * card), AI access (three switches, all off at first) and what Continue
- * copies. Each switch shows the saved value, changes at once, and goes
+ * card), AI access (three switches, all off at first, the index's state
+ * under its switch: `semantic-status.tsx`) and what Continue copies. Each switch shows the saved value, changes at once, and goes
  * back with a notice when the backend refuses it. A kind that is off has
  * no page here; an old link says so.
  * Not responsible for: what the switches change elsewhere (the reader,
  * Insights, Projects read them themselves).
  */
+import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
@@ -41,6 +42,7 @@ import {
 } from '@/lib/queries/agent-viewer'
 import { spaceBackupPath, spacePath } from '@/lib/spaces'
 import { ScratchRow } from './scratch-row'
+import { SemanticIndexStatus } from './semantic-status'
 
 type ViewerSwitch =
   | 'readerCollapseToolCalls'
@@ -57,22 +59,32 @@ function ViewerSwitchRow({
   field,
   title,
   hint,
+  under,
 }: {
   field: ViewerSwitch
   title: MessageKey
   hint: MessageKey
+  /**
+   * What the value has made, under the row once it is read; `saving` while
+   * a change is on its way (the value shown is already the new one).
+   */
+  under?: (on: boolean, saving: boolean) => ReactNode
 }) {
   const { t } = useI18n()
   const prefs = useViewerPreferences()
   const save = useSaveViewerPreferences()
+  const [saving, setSaving] = useState(false)
   const id = `settings-agent-${field}`
-  const toggle = (on: boolean) =>
-    void save({ [field]: on } satisfies AgentViewerPatch).catch(
-      (error: unknown) =>
+  const toggle = (on: boolean) => {
+    setSaving(true)
+    void save({ [field]: on } satisfies AgentViewerPatch)
+      .catch((error: unknown) =>
         toast.error(t('settingsAgent.saveFailed'), {
           description: describeError(error),
         }),
-    )
+      )
+      .finally(() => setSaving(false))
+  }
   return (
     <SettingRow
       title={t(title)}
@@ -89,9 +101,15 @@ function ViewerSwitchRow({
           SWITCH_SKELETON
         )
       }
-    />
+    >
+      {prefs.data && under?.(prefs.data[field], saving)}
+    </SettingRow>
   )
 }
+
+const semanticStatus = (on: boolean, saving: boolean) => (
+  <SemanticIndexStatus on={on} saving={saving} />
+)
 
 function SuggestionsRow({
   projects,
@@ -305,6 +323,7 @@ export function AgentSection() {
         field="buildSemanticIndex"
         title="settingsAgent.ai.semantic"
         hint="settingsAgent.ai.semanticHint"
+        under={semanticStatus}
       />
       <ViewerSwitchRow
         field="mcpMayRead"

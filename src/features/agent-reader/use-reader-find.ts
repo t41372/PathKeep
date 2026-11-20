@@ -6,7 +6,9 @@
  * when it is on no line), with its fold opened and its words lit.
  *
  * Opened from a search (`find`, `at`), it finds the search's words and
- * goes to the occurrence at that record as soon as it arrives.
+ * goes to the occurrence at that record as soon as it arrives. Opened at a
+ * record with no words (`at` alone: a semantic search result, an Ask
+ * citation), it goes to that record once the header is read and marks it.
  *
  * Responsible for: that state and those moves. Not responsible for: the
  * stream (`use-find.ts`), painting (`find-paint.ts`) or drawing the bar.
@@ -38,9 +40,14 @@ import { partToken, useFind, type FindState } from './use-find'
 
 const DEBOUNCE_MS = 280
 
+type RecordAddress = Pick<
+  MatchAddress,
+  'conversationId' | 'publication' | 'sourceId' | 'ordinal'
+>
+
 /** Where a record is on a line: its rank, or `null` when it is not on it. */
 async function rankOf(
-  address: MatchAddress,
+  address: RecordAddress,
   view: 'visible' | 'raw',
   leaf: number | null,
   onStale: () => void,
@@ -184,6 +191,9 @@ export function useReaderFind({
   const [wanted, setWanted] = useState<Wanted>(
     find === null ? null : at ? { kind: 'at', at } : { kind: 'first' },
   )
+  const [record, setRecord] = useState<RecordAt | null>(
+    find === null ? at : null,
+  )
   const [focusNonce, setFocusNonce] = useState(0)
   const [target, setTarget] = useState<FindTarget | null>(null)
   const [rootScroll, setRootScroll] = useState<ScrollRequest | null>(null)
@@ -208,7 +218,7 @@ export function useReaderFind({
       setQuery(find)
       setCurrent(null)
       setWanted(at ? { kind: 'at', at } : { kind: 'first' })
-    }
+    } else if (find === null && at !== null) setRecord(at)
   }
 
   const state = useFind(id, header ? query : null, onStale)
@@ -227,6 +237,38 @@ export function useReaderFind({
       onFind?.(next)
     },
     [onFind],
+  )
+
+  /**
+   * Shows a record of the conversation shown: on the line shown, on the Pi
+   * branch through it when it is on another, or in the raw records when it
+   * is on no line. False when it is not in the conversation at all.
+   */
+  const reach = useCallback(
+    async (address: RecordAddress, move: number, mark: boolean) => {
+      if (!header) return true
+      let rank = await rankOf(address, 'visible', leaf, onStale)
+      if (rank === null && header.summary.harness === 'pi') {
+        // Another branch of a Pi conversation: the line through this record.
+        onLine(address.ordinal)
+        rank = await rankOf(address, 'visible', address.ordinal, onStale)
+      }
+      if (move !== moves.current) return true
+      if (rank === null) {
+        // On no line (an earlier source, unresolved parentage): the raw records.
+        const raw = await rankOf(address, 'raw', null, onStale)
+        if (move !== moves.current) return true
+        if (raw === null) return false
+        setRawRank(raw)
+        onRaw(true)
+        return true
+      }
+      setRawRank(null)
+      onRaw(false)
+      setRootScroll({ rank, nonce: move, mark })
+      return true
+    },
+    [header, leaf, onStale, onLine, onRaw],
   )
 
   const go = useCallback(
@@ -256,29 +298,11 @@ export function useReaderFind({
         }
         onSheet([])
         if (!match.address) return
-        let rank = await rankOf(match.address, 'visible', leaf, onStale)
-        if (rank === null && header.summary.harness === 'pi') {
-          // Another branch of a Pi conversation: the line through this record.
-          onLine(match.address.ordinal)
-          rank = await rankOf(
-            match.address,
-            'visible',
-            match.address.ordinal,
-            onStale,
-          )
-        }
-        if (move !== moves.current) return
-        if (rank === null) {
-          // On no line (an earlier source, unresolved parentage): the raw records.
-          const raw = await rankOf(match.address, 'raw', null, onStale)
-          if (move !== moves.current) return
-          setRawRank(raw)
+        if (!(await reach(match.address, move, false))) {
+          // Found by find, so it is there: show the raw records' top.
+          setRawRank(null)
           onRaw(true)
-          return
         }
-        setRawRank(null)
-        onRaw(false)
-        setRootScroll({ rank, nonce: move })
       } catch (error) {
         // It stays current and counted; only showing it failed.
         if (move === moves.current)
@@ -287,8 +311,36 @@ export function useReaderFind({
           })
       }
     },
-    [items, header, rootCards, leaf, onStale, onSheet, onLine, onRaw, t],
+    [items, header, rootCards, onStale, onSheet, onRaw, reach, t],
   )
+
+  // The record asked for with no words to find, once the header is read.
+  useEffect(() => {
+    if (!record || !header) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- going there once the header exists
+    setRecord(null)
+    const move = ++moves.current
+    onSheet([])
+    reach(
+      {
+        conversationId: header.summary.id,
+        publication: header.publication,
+        ...record,
+      },
+      move,
+      true,
+    )
+      .then((found) => {
+        if (!found && move === moves.current)
+          toast.error(t('agentReader.recordMissing'))
+      })
+      .catch((error: unknown) => {
+        if (move === moves.current)
+          toast.error(t('agentReader.find.cantShow'), {
+            description: describeError(error),
+          })
+      })
+  }, [record, header, reach, onSheet, t])
 
   // The occurrence asked for, once it has arrived (or the first, once the
   // record asked for turned out to have none).

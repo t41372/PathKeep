@@ -340,9 +340,24 @@ export default defineConfig({
     // computer: it restarts the app with the model's address, and its index
     // must not be the one semantic-index.spec finds, so it runs after restart.
     project('builtin-model', ['builtin-model.spec.ts'], 'restart'),
+    // AI access to Agent conversations, on the backed-up synthetic
+    // conversations: the semantic index built with an embeddings service on
+    // this computer and Records' semantic mode, Ask quoting a record, then a
+    // build held half way, paused, continued and cancelled from Settings and
+    // the tasks page. In name order; each puts back the settings it changed.
+    // Before the move replaces the archive.
+    project(
+      'agent-ai',
+      [
+        'agent-ai-1-semantic.spec.ts',
+        'agent-ai-2-ask.spec.ts',
+        'agent-ai-3-index-tasks.spec.ts',
+      ],
+      'builtin-model',
+    ),
     // Large imports, after the semantic index is built so it does not embed
     // their pages (a project runs its files in name order, so not in restart).
-    project('stop', ['import-stop.spec.ts'], 'builtin-model'),
+    project('stop', ['import-stop.spec.ts'], 'agent-ai'),
     // Opening the moved file replaces the archive and its password, so it runs
     // after every test that relies on the archive first-run created.
     project('move', ['move.spec.ts'], 'stop'),

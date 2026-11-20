@@ -1,5 +1,12 @@
 /** One assistant answer: reasoning and tool trace, text, sources and actions. */
-import { Check, Copy, History, RotateCcw, TriangleAlert } from 'lucide-react'
+import {
+  Check,
+  Copy,
+  History,
+  MessagesSquare,
+  RotateCcw,
+  TriangleAlert,
+} from 'lucide-react'
 import { memo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -7,7 +14,7 @@ import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
 import type { ChatTurn } from './chat-model'
 import { Markdown } from './markdown'
-import { historyLink, uniqueCitations } from './citations'
+import { citationPath, recordOf, uniqueCitations } from './citations'
 import { Sources } from './sources'
 import { ThinkingBlock } from './thinking-block'
 
@@ -24,6 +31,9 @@ export const AssistantTurn = memo(function AssistantTurn({
   const [copied, setCopied] = useState(false)
   const streaming = turn.status === 'streaming'
   const citations = uniqueCitations(turn.citations)
+  // The first thing cited opens where it lives: History for a page, the
+  // Agent reader for a conversation's record (whose list is also "History").
+  const firstIsRecord = citations.length > 0 && recordOf(citations[0]) !== null
   const waiting =
     streaming &&
     turn.content === '' &&
@@ -93,9 +103,13 @@ export const AssistantTurn = memo(function AssistantTurn({
         >
           {citations.length > 0 && (
             <Button variant="outline" size="sm" asChild>
-              <Link to={historyLink(citations[0])}>
-                <History />
-                {t('ask.turn.openInHistory')}
+              <Link to={citationPath(citations[0])}>
+                {firstIsRecord ? <MessagesSquare /> : <History />}
+                {t(
+                  firstIsRecord
+                    ? 'ask.turn.openRecord'
+                    : 'ask.turn.openInHistory',
+                )}
               </Link>
             </Button>
           )}

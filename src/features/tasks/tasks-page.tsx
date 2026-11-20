@@ -33,6 +33,7 @@ import { intelligenceClient } from '@/lib/backend-client/intelligence'
 import { useNow } from '@/lib/hooks/use-now'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useAgentKind } from '@/lib/queries/agent-backup'
+import { useSemanticIndexControl } from '@/lib/queries/agent-semantic'
 import { useSnapshot } from '@/lib/queries/app'
 import { refetchBrowsingTasks } from '@/lib/queries/background-tasks'
 import { useDataKinds } from '@/lib/queries/data-kinds'
@@ -130,10 +131,15 @@ export default function TasksPage() {
   const everything = useBackUpEverything()
   const agentControl = useTaskControl()
   const browsingControl = useBrowsingControl()
+  const semanticControl = useSemanticIndexControl()
   const controls: Controls = {
     agent: agentControl,
     browsing: browsingControl,
-    busy: agentControl.busy !== null || browsingControl.busy !== null,
+    semantic: semanticControl,
+    busy:
+      agentControl.busy !== null ||
+      browsingControl.busy !== null ||
+      semanticControl.isPending,
   }
 
   const windowWork = useWindowWork()

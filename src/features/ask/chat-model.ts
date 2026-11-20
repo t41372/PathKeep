@@ -146,6 +146,8 @@ export function fromAgentMessage(message: AgentMessage): ChatTurn {
       visitedAt: citation.visitedAt,
       score: citation.score ?? null,
       canonicalUrl: citation.canonicalUrl ?? null,
+      // An Agent conversation's record: without it the chip would send it to History.
+      target: citation.target ?? null,
     })),
     notes: trace.notes,
     usage: message.usage ?? undefined,

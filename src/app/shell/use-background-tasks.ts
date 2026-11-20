@@ -14,7 +14,10 @@
  *   they have (no percentage: no total is known until they end), and how
  *   many need a look. The frame keeps that answer current from the
  *   backend's task events (`useAgentBackupSync`); it is read only while
- *   Agent conversations are on or paused and their store opens.
+ *   Agent conversations are on or paused and their store opens;
+ * - the conversations' semantic index build, which the same answer
+ *   carries (passages read so far; its events keep it current through
+ *   `useAgentSemanticSync`).
  *
  * It adds no polling. So it leaves out what nothing follows outside the
  * background tasks page (`#/tasks`): the Insights queue's jobs, and a live
@@ -184,6 +187,22 @@ export function useBackgroundTasks(): BackgroundTasks {
         kindTask: task,
       })
     }
+
+    // A paused build waits; the backend counts it in `queuedCount`.
+    const semantic = summary?.semantic
+    if (semantic && semantic.state !== 'paused')
+      running.push({
+        id: `semantic-${semantic.taskId}`,
+        name: t('agentTasks.names.semanticIndex'),
+        percent: null,
+        preparing: false,
+        detail:
+          semantic.state === 'cancelling'
+            ? t('agentTasks.progress.stopping')
+            : t('agentTasks.progress.passages', {
+                count: Number(semantic.progress.done),
+              }),
+      })
 
     const last = recentRuns[0]
     return {
