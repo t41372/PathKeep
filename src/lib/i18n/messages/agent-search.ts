@@ -4,8 +4,9 @@ import { defineMessages } from '../define'
  * Searching the Agent space's conversations (Records, `agent-history.md`
  * §3.4): the box, how it matches and what is searched, the running and
  * finished lines, the result cards, and the no-results, index-behind and
- * failure states; for a search by meaning, its lines and what stands in
- * its way (AI settings, the switch, the index).
+ * failure states; for a search by meaning, its lines, the end of its list
+ * while pages load, and what the index's own state puts in its way (why
+ * AI work is refused is in `ai-refusals.ts`).
  */
 export const agentSearch = defineMessages({
   en: {
@@ -100,35 +101,31 @@ export const agentSearch = defineMessages({
     semantic: {
       status: {
         starting: 'Searching by meaning…',
-        searching_one: 'Found {shown} passage so far…',
-        searching_other: 'Found {shown} passages so far…',
+        more_one: '{shown} passage, closest first · more load as you scroll',
+        more_other: '{shown} passages, closest first · more load as you scroll',
         stopped_one: 'Stopped: found {shown} passage',
         stopped_other: 'Stopped: found {shown} passages',
-        done_one: '{shown} passage close in meaning',
-        done_other: '{shown} passages close in meaning',
+        done_one: '{shown} passage · that’s all',
+        done_other: '{shown} passages, closest first · that’s all',
+        halted_one: '{shown} passage · couldn’t load more',
+        halted_other: '{shown} passages, closest first · couldn’t load more',
+      },
+      more: {
+        loading: 'Loading more passages…',
+        failed: 'Couldn’t load more passages',
+        resume: 'Continue searching',
       },
       using: 'Semantic search with {model}, built {when}',
       stale:
         'Conversations changed after it was built, so the newest may be missing.',
       updating: 'Conversations changed after it was built; it’s being updated.',
       empty: {
-        title:
-          'Nothing in your conversations is close in meaning to “{query}”.',
-        body: 'Try saying it another way, or search the full text.',
+        title: 'Nothing in the semantic index to compare with “{query}”.',
+        body: 'It has none of the chosen kinds of text from the conversations searched. Try other kinds of text or filters, or search the full text.',
       },
       textInstead: 'Search the full text instead',
       settings: 'Settings › {section}',
       blocked: {
-        aiOffTitle: 'Semantic search is off',
-        aiOff: 'Turn on {ai} in Settings › AI.',
-        aiOffSwitch:
-          'Then turn on “{switch}” in Settings › Agent conversations.',
-        switchOffTitle: 'Semantic search of conversations is off',
-        switchOff: 'Turn on “{switch}” in Settings › Agent conversations.',
-        offTitle: 'Semantic search is off',
-        off: 'It needs {ai} on in Settings › AI and “{switch}” on in Settings › Agent conversations.',
-        noModelTitle: 'Semantic search needs an embedding model',
-        noModel: 'Choose one in Settings › AI.',
         buildingTitle: 'The semantic index is being built',
         building_one:
           '{shown} passage read so far. You can search by meaning once it’s done; full-text search works meanwhile.',
@@ -141,6 +138,7 @@ export const agentSearch = defineMessages({
           '{shown} passages read so far. Continue it in Settings › Agent conversations.',
         failedTitle: 'The last build of the semantic index failed',
         failed: 'Try again in Settings › Agent conversations.',
+        failedWhy: '{reason}. {fix}',
         notBuiltTitle: 'There’s no semantic index of your conversations yet',
         notBuilt: 'Build it in Settings › Agent conversations.',
         notReadyTitle: 'The semantic index isn’t ready',
@@ -237,32 +235,30 @@ export const agentSearch = defineMessages({
     semantic: {
       status: {
         starting: '正在按意思搜索…',
-        searching_one: '已找到 {shown} 个段落…',
-        searching_other: '已找到 {shown} 个段落…',
+        more_one: '{shown} 个段落，最相近的在前 · 往下滚动会继续加载',
+        more_other: '{shown} 个段落，最相近的在前 · 往下滚动会继续加载',
         stopped_one: '已停止：找到 {shown} 个段落',
         stopped_other: '已停止：找到 {shown} 个段落',
-        done_one: '找到 {shown} 个意思相近的段落',
-        done_other: '找到 {shown} 个意思相近的段落',
+        done_one: '{shown} 个段落 · 已全部加载',
+        done_other: '{shown} 个段落，最相近的在前 · 已全部加载',
+        halted_one: '{shown} 个段落 · 没能加载更多',
+        halted_other: '{shown} 个段落，最相近的在前 · 没能加载更多',
+      },
+      more: {
+        loading: '正在加载更多段落…',
+        failed: '没能加载更多段落',
+        resume: '继续搜索',
       },
       using: '语义搜索用{model}，{when}建立',
       stale: '建立之后对话有变动，最新的内容可能还找不到。',
       updating: '建立之后对话有变动，正在更新。',
       empty: {
-        title: '对话里没有和「{query}」意思相近的内容。',
-        body: '换个说法试试，或者改搜全文。',
+        title: '语义索引里没有可以和「{query}」比对的内容。',
+        body: '搜索的对话里，你选的那几种内容都不在索引里。换别的内容种类或筛选试试，或者改搜全文。',
       },
       textInstead: '改搜全文',
       settings: '设置 › {section}',
       blocked: {
-        aiOffTitle: '语义搜索关着',
-        aiOff: '在“设置 › AI”里打开“{ai}”。',
-        aiOffSwitch: '然后在“设置 › Agent 对话”里打开“{switch}”。',
-        switchOffTitle: '对话的语义搜索关着',
-        switchOff: '在“设置 › Agent 对话”里打开“{switch}”。',
-        offTitle: '语义搜索关着',
-        off: '需要打开“设置 › AI”里的“{ai}”和“设置 › Agent 对话”里的“{switch}”。',
-        noModelTitle: '语义搜索需要 embedding 模型',
-        noModel: '在“设置 › AI”里选一个。',
         buildingTitle: '语义索引正在建立',
         building_one:
           '已读了 {shown} 个段落。建好之后才能按意思搜索，这期间全文搜索照常可用。',
@@ -274,6 +270,7 @@ export const agentSearch = defineMessages({
           '已读了 {shown} 个段落。可以在“设置 › Agent 对话”里继续。',
         failedTitle: '上次建立语义索引失败了',
         failed: '可以在“设置 › Agent 对话”里再试一次。',
+        failedWhy: '{reason}。{fix}',
         notBuiltTitle: '对话还没有语义索引',
         notBuilt: '可以在“设置 › Agent 对话”里建立。',
         notReadyTitle: '语义索引还不能用',
@@ -370,32 +367,30 @@ export const agentSearch = defineMessages({
     semantic: {
       status: {
         starting: '按意思搜尋中…',
-        searching_one: '已找到 {shown} 個段落…',
-        searching_other: '已找到 {shown} 個段落…',
+        more_one: '{shown} 個段落，最相近的在前 · 往下捲會繼續載入',
+        more_other: '{shown} 個段落，最相近的在前 · 往下捲會繼續載入',
         stopped_one: '已停止：找到 {shown} 個段落',
         stopped_other: '已停止：找到 {shown} 個段落',
-        done_one: '找到 {shown} 個意思相近的段落',
-        done_other: '找到 {shown} 個意思相近的段落',
+        done_one: '{shown} 個段落 · 已全部載入',
+        done_other: '{shown} 個段落，最相近的在前 · 已全部載入',
+        halted_one: '{shown} 個段落 · 沒能載入更多',
+        halted_other: '{shown} 個段落，最相近的在前 · 沒能載入更多',
+      },
+      more: {
+        loading: '正在載入更多段落…',
+        failed: '沒能載入更多段落',
+        resume: '繼續搜尋',
       },
       using: '語意搜尋用{model}，{when}建立',
       stale: '建立之後對話有變動，最新的內容可能還找不到。',
       updating: '建立之後對話有變動，正在更新。',
       empty: {
-        title: '對話裡沒有和「{query}」意思相近的內容。',
-        body: '換個說法試試，或者改搜全文。',
+        title: '語意索引裡沒有可以和「{query}」比對的內容。',
+        body: '搜尋的對話裡，你選的那幾種內容都不在索引裡。換別的內容種類或篩選試試，或者改搜全文。',
       },
       textInstead: '改搜全文',
       settings: '設定 › {section}',
       blocked: {
-        aiOffTitle: '語意搜尋關著',
-        aiOff: '在「設定 › AI」裡打開「{ai}」。',
-        aiOffSwitch: '然後在「設定 › Agent 對話」裡打開「{switch}」。',
-        switchOffTitle: '對話的語意搜尋關著',
-        switchOff: '在「設定 › Agent 對話」裡打開「{switch}」。',
-        offTitle: '語意搜尋關著',
-        off: '需要打開「設定 › AI」裡的「{ai}」和「設定 › Agent 對話」裡的「{switch}」。',
-        noModelTitle: '語意搜尋需要 embedding 模型',
-        noModel: '在「設定 › AI」裡選一個。',
         buildingTitle: '語意索引正在建立',
         building_one:
           '已讀了 {shown} 個段落。建好之後才能按意思搜尋，這段期間全文搜尋照常可用。',
@@ -408,6 +403,7 @@ export const agentSearch = defineMessages({
           '已讀了 {shown} 個段落。可以在「設定 › Agent 對話」裡繼續。',
         failedTitle: '上次建立語意索引失敗了',
         failed: '可以在「設定 › Agent 對話」裡再試一次。',
+        failedWhy: '{reason}。{fix}',
         notBuiltTitle: '對話還沒有語意索引',
         notBuilt: '可以在「設定 › Agent 對話」裡建立。',
         notReadyTitle: '語意索引還不能用',

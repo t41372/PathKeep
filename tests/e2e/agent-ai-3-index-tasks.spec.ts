@@ -23,7 +23,13 @@
  *   says it is ready, with the same passage count the backend serves and the
  *   service's name and model, and the tasks page no longer lists it.
  * - Turning the switch off says plainly that nothing is built and the index
- *   stays on this computer, unused; the backend reports it off.
+ *   stays on this computer, unused, at the size the backend reports; the
+ *   backend reports it off.
+ * - Free… asks first, showing that size. When the index changes between the
+ *   size being read and the confirmation (here, another preview replaces the
+ *   one on screen), nothing is freed: the dialog reads the size again and
+ *   asks again. Confirmed then, the backend frees exactly that many bytes,
+ *   reports none kept, and the line goes away.
  *
  * The service is a new one (its own id and model), so nothing of the index
  * an earlier spec built is reused and every passage is sent to it. From the
@@ -56,6 +62,7 @@ const SWITCH = 'Build a semantic search index'
 
 interface IndexStatus {
   enabled: boolean
+  keptBytes: string
   serving: { provider: string; model: string; passages: number } | null
   stale?: boolean
   job: { jobId: string; state: string; passages: number } | null
@@ -303,17 +310,75 @@ test('a held build shows in Settings and on the tasks page; paused, continued an
   await openTasks(page)
   await expect(page.getByText(TASK)).toHaveCount(0)
 
-  // Off: plainly kept and unused.
+  // Off: plainly kept and unused, at the size the backend reports.
   await openSettings(page)
   await page.getByRole('switch', { name: SWITCH }).click()
   await expect(page.getByRole('switch', { name: SWITCH })).not.toBeChecked()
   await expect(indexStatus(page)).toHaveCount(0)
   await expect(
-    page.getByText(
-      'Off: nothing is built and search doesn’t use the index. If one was built before, it stays on this computer, unused.',
-    ),
+    page.getByText('Off: nothing is built and search doesn’t use the index.', {
+      exact: true,
+    }),
   ).toBeVisible()
   await expect.poll(async () => (await status()).enabled).toBe(false)
+  const off = await status()
+  evidence.push({ step: 'off', status: off })
+  expect(Number(off.keptBytes), 'the index is kept').toBeGreaterThan(0)
+  const keptLine = page.locator('[data-kept-bytes]')
+  await expect(keptLine).toHaveAttribute('data-kept-bytes', off.keptBytes)
+  const lineText = await keptLine.innerText()
+  const size = /unused: (.+)\.$/.exec(lineText)?.[1]
+  expect(size, `a size in “${lineText}”`).toBeTruthy()
+
+  // Free…: the size again in the confirmation.
+  await page
+    .getByRole('button', {
+      name: 'Free the semantic search index kept on this computer',
+    })
+    .click()
+  const dialog = page.getByRole('alertdialog', {
+    name: 'Free the semantic search index?',
+  })
+  await expect(dialog).toContainText(
+    `This deletes the index kept on this computer: ${size}.`,
+  )
+  const confirm = dialog.getByRole('button', { name: `Free ${size}` })
+  await expect(confirm).toBeVisible()
+
+  // Another preview replaces the one on screen: confirming it frees nothing,
+  // and the dialog reads the size again and asks again.
+  await backend('preview_free_agent_semantic_index', { request: {} })
+  const refused = page.waitForResponse((response) =>
+    response.url().endsWith('/commands/free_agent_semantic_index'),
+  )
+  await confirm.click()
+  const refusal = await refused
+  expect(refusal.ok(), 'the replaced preview is refused').toBe(false)
+  expect(((await refusal.json()) as { code?: string }).code).toBe(
+    'preview-expired',
+  )
+  await expect(dialog).toContainText(
+    'The index changed since its size was read. Here is its size now.',
+  )
+  expect((await status()).keptBytes, 'nothing freed yet').toBe(off.keptBytes)
+  const freed = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/commands/free_agent_semantic_index') &&
+      response.ok(),
+  )
+  await dialog.getByRole('button', { name: `Free ${size}` }).click()
+  const result = (await (await freed).json()) as unknown
+  evidence.push({ step: 'freed', result })
+  expect(JSON.stringify(result)).toContain(`"freedBytes":"${off.keptBytes}"`)
+  await expect(dialog).toHaveCount(0)
+  await expect(
+    page.locator('[data-sonner-toast]').filter({ hasText: `Freed ${size}` }),
+  ).toBeVisible()
+  await expect(keptLine).toHaveCount(0)
+  const after = await status()
+  evidence.push({ step: 'after free', status: after })
+  expect(after.keptBytes).toBe('0')
+  expect(after.serving).toBeNull()
 
   await info.attach('index build evidence', {
     body: JSON.stringify({ evidence, requests: service!.requests() }, null, 2),

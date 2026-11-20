@@ -22,6 +22,7 @@ export interface SemanticJob {
   passages: number
   /** Distinct vectors made in this build (repeated text shares one). */
   vectors: number
+  /** Why a build failed: an `AiRefusalCode`, or another backend code. */
   error: string | null
 }
 
@@ -44,6 +45,12 @@ export interface SemanticIndexStatus {
    * both on. Off keeps whatever was built on this computer and uses none of it.
    */
   enabled: boolean
+  /**
+   * Bytes the published index takes on this computer (a decimal string),
+   * encryption included; "0" before the first one and after it is freed.
+   * Shown while the switch is off: the index stays, unused, until freed.
+   */
+  keptBytes: string
   serving: SemanticGeneration | null
   /** Conversations changed since the serving generation (or none exists). */
   stale?: boolean
@@ -86,6 +93,12 @@ export function isSemanticTask(task: {
 export const AGENT_SEMANTIC_INDEX_CHANGED_EVENT =
   'pathkeep://agent-semantic-index-changed'
 
+/** A look at what freeing would delete; its id is good for one free, for five minutes. */
+export interface FreeSemanticPreview {
+  previewId: string
+  keptBytes: string
+}
+
 export const agentSemanticClient = {
   status: () =>
     call<SemanticIndexStatus>('get_agent_semantic_index', { request: {} }),
@@ -97,4 +110,22 @@ export const agentSemanticClient = {
     call<SemanticJob | { state: 'ready' }>('control_agent_semantic_index', {
       request: action === 'build' ? { action } : { action, jobId },
     }),
+  /**
+   * Only while the switch is off and no build runs (`task-action-unavailable`,
+   * `archive-busy` otherwise). A new preview replaces the one before.
+   */
+  previewFree: () =>
+    call<FreeSemanticPreview>('preview_free_agent_semantic_index', {
+      request: {},
+    }),
+  /**
+   * Deletes the kept index the preview showed; `preview-expired` once the
+   * archive or the index changed since. Conversations, full-text search and
+   * browsing's index stay.
+   */
+  free: (previewId: string) =>
+    call<{ freedBytes: string; keptBytes: string }>(
+      'free_agent_semantic_index',
+      { request: { previewId, confirm: true } },
+    ),
 }

@@ -102,6 +102,7 @@ export function ConversationList({
           you: t('ask.export.you'),
           assistant: t('ask.export.assistant'),
           pagesUsed: t('ask.turn.sources'),
+          conversationsUsed: t('ask.turn.sourcesRecords'),
         },
       })
       if (result.status === 'cancelled') return

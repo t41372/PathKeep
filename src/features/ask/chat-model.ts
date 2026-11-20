@@ -6,6 +6,7 @@
  * (de)serialising turns for `save_ai_conversation` / `load_ai_conversation`.
  * Not responsible for streaming (see `use-chat.ts`) or rendering.
  */
+import type { AiRefusalCode } from '@/lib/backend-client/ai-refusals'
 import type {
   AgentMessage,
   AiAgentNote,
@@ -40,6 +41,12 @@ export interface ChatTurn {
   model?: string
   status: TurnStatus
   error?: string
+  /**
+   * Why the backend refused to answer, when it gave a typed reason (AI or
+   * the assistant off): the turn then says where to turn it on. Not saved;
+   * a reopened chat shows the turn as unfinished.
+   */
+  refusal?: AiRefusalCode
 }
 
 export function newId(prefix: string) {

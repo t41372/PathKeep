@@ -23,7 +23,9 @@
  *   button says it opens the Agent conversation. The chip, the inline link
  *   and the button all lead to the record the tool returned. The saved
  *   transcript carries the record as its target, and reopened from the list
- *   the Ask chat shows the same chip.
+ *   the Ask chat shows the same chip. Exported as Markdown, the answer lists
+ *   the conversation by its current title under "Agent conversations used"
+ *   (the heading the interface sends), and no "Pages used".
  * - With the switch off, a new question is not offered the tool, and a
  *   follow-up in the chat that cited the record still sends both questions
  *   but not the answer that quoted it. Nothing sent after the switch went
@@ -40,6 +42,8 @@
  * on. Puts back the AI settings and the switch it found, and deletes the two
  * Ask chats it made, even when a step fails.
  */
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { resolveDesktopBridgeEnv } from '../../scripts/pathkeep-dev-desktop-bridge.mjs'
 import {
@@ -161,6 +165,14 @@ function atOf(href: string | null) {
 }
 
 const chatColumn = (page: Page) => page.getByRole('main').locator('aside + div')
+/** A title as the export writes it: one line, Markdown's link and emphasis characters escaped. */
+const asMarkdown = (text: string) =>
+  text
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ')
+    .replace(/[\\`*_[\]<>~]/g, '\\$&')
+
 const askList = (page: Page) =>
   page.getByRole('complementary', { name: 'Conversations' })
 const recordChips = (page: Page) =>
@@ -413,6 +425,43 @@ test('with access on, Ask cites the record under the conversation’s title', as
   await expect(chatColumn(page).getByText(ANSWER_LEAD)).toBeVisible()
   await expect(recordChips(page).first()).toHaveText(chat.title)
   await expect(recordChips(page).first()).toHaveAttribute('href', chipHref!)
+
+  // Exported as Markdown: the cited conversation by its current title, under
+  // the heading the interface sent, and no list of pages.
+  const row = askList(page).getByRole('button', { name: FIRST_QUESTION })
+  await row.hover()
+  await row
+    .locator('xpath=..')
+    .getByRole('button', { name: 'Conversation options' })
+    .click()
+  await page.getByRole('menuitem', { name: 'Export as Markdown…' }).click()
+  const toast = page
+    .locator('[data-sonner-toast]')
+    .filter({ hasText: 'Saved as Markdown' })
+  await expect(toast).toBeVisible()
+  const file = (await toast.innerText())
+    .split('\n')
+    .find((line) => line.endsWith('.md'))!
+  expect(path.dirname(file), 'where the save dialog said').toBe(
+    path.join(fixture().root, 'saved'),
+  )
+  const markdown = readFileSync(file, 'utf8')
+  await testInfo.attach('the exported chat', {
+    body: markdown,
+    contentType: 'text/markdown',
+  })
+  const heading = markdown.indexOf('\nAgent conversations used:\n\n')
+  expect(heading, 'the conversations heading').toBeGreaterThan(
+    markdown.indexOf(`\n${ANSWER_LEAD}`),
+  )
+  const listedTitles = markdown
+    .slice(heading)
+    .split('\n')
+    .filter((line) => /^\d+\. /.test(line))
+  expect(listedTitles.length, 'the cited record').toBeGreaterThan(0)
+  for (const line of listedTitles)
+    expect(line.replace(/^\d+\. /, '')).toBe(asMarkdown(chat.title))
+  expect(markdown, 'no pages were cited').not.toContain('Pages used:')
 })
 
 test('with access off, nothing from the conversations reaches the service', async ({
