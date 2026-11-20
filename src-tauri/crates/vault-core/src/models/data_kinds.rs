@@ -53,8 +53,11 @@ impl OnboardingChoices {
             },
             agent_history: if agent { KindState::On } else { KindState::Off },
             explicitly_off: !agent,
-            empty_tools_chosen: self.agent_tools.is_empty(),
-            enabled_tools: self.agent_tools,
+            // The tools are a choice only when Agent conversations are chosen. The draft keeps
+            // them for a resumed setup either way, but a setup without Agent leaves no tool choice
+            // behind, so turning Agent on later starts from the enable dialog's defaults.
+            empty_tools_chosen: agent && self.agent_tools.is_empty(),
+            enabled_tools: if agent { self.agent_tools } else { BTreeSet::new() },
             read_git: self.read_git,
             ..Default::default()
         };
