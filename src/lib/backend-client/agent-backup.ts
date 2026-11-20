@@ -13,6 +13,7 @@
  * `src-tauri/tests/fixtures/agent-backup.json`. Counts and sizes are
  * decimal strings (`WireCount`); times are UTC epoch milliseconds.
  */
+import { isSemanticTask, type SemanticTask } from './agent-semantic'
 import type { AgentToolId, DataKindId, WireCount } from './data-kinds'
 import { call } from './shared'
 
@@ -112,6 +113,26 @@ export interface TaskSummary {
   queuedCount: number
   attentionCount: WireCount
   running: KindTask[]
+  /**
+   * The semantic index build, when one is active. The backend lists it with
+   * the backups (and counts it: running in `runningCount`, paused in
+   * `queuedCount`); this client takes it out of `running`, so every reader
+   * of a backup's fields sees backups only.
+   */
+  semantic: SemanticTask | null
+}
+
+/** A page of one task group: backups, and on the first page the semantic build if it belongs there. */
+export interface TaskPage extends CursorPage<KindTask> {
+  semantic: SemanticTask | null
+}
+
+/** Separates the semantic build from the backups the backend listed it among. */
+function splitSemantic(rows: (KindTask | SemanticTask)[]) {
+  return {
+    rows: rows.filter((row): row is KindTask => !isSemanticTask(row)),
+    semantic: rows.find(isSemanticTask) ?? null,
+  }
 }
 
 export type TaskGroup = 'running' | 'waiting' | 'attention' | 'today'
@@ -463,11 +484,27 @@ export const agentBackupClient = {
     call<ArchiveRunDetail>('get_archive_run', {
       request: { runRef, ...(detailCursor ? { detailCursor } : {}) },
     }),
-  taskSummary: () => call<TaskSummary>('get_task_summary', { request: {} }),
-  tasks: (group: TaskGroup, limit: number, cursor?: string) =>
-    call<CursorPage<KindTask>>('list_background_tasks', {
-      request: { group, limit, ...(cursor ? { cursor } : {}) },
-    }),
+  taskSummary: async (): Promise<TaskSummary> => {
+    const wire = await call<
+      Omit<TaskSummary, 'running' | 'semantic'> & {
+        running: (KindTask | SemanticTask)[]
+      }
+    >('get_task_summary', { request: {} })
+    const { rows, semantic } = splitSemantic(wire.running)
+    return { ...wire, running: rows, semantic }
+  },
+  tasks: async (
+    group: TaskGroup,
+    limit: number,
+    cursor?: string,
+  ): Promise<TaskPage> => {
+    const wire = await call<CursorPage<KindTask | SemanticTask>>(
+      'list_background_tasks',
+      { request: { group, limit, ...(cursor ? { cursor } : {}) } },
+    )
+    const { rows, semantic } = splitSemantic(wire.items)
+    return { ...wire, items: rows, semantic }
+  },
   /** `notice` names the one format notice `dismiss-notice` puts away. */
   control: (
     taskId: string,

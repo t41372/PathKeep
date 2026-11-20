@@ -67,6 +67,7 @@ export const agentReader = defineMessages({
       failed: 'Couldn’t find',
       cantShow: 'Couldn’t show this one',
     },
+    recordMissing: 'That record isn’t in this conversation any more',
     menu: {
       find: 'Find in this conversation',
       outline: 'What you said (outline)',
@@ -267,6 +268,7 @@ export const agentReader = defineMessages({
       failed: '查找失败',
       cantShow: '没能显示这一处',
     },
+    recordMissing: '这段对话里已经没有那一笔记录',
     menu: {
       find: '在这段对话里查找',
       outline: '你说过的话（目录）',
@@ -459,6 +461,7 @@ export const agentReader = defineMessages({
       failed: '找字失敗',
       cantShow: '沒辦法顯示這一處',
     },
+    recordMissing: '這段對話裡已經沒有那一筆紀錄',
     menu: {
       find: '在這段對話裡找',
       outline: '你說過的話（目錄）',

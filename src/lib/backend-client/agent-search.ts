@@ -1,16 +1,17 @@
 /**
- * Typed shapes for searching saved conversations (Records search) and for
- * finding inside one conversation (the reader's find bar). Both answer at
- * once with a stream id and then stream frames; the transport is
- * `src/lib/ipc/agent-read-stream.ts`.
+ * Typed shapes for searching saved conversations (Records search, by words
+ * or by meaning) and for finding inside one conversation (the reader's find
+ * bar). All answer at once with a stream id and then stream frames; the
+ * transport is `src/lib/ipc/agent-read-stream.ts`.
  *
  * Responsible for: the request and frame shapes. Not responsible for:
  * delivering frames or holding results (`features/agent-search`,
  * `features/agent-reader/use-find.ts`).
  *
  * Source of truth: `docs/architecture/desktop-command-surface.md`
- * (Records search and reader find). Text ranges are UTF-8 byte offsets;
- * `utf8ToIndex` in `src/lib/utf8-range.ts` turns them into string indexes.
+ * (Records search and reader find; "Agent conversation AI access" for the
+ * semantic mode). Text ranges are UTF-8 byte offsets; `utf8ToIndex` in
+ * `src/lib/utf8-range.ts` turns them into string indexes.
  */
 import type { AgentToolId } from './data-kinds'
 import type { ChatFlag, ChatProject, ChatRange } from './agent-chats'
@@ -134,6 +135,57 @@ export type SearchFrame =
         filtered: boolean
         indexLag: number
         complete: boolean
+      }
+    >
+  | Frame<'cancelled' | 'error', { code: string; message?: string }>
+
+/**
+ * A search by meaning: the same words-box text, kinds of text and filters,
+ * answered from the semantic index with passages instead of cards. The
+ * backend refuses a limit or a cursor here: every passage that is close at
+ * all streams.
+ */
+export interface SemanticSearchRequest extends SearchRequest {
+  mode: 'semantic'
+}
+
+/**
+ * One passage close in meaning to the search: up to 1,024 characters of
+ * one record's readable part, with the conversation it belongs to. It has
+ * no highlight; nothing in it need match the words literally.
+ */
+export interface SemanticPassage {
+  /** The conversation on the list: the searched one, also for a subagent's record. */
+  id: string
+  title: string | null
+  harness: AgentToolId
+  lastActivityAt: number | null
+  archived: boolean
+  onlyInPathKeep: boolean
+  /** The record; its `conversationId` differs from `id` for a subagent's. */
+  address: MatchAddress
+  role: SearchRole
+  /** Which readable part of the record. */
+  part: number
+  /** Where the passage starts in that part, in Unicode scalars. */
+  start: number
+  text: string
+  /** Which passage of the record, counted from its start. */
+  chunk: number
+  /** Cosine similarity to the search, above 0; the stream is highest first. */
+  score: number
+}
+
+export type SemanticSearchFrame =
+  | Frame<'started', { mode: 'semantic' }>
+  | Frame<'passages', { items: SemanticPassage[] }>
+  | Frame<
+      'finished',
+      {
+        hits: number
+        generation: string
+        /** Conversations changed after the index this answered from was built. */
+        stale: boolean
       }
     >
   | Frame<'cancelled' | 'error', { code: string; message?: string }>

@@ -920,9 +920,25 @@ export interface AiChatCancelResult {
 }
 
 /**
+ * The record of a saved Agent conversation an Ask answer cites, where the reader opens it.
+ * Mirrors the Rust `ConversationCitation` (`#[serde(tag = "kind")]`); `kind` leaves room for
+ * other kinds of record without another optional field on every citation.
+ */
+export interface AiCitationTarget {
+  kind: 'conversation'
+  conversationId: string
+  sourceId: string
+  ordinal: number
+}
+
+/**
  * One cited history page surfaced by the agent run (W-AI-7), streamed in the terminal `citations`
  * chunk. Mirrors the Rust `AiCitation` (camelCase serde). `canonicalUrl` is the W-STAR star key,
  * resolved backend-side, so the UI can star a cited page directly without re-normalizing the url.
+ *
+ * With `target`, it is a record of an Agent conversation instead of a page: `url` is its
+ * `pathkeep://conversation/open?…` link, `title` the first 80 characters of the passage,
+ * `profileId` is `agent-history`, `historyId` is negative and `visitedAt` is empty.
  */
 export interface AiChatCitation {
   historyId: number
@@ -933,6 +949,8 @@ export interface AiChatCitation {
   score?: number | null
   /** W-STAR star key (canonicalized URL). Present on the agent path; absent on legacy citations. */
   canonicalUrl?: string | null
+  /** Set when the citation is an Agent conversation's record; absent for a page. */
+  target?: AiCitationTarget | null
 }
 
 /**
@@ -1052,6 +1070,8 @@ export interface AgentCitation {
   score?: number | null
   /** W-STAR star key (canonicalized url). */
   canonicalUrl?: string | null
+  /** Set when the citation is an Agent conversation's record (see `AiChatCitation`). */
+  target?: AiCitationTarget | null
 }
 
 /**

@@ -1,6 +1,6 @@
 /**
  * Transport for the Agent space's streamed reads: Records search
- * (`search_agent_conversations`), the reader's find
+ * (`search_agent_conversations`, by words or by meaning), the reader's find
  * (`find_in_agent_conversation`) and the Insights report
  * (`get_agent_insights`).
  *
@@ -24,6 +24,8 @@ import type {
   FindRequest,
   SearchFrame,
   SearchRequest,
+  SemanticSearchFrame,
+  SemanticSearchRequest,
   StreamStarted,
 } from '../backend-client/agent-search'
 import { invokeCommand } from './bridge'
@@ -140,6 +142,18 @@ export function openConversationSearch(
   onFrame: (frame: SearchFrame) => void,
 ) {
   return open<SearchFrame>('search_agent_conversations', request, onFrame)
+}
+
+/** Searches saved conversations by meaning: every close passage, closest first. */
+export function openSemanticSearch(
+  request: SemanticSearchRequest,
+  onFrame: (frame: SemanticSearchFrame) => void,
+) {
+  return open<SemanticSearchFrame>(
+    'search_agent_conversations',
+    request,
+    onFrame,
+  )
 }
 
 /** Finds every occurrence in one conversation and its subagents. */

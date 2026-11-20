@@ -6,15 +6,18 @@
  * why it stopped; a conversation backup's format notices, each with its own
  * Dismiss; and the buttons its state allows (`task-actions.tsx`).
  *
- * Responsibilities: drawing a row of either kind. A conversation backup's
+ * Responsibilities: drawing a row of any kind. A conversation backup's
  * row keeps every word the Settings list had, since the same backups were
- * listed there. Not responsible for: what a button does.
+ * listed there. The conversations' semantic index build opens Settings ›
+ * Agent conversations, where its state is told in full.
+ * Not responsible for: what a button does.
  */
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import type { KindTask, TaskGroup } from '@/lib/backend-client/agent-backup'
+import type { SemanticTask } from '@/lib/backend-client/agent-semantic'
 import type { BrowsingTask } from '@/lib/backend-client/background-tasks'
 import { cn } from '@/lib/cn'
 import { useFormat, useI18n, type MessageKey } from '@/lib/i18n'
@@ -34,7 +37,12 @@ import {
   browsingTaskName,
   type TaskEntry,
 } from './task-entry'
-import { AgentActions, BrowsingActions, type Controls } from './task-actions'
+import {
+  AgentActions,
+  BrowsingActions,
+  SemanticActions,
+  type Controls,
+} from './task-actions'
 
 const agentStateWords: Record<KindTask['state'], MessageKey> = {
   queued: 'agentTasks.states.queued',
@@ -141,6 +149,37 @@ function useAgentView(task: KindTask, controls: Controls): RowView {
   }
 }
 
+function useSemanticView(task: SemanticTask, controls: Controls): RowView {
+  const { t } = useI18n()
+  const name = t('agentTasks.names.semanticIndex')
+  const paused = task.state === 'paused'
+  return {
+    id: task.taskId,
+    runRef: null,
+    kind: task.kind,
+    name,
+    state: task.state,
+    stateText: t(agentStateWords[task.state]),
+    working: true,
+    preparing: false,
+    // Nobody knows how many passages there are until the build publishes.
+    percent: null,
+    still: paused,
+    bar: true,
+    detail: [
+      task.state === 'cancelling'
+        ? t('agentTasks.progress.stopping')
+        : t('agentTasks.progress.passages', {
+            count: Number(task.progress.done),
+          }),
+      paused ? t('tasks.row.youPaused') : null,
+    ],
+    link: '/settings/agent',
+    actions: <SemanticActions task={task} name={name} controls={controls} />,
+    notices: null,
+  }
+}
+
 function useBrowsingView(
   task: BrowsingTask,
   controls: Controls,
@@ -206,6 +245,20 @@ function AgentTaskRow(props: {
   )
 }
 
+function SemanticTaskRow(props: {
+  task: SemanticTask
+  group: TaskGroup
+  controls: Controls
+}) {
+  return (
+    <RowLayout
+      view={useSemanticView(props.task, props.controls)}
+      at={null}
+      group={props.group}
+    />
+  )
+}
+
 function BrowsingTaskRow(props: {
   task: BrowsingTask
   at: number
@@ -228,7 +281,8 @@ function RowLayout({
   group,
 }: {
   view: RowView
-  at: number
+  /** Null for a task with no time of its own: nothing is shown there. */
+  at: number | null
   group: TaskGroup
 }) {
   const { t } = useI18n()
@@ -268,9 +322,11 @@ function RowLayout({
                 ? t('spaces.tasks.preparing')
                 : view.percent !== null &&
                   format.percent(Math.round(view.percent) / 100)
-              : group === 'today'
-                ? format.time(at)
-                : format.dayAndTime(at)}
+              : at === null
+                ? null
+                : group === 'today'
+                  ? format.time(at)
+                  : format.dayAndTime(at)}
           </span>
         </div>
         {view.bar && (
@@ -313,6 +369,14 @@ export function TaskRow({
   controls: Controls
   live: LiveWork
 }) {
+  if (entry.semantic)
+    return (
+      <SemanticTaskRow
+        task={entry.semantic}
+        group={group}
+        controls={controls}
+      />
+    )
   return entry.agent ? (
     <AgentTaskRow
       task={entry.agent}

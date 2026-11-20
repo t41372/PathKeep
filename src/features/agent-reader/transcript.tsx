@@ -45,7 +45,17 @@ export interface TranscriptControl {
 export interface ScrollRequest {
   rank: number
   nonce: number
+  /**
+   * The row itself is what was asked for (a record opened from a semantic
+   * result or an Ask citation, with no words to light): it lights up for a
+   * moment, so the eye finds it, and stays the row opened at
+   * (`data-opened-at`) until another is asked for.
+   */
+  mark?: boolean
 }
+
+/** How long a row opened at stays lit. */
+const GLOW_MS = 1600
 
 function Placeholder() {
   const { t } = useI18n()
@@ -203,10 +213,30 @@ export function Transcript({
 
   const requestNonce = scrollRequest?.nonce
   const requestRank = scrollRequest?.rank
+  const requestMark = scrollRequest?.mark ?? false
+  const [opened, setOpened] = useState<{ rank: number; lit: boolean } | null>(
+    null,
+  )
   useEffect(() => {
     if (requestRank === undefined) return
     virtualizer.scrollToIndex(requestRank, { align: 'center' })
-  }, [requestNonce, requestRank, virtualizer])
+    setOpened(requestMark ? { rank: requestRank, lit: true } : null)
+    if (!requestMark) return
+    const timer = setTimeout(
+      () => setOpened({ rank: requestRank, lit: false }),
+      GLOW_MS,
+    )
+    return () => clearTimeout(timer)
+  }, [requestNonce, requestRank, requestMark, virtualizer])
+  // Its window may arrive after the first scroll, and rows drawn above it
+  // then take their real heights: centre it again once it is drawn.
+  const openedDrawn = opened ? rankState(opened.rank).state === 'row' : false
+  const recentred = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (!opened || !openedDrawn || recentred.current === requestNonce) return
+    recentred.current = requestNonce
+    virtualizer.scrollToIndex(opened.rank, { align: 'center' })
+  }, [opened, openedDrawn, requestNonce, virtualizer])
 
   // The prompt at the top of the view, for the outline's highlight.
   const top = items.find(
@@ -318,8 +348,12 @@ export function Transcript({
               data-index={item.index}
               data-turn={turn}
               data-rank={item.index}
+              data-opened-at={opened?.rank === item.index || undefined}
               ref={virtualizer.measureElement}
-              className="absolute top-0 left-0 w-full"
+              className={cn(
+                'absolute top-0 left-0 w-full rounded-lg transition-colors duration-700',
+                opened?.rank === item.index && opened.lit && 'bg-brand-soft/70',
+              )}
               style={{ transform: `translateY(${item.start}px)` }}
             >
               {body}
