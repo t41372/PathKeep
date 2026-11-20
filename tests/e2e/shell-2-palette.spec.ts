@@ -16,6 +16,7 @@
  *
  * Takes the "Put away" mark off again, as it found the conversation.
  */
+import { randomUUID } from 'node:crypto'
 import { expect, test, type Page } from '@playwright/test'
 import { readerTitle } from './support/agent-chats'
 import { unlockIfLocked } from './support/app'
@@ -31,10 +32,10 @@ interface PaletteAnswer {
   projects: { id: string; name: string; mainFolder: string | null }[]
 }
 
-let request = 0
+// The backend takes a request's id only as a UUID, as the window sends it.
 const answer = (text: string) =>
   backend<PaletteAnswer>('query_agent_palette', {
-    request: { text, requestId: `e2e-palette-${Date.now()}-${request++}` },
+    request: { text, requestId: randomUUID() },
   })
 
 const putAway = (id: string, on: boolean) =>

@@ -126,13 +126,19 @@ export function joinRunPages(
   }
 }
 
-/** Running conversation backups and how many need a look; for the rail. */
+/**
+ * What runs, waits and needs a look, every kind counted, for the rail and
+ * the first-save screens. Read once the kinds are known (the archive is
+ * open); it covers browsing and whole-archive work even with Agent
+ * conversations off. Their task events (`useAgentBackupSync`) and the
+ * ledger's (`useBackgroundTasksSync`) keep it current.
+ */
 export function useTaskSummary() {
-  const { readable } = useAgentKind()
+  const { kinds } = useAgentKind()
   return useQuery({
     queryKey: queryKeys.taskSummary,
     queryFn: agentBackupClient.taskSummary,
-    enabled: readable,
+    enabled: kinds.data !== undefined,
     staleTime: Infinity,
   })
 }

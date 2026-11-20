@@ -509,12 +509,16 @@ export interface OgImageCleanupReport {
   reclaimedBytes: number
 }
 
-/** User-pickable eviction mode for the og:image cache. Default is Off. */
+/**
+ * User-pickable eviction mode for the og:image cache. Default is Off. As
+ * persisted (config revision 1): the mode is camelCase, its fields
+ * snake_case, since the backend renames only the variant.
+ */
 export type OgImageCleanupMode =
   | { mode: 'off' }
-  | { mode: 'timeTtl'; maxAgeDays: number }
-  | { mode: 'sizeCap'; maxBytes: number }
-  | { mode: 'lru'; maxBytes: number }
+  | { mode: 'timeTtl'; max_age_days: number }
+  | { mode: 'sizeCap'; max_bytes: number }
+  | { mode: 'lru'; max_bytes: number }
 
 /**
  * How aggressively the og:image worker fetches link-preview bytes.

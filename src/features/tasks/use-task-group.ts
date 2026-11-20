@@ -1,8 +1,11 @@
 /**
  * One group of the background tasks page, with every kind's rows in it:
  * conversation backups (kept current by the backend's task events, as the
- * frame already does) and browsing history's work (read again while it
- * works; see `useBrowsingTasks`).
+ * frame already does), the conversations' semantic index build (listed on
+ * the backups' first page; its events keep it current, see
+ * `useAgentSemanticSync`) and the run ledger's rows: browsing history's
+ * work and work on the whole archive (read again on the ledger's event;
+ * see `useBrowsingTasks`).
  *
  * Responsibilities: reading both, a page at a time; merging them newest
  * first (`mergeNewestFirst`); reading on from whichever kind holds the next
@@ -21,6 +24,7 @@ import {
   agentEntry,
   browsingEntry,
   mergeNewestFirst,
+  semanticEntry,
   type TaskEntry,
 } from './task-entry'
 
@@ -36,10 +40,10 @@ export interface TaskGroupRows {
   loadMore: () => void
 }
 
-export function useTaskGroup(group: TaskGroup, pollBrowsing: boolean) {
+export function useTaskGroup(group: TaskGroup) {
   const agentKind = useAgentKind()
   const agent = useKindTasks(group)
-  const browsing = useBrowsingTasks(group, pollBrowsing)
+  const browsing = useBrowsingTasks(group)
   const agentShown = agentKind.readable
 
   const merged = useMemo(() => {
@@ -59,7 +63,13 @@ export function useTaskGroup(group: TaskGroup, pollBrowsing: boolean) {
         hasMore: browsing.hasNextPage,
       },
     ]
-    return mergeNewestFirst(sources)
+    const merged = mergeNewestFirst(sources)
+    const semantic = agentShown
+      ? (agent.data?.pages ?? []).flatMap((page) =>
+          page.semantic ? [semanticEntry(page.semantic)] : [],
+        )
+      : []
+    return { ...merged, entries: [...semantic, ...merged.entries] }
   }, [
     agent.data,
     agent.hasNextPage,

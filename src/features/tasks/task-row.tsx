@@ -6,21 +6,26 @@
  * why it stopped; a conversation backup's format notices, each with its own
  * Dismiss; and the buttons its state allows (`task-actions.tsx`).
  *
- * Responsibilities: drawing a row of either kind. A conversation backup's
+ * Responsibilities: drawing a row of any kind. A conversation backup's
  * row keeps every word the Settings list had, since the same backups were
- * listed there. Not responsible for: what a button does.
+ * listed there. The conversations' semantic index build opens Settings ›
+ * Agent conversations, where its state is told in full.
+ * Not responsible for: what a button does.
  */
+import { Archive } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import type { KindTask, TaskGroup } from '@/lib/backend-client/agent-backup'
+import type { SemanticTask } from '@/lib/backend-client/agent-semantic'
 import type { BrowsingTask } from '@/lib/backend-client/background-tasks'
 import { cn } from '@/lib/cn'
 import { useFormat, useI18n, type MessageKey } from '@/lib/i18n'
 import { isActive } from '@/lib/queries/agent-backup'
+import { useKindState } from '@/lib/queries/data-kinds'
 import { spaceBackupPath, spaceOfKind } from '@/lib/spaces'
-import type { BackgroundTask } from '@/app/shell/use-background-tasks'
+import type { LiveWork } from '@/app/shell/use-background-tasks'
 import { SpaceTile } from '@/app/shell/space-switcher'
 import { NoticeLine } from '@/features/agent-backup/notice-line'
 import {
@@ -34,7 +39,12 @@ import {
   browsingTaskName,
   type TaskEntry,
 } from './task-entry'
-import { AgentActions, BrowsingActions, type Controls } from './task-actions'
+import {
+  AgentActions,
+  BrowsingActions,
+  SemanticActions,
+  type Controls,
+} from './task-actions'
 
 const agentStateWords: Record<KindTask['state'], MessageKey> = {
   queued: 'agentTasks.states.queued',
@@ -59,10 +69,15 @@ function stateTone(state: string) {
 function Owner({ kind }: { kind: string }) {
   const { t } = useI18n()
   const space = spaceOfKind(kind as Parameters<typeof spaceOfKind>[0])
+  // Work on the whole archive belongs to no space: a plain tile, and the
+  // words after the task's name (`RowLayout`).
   if (!space)
     return (
-      <span className="w-7 shrink-0 text-[11px] leading-tight text-muted-foreground">
-        {t('tasks.owner.whole')}
+      <span
+        aria-hidden
+        className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-[9px] bg-muted text-muted-foreground"
+      >
+        <Archive className="size-4" strokeWidth={1.8} />
       </span>
     )
   return (
@@ -73,10 +88,7 @@ function Owner({ kind }: { kind: string }) {
   )
 }
 
-/** The figures this window follows live for a browsing backup or import, by run type. */
-export type { Controls }
-
-export type LiveWork = Partial<Record<string, BackgroundTask>>
+export type { Controls, LiveWork }
 
 /** What a row shows, whichever kind its task is. */
 interface RowView {
@@ -141,6 +153,37 @@ function useAgentView(task: KindTask, controls: Controls): RowView {
   }
 }
 
+function useSemanticView(task: SemanticTask, controls: Controls): RowView {
+  const { t } = useI18n()
+  const name = t('agentTasks.names.semanticIndex')
+  const paused = task.state === 'paused'
+  return {
+    id: task.taskId,
+    runRef: null,
+    kind: task.kind,
+    name,
+    state: task.state,
+    stateText: t(agentStateWords[task.state]),
+    working: true,
+    preparing: false,
+    // Nobody knows how many passages there are until the build publishes.
+    percent: null,
+    still: paused,
+    bar: true,
+    detail: [
+      task.state === 'cancelling'
+        ? t('agentTasks.progress.stopping')
+        : t('agentTasks.progress.passages', {
+            count: Number(task.progress.done),
+          }),
+      paused ? t('tasks.row.youPaused') : null,
+    ],
+    link: '/settings/agent',
+    actions: <SemanticActions task={task} name={name} controls={controls} />,
+    notices: null,
+  }
+}
+
 function useBrowsingView(
   task: BrowsingTask,
   controls: Controls,
@@ -148,10 +191,12 @@ function useBrowsingView(
 ): RowView {
   const { t } = useI18n()
   const format = useFormat()
+  const browsingOff = useKindState('browsing') === 'off'
   const name = browsingTaskName(t, task)
   const running = task.state === 'running'
   // This window's own backup or import knows more than the ledger's row.
-  const window = running ? live[task.operation] : undefined
+  const window =
+    running && task.kind === 'browsing' ? live[task.operation] : undefined
   const progress = task.progress
   const percent = window
     ? window.percent
@@ -181,11 +226,15 @@ function useBrowsingView(
     still: !running,
     bar: running || task.state === 'paused',
     detail: [detail],
-    // A run opens its details on the browsing backup page; a queue job has none.
+    // A run opens its audit details on the browsing backup page; a queue
+    // job has none. Work on the whole archive shows there too, or on the
+    // Agent backup page (by its reference) while browsing history is off.
     link:
-      task.runRef !== null
-        ? spaceBackupPath('browsing', `?run=${task.jobId}`)
-        : null,
+      task.runRef === null
+        ? null
+        : task.kind === 'archive' && browsingOff
+          ? spaceBackupPath('agent', `?run=${encodeURIComponent(task.runRef)}`)
+          : spaceBackupPath('browsing', `?run=${task.jobId}`),
     actions: <BrowsingActions task={task} name={name} controls={controls} />,
     notices: null,
   }
@@ -201,6 +250,20 @@ function AgentTaskRow(props: {
     <RowLayout
       view={useAgentView(props.task, props.controls)}
       at={props.at}
+      group={props.group}
+    />
+  )
+}
+
+function SemanticTaskRow(props: {
+  task: SemanticTask
+  group: TaskGroup
+  controls: Controls
+}) {
+  return (
+    <RowLayout
+      view={useSemanticView(props.task, props.controls)}
+      at={null}
       group={props.group}
     />
   )
@@ -228,7 +291,8 @@ function RowLayout({
   group,
 }: {
   view: RowView
-  at: number
+  /** Null for a task with no time of its own: nothing is shown there. */
+  at: number | null
   group: TaskGroup
 }) {
   const { t } = useI18n()
@@ -253,6 +317,11 @@ function RowLayout({
           ) : (
             <span className="font-medium">{view.name}</span>
           )}
+          {view.kind === 'archive' && (
+            <span className="text-xs text-muted-foreground">
+              {t('tasks.owner.whole')}
+            </span>
+          )}
           {!running && (
             <Badge
               variant="secondary"
@@ -268,9 +337,11 @@ function RowLayout({
                 ? t('spaces.tasks.preparing')
                 : view.percent !== null &&
                   format.percent(Math.round(view.percent) / 100)
-              : group === 'today'
-                ? format.time(at)
-                : format.dayAndTime(at)}
+              : at === null
+                ? null
+                : group === 'today'
+                  ? format.time(at)
+                  : format.dayAndTime(at)}
           </span>
         </div>
         {view.bar && (
@@ -313,6 +384,14 @@ export function TaskRow({
   controls: Controls
   live: LiveWork
 }) {
+  if (entry.semantic)
+    return (
+      <SemanticTaskRow
+        task={entry.semantic}
+        group={group}
+        controls={controls}
+      />
+    )
   return entry.agent ? (
     <AgentTaskRow
       task={entry.agent}

@@ -3,6 +3,7 @@
 pub mod backups;
 pub mod chats;
 pub mod delivery;
+pub mod exports;
 mod hints;
 pub mod insights;
 pub mod projects;
@@ -70,6 +71,7 @@ pub enum Refusal {
     RootChanged,
     Expired,
     NotInitialized,
+    AlreadyInitialized,
     Unavailable,
     Off,
     InvalidRequest,
@@ -102,6 +104,7 @@ impl Refusal {
             Self::InvalidCursor => "invalid-cursor",
             Self::SemanticNotReady => "agent-semantic-index-not-ready",
             Self::Finishing => "operation-finishing",
+            Self::AlreadyInitialized => "archive-already-initialized",
             Self::NotInitialized => "archive-uninitialized",
         }
     }
@@ -139,6 +142,21 @@ pub struct Settings {
     pub dismissed_hints: std::collections::BTreeSet<vault_core::AgentHint>,
     pub policy: CapturePolicy,
     pub policy_token: String,
+}
+
+/// Save the setup selection without opening any database or acquiring a source grant.
+pub fn save_onboarding_choices(
+    choices: vault_core::OnboardingChoices,
+) -> Result<vault_core::OnboardingChoices> {
+    let paths = vault_core::project_paths()?;
+    let gate = ControlGate::acquire(&paths);
+    let mut cfg = admitted_config(&paths)?;
+    if cfg.initialized {
+        return Err(Refusal::AlreadyInitialized.into());
+    }
+    cfg.onboarding_choices = Some(choices.clone());
+    vault_core::save_config(&gate, &cfg)?;
+    Ok(choices)
 }
 
 /// Capture choices remain accessible to the unlocked manager while the kind is off.

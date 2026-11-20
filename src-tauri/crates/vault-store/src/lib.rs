@@ -48,6 +48,11 @@ use std::sync::{
 };
 pub use turso::{IntoParams, Row, Value, params, params_from_iter};
 
+struct TableWrites {
+    tables: &'static [(Db, &'static [&'static str])],
+    notify: Box<dyn Fn(Db) + Send + Sync>,
+}
+
 type HeldPublisher = dyn Fn(HeldGeneration<'_>) -> Result<()> + Send + Sync;
 
 /// One invalidation sink for changes to the live conversation kind. The writer
@@ -69,6 +74,7 @@ impl AvailabilityEvents {
 /// All handles are joined before the ownership file is released. Share Store via
 /// Arc between blocking command threads; a closure cannot recursively call it.
 pub struct Store {
+    table_writes: std::sync::OnceLock<TableWrites>,
     workers: RwLock<Vec<(Db, worker::Workers)>>,
     /// Serializes attempts to add workers. Ordinary reads never take this lock.
     adding: Mutex<()>,
@@ -161,6 +167,15 @@ impl Store {
         let workers = self.workers();
         Ok(workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1.plans.take())
     }
+    /// Invalidate a live view after a transaction touching its tables commits. Table names
+    /// are uppercase SQL identifiers. The callback runs outside the database and store locks.
+    pub fn on_table_writes(
+        &self,
+        tables: &'static [(Db, &'static [&'static str])],
+        notify: impl Fn(Db) + Send + Sync + 'static,
+    ) {
+        let _ = self.table_writes.set(TableWrites { tables, notify: Box::new(notify) });
+    }
     fn request<T: Send + 'static>(
         &self,
         db: Db,
@@ -180,6 +195,31 @@ impl Store {
             .then(|| self.conversation_writes.read().unwrap_or_else(PoisonError::into_inner));
         let workers = self.workers();
         let worker = &workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1;
+        if !read
+            && let Some(observer) = self.table_writes.get()
+            && let Some(&(_, tables)) = observer.tables.iter().find(|(role, _)| *role == db)
+            && !opening::conversation_role(db)
+        {
+            let (result, changed) = worker.request(
+                false,
+                priority,
+                move |s| {
+                    s.watched_tables.set(tables);
+                    let value = work(s)?;
+                    let changed = match s.changes_before.get() {
+                        Some(before) => before != s.total_changes()?,
+                        None => false,
+                    };
+                    Ok((value, changed))
+                },
+                None,
+            )?;
+            drop(workers);
+            if changed {
+                (observer.notify)(db);
+            }
+            return Ok(result);
+        }
         if !self.pair_seals || !opening::conversation_role(db) {
             return worker.request(read, priority, work, None);
         }

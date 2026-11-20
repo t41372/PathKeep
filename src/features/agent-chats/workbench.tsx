@@ -1,10 +1,10 @@
 /**
  * The Records workbench (`agent-history.md` §3, §5.10): the conversation
- * list, or the search results while searching, on the left; the reader of
- * the selected conversation on the right. History is the workbench over
- * every conversation; a project's page is the same workbench with the
- * project fixed. Search, filters, sort, group, the open conversation and
- * the reader's find all live in the URL.
+ * list, or the search results while searching (full text or semantic), on
+ * the left; the reader of the selected conversation on the right. History
+ * is the workbench over every conversation; a project's page is the same
+ * workbench with the project fixed. Search and its mode, filters, sort,
+ * group, the open conversation and the reader's find all live in the URL.
  *
  * Responsible for: wiring the URL, the list query, the search, the marks
  * and the reader together. Not responsible for: rows, menus, results or
@@ -20,9 +20,14 @@ import { projectName } from '@/features/agent-projects/project-words'
 import { Reader } from '@/features/agent-reader/reader'
 import { SearchBox } from '@/features/agent-search/search-box'
 import { SearchResults } from '@/features/agent-search/search-results'
+import { SemanticResults } from '@/features/agent-search/semantic-results'
 import { useInsightsFormat, useInsightsZone } from '@/features/insights/zone'
 import type { ChatSummary } from '@/lib/backend-client/agent-chats'
-import type { SearchCard, SearchMatch } from '@/lib/backend-client/agent-search'
+import type {
+  SearchCard,
+  SearchMatch,
+  SemanticPassage,
+} from '@/lib/backend-client/agent-search'
 import { useI18n } from '@/lib/i18n'
 import { useAgentKind } from '@/lib/queries/agent-backup'
 import { useAgentChatsSync, useChatList } from '@/lib/queries/agent-chats'
@@ -35,6 +40,7 @@ import {
   conditionCount,
   listQuery,
   searchRequest,
+  semanticRequest,
   useChatsParams,
 } from './chats-params'
 import { FilterChips, FilterMenu } from './filter-menu'
@@ -101,6 +107,10 @@ export function Workbench({
   const query = useMemo(() => listQuery(params, zone), [params, zone])
   const listKey = useMemo(() => JSON.stringify(query), [query])
   const search = useMemo(() => searchRequest(params, zone), [params, zone])
+  const semantic = useMemo(
+    () => (params.mode === 'semantic' ? semanticRequest(params, zone) : null),
+    [params, zone],
+  )
   const list = useChatList(query, search === null)
   const marks = useChatMarks()
   useAgentChatsSync()
@@ -137,6 +147,21 @@ export function Workbench({
       }),
     [update, params.q],
   )
+  // A passage has no words to find: the reader opens at its record, in the
+  // conversation that holds it (a subagent's on its own), since the reader
+  // reaches only the records of the conversation it shows.
+  const openPassage = useCallback(
+    (passage: SemanticPassage) =>
+      update({
+        chat: passage.address.conversationId,
+        find: null,
+        at: {
+          sourceId: passage.address.sourceId,
+          ordinal: passage.address.ordinal,
+        },
+      }),
+    [update],
+  )
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = list
   const more = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
@@ -152,6 +177,18 @@ export function Workbench({
             ?.project?.label ?? params.project)
 
   const body = () => {
+    if (semantic)
+      return (
+        <SemanticResults
+          request={semantic}
+          selected={{ chat: params.chat, at: params.at }}
+          f={f}
+          zone={zone}
+          onMode={(mode) => update({ mode })}
+          onRoles={(roles) => update({ roles })}
+          onOpen={openPassage}
+        />
+      )
     if (search)
       return (
         <SearchResults
@@ -159,6 +196,7 @@ export function Workbench({
           selectedId={params.chat}
           f={f}
           zone={zone}
+          onMode={(mode) => update({ mode })}
           onRoles={(roles) => update({ roles })}
           onOpen={openHit}
         />
@@ -215,6 +253,7 @@ export function Workbench({
             <SearchBox
               value={params.q}
               scoped={fixedProject !== null}
+              semantic={params.mode === 'semantic'}
               readerOpen={params.chat !== null}
               onCommit={(q, options) => update({ q }, options)}
             />

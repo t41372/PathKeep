@@ -43,10 +43,15 @@ fn migrations(db: Db) -> Vec<Migration> {
         Db::Archive => {
             let mut steps = vec![archive::migration()];
             steps.extend(backup_identity::archive());
+            steps.push(task_dismissals(24, &["runs"]));
             steps
         }
         Db::SourceEvidence => vec![source_evidence::migration()],
-        Db::Intelligence => vec![intelligence::migration(), intelligence_lineage::migration()],
+        Db::Intelligence => vec![
+            intelligence::migration(),
+            intelligence_lineage::migration(),
+            task_dismissals(3, &["intelligence_jobs", "ai_jobs"]),
+        ],
         Db::Agent => vec![agent::migration()],
         Db::Scratch => scratch::migrations(),
         // The agent-history crate owns its stores' schemas; this archive opens them in its Store.
@@ -54,6 +59,22 @@ fn migrations(db: Db) -> Vec<Migration> {
     }
 }
 
+// Dismissal names the failed attempt. Retrying the same job produces a different finish
+// timestamp, so a subsequent failure can appear in Needs a look again.
+fn task_dismissals(version: i64, tables: &'static [&'static str]) -> Migration {
+    Migration::rust(version, move |tx| {
+        for table in tables {
+            tx.execute(&format!("ALTER TABLE {table} ADD COLUMN task_dismissed_for TEXT"), ())?;
+            let (state, kind) =
+                if *table == "runs" { ("status", "run_type") } else { ("state", "job_type") };
+            tx.execute(
+                &format!("CREATE INDEX idx_{table}_task_state ON {table}({state},{kind})"),
+                (),
+            )?;
+        }
+        Ok(())
+    })
+}
 fn v1(statements: &'static [&'static str]) -> Migration {
     Migration::rust(1, move |tx| {
         for statement in statements {

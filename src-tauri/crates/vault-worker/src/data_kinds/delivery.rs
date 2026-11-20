@@ -42,6 +42,7 @@ impl Permit {
 
 /// Unlock creates no right to deliver something buffered before the lock.
 pub(crate) fn revoke(root: &Path) {
+    super::exports::revoke(root);
     super::semantic::revoke(root);
     let key = std::path::absolute(root).unwrap_or_else(|_| root.to_owned());
     if let Some(epoch) = READERS.lock().unwrap().remove(&key).and_then(|reader| reader.upgrade()) {

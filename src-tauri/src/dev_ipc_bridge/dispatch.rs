@@ -147,12 +147,22 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "list_agent_sources" => {
             worker_bridge::list_agent_sources_impl(&state.session, surface_request(payload)?)
         }
+        "cancel_agent_export" => worker_bridge::cancel_agent_export_impl(surface_request(payload)?),
+        "save_onboarding_choices" => {
+            json_value!(worker_bridge::save_onboarding_choices_impl(surface_request(payload)?)?)
+        }
         "export_agent_conversation" => {
             let request = surface_request(payload)?;
             let app = require_app_handle(state).ok();
             let session = state.session.clone();
+            let events = backup_events(state);
             tokio::task::spawn_blocking(move || {
-                worker_bridge::export_agent_conversation_impl(app.as_ref(), &session, request)
+                worker_bridge::export_agent_conversation_impl(
+                    app.as_ref(),
+                    &session,
+                    request,
+                    events,
+                )
             })
             .await
             .unwrap_or_else(|e| join_failure("export_agent_conversation", e))
@@ -167,6 +177,15 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         ),
         "get_agent_semantic_index" => {
             worker_bridge::get_agent_semantic_index_impl(&state.session, surface_request(payload)?)
+        }
+        "preview_free_agent_semantic_index" => {
+            worker_bridge::preview_free_agent_semantic_index_impl(
+                &state.session,
+                surface_request(payload)?,
+            )
+        }
+        "free_agent_semantic_index" => {
+            worker_bridge::free_agent_semantic_index_impl(&state.session, surface_request(payload)?)
         }
         "control_agent_semantic_index" => worker_bridge::control_agent_semantic_index_impl(
             &state.session,

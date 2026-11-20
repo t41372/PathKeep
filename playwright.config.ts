@@ -112,6 +112,11 @@ function prepareFixture() {
     // runs: Claude Code and Codex have about 45 files in the fixture, so a
     // backup of the two takes about 13 s. Debug only.
     PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US: '300000',
+    // Holds a conversation backup's last step (making what it saved
+    // searchable) this long before it starts, so shell-1-tasks.spec can
+    // press Pause in it; every conversation backup takes this much longer.
+    // Debug only.
+    PATHKEEP_TEST_AGENT_INDEX_DELAY_US: '4000000',
     // A file here fails the app's checkpoint of that name (`injectFault`). Debug only.
     PATHKEEP_TEST_FAULTS_DIR: path.join(root, 'faults'),
     // The launcher runs the app itself and starts it again when it exits
@@ -309,9 +314,11 @@ export default defineConfig({
       'agent-chats',
     ),
     // The shell around both spaces, with both on: the background tasks
-    // page (a backup of both kinds, cancelled and tried again), ⌘K's
-    // conversations and projects, switching spaces, and the Agent page's
-    // automatic-backup row. In name order; each puts back what it changed.
+    // page (a backup of both kinds, cancelled and tried again; a paused
+    // last step), ⌘K's conversations and projects, switching spaces, the
+    // Agent page's automatic-backup row, and the ledger's rows (the event,
+    // Dismiss, whole-archive work). In name order; each puts back what it
+    // changed.
     project(
       'shell',
       [
@@ -319,6 +326,7 @@ export default defineConfig({
         'shell-2-palette.spec.ts',
         'shell-3-switch.spec.ts',
         'shell-4-schedule.spec.ts',
+        'shell-5-ledger-tasks.spec.ts',
       ],
       'agent-insights',
     ),
@@ -340,9 +348,24 @@ export default defineConfig({
     // computer: it restarts the app with the model's address, and its index
     // must not be the one semantic-index.spec finds, so it runs after restart.
     project('builtin-model', ['builtin-model.spec.ts'], 'restart'),
+    // AI access to Agent conversations, on the backed-up synthetic
+    // conversations: the semantic index built with an embeddings service on
+    // this computer and Records' semantic mode, Ask quoting a record, then a
+    // build held half way, paused, continued and cancelled from Settings and
+    // the tasks page. In name order; each puts back the settings it changed.
+    // Before the move replaces the archive.
+    project(
+      'agent-ai',
+      [
+        'agent-ai-1-semantic.spec.ts',
+        'agent-ai-2-ask.spec.ts',
+        'agent-ai-3-index-tasks.spec.ts',
+      ],
+      'builtin-model',
+    ),
     // Large imports, after the semantic index is built so it does not embed
     // their pages (a project runs its files in name order, so not in restart).
-    project('stop', ['import-stop.spec.ts'], 'builtin-model'),
+    project('stop', ['import-stop.spec.ts'], 'agent-ai'),
     // Opening the moved file replaces the archive and its password, so it runs
     // after every test that relies on the archive first-run created.
     project('move', ['move.spec.ts'], 'stop'),
@@ -367,12 +390,17 @@ export default defineConfig({
     // deletes it again.
     project('empty', ['semantic-empty-archive.spec.ts'], 'wipe'),
     // Onboarding with Agent conversations chosen, in the empty data folder
-    // `empty` leaves: both kinds, and Agent only with the first save left
-    // to go on in the background. Each deletes everything again at the end,
-    // so their order doesn't matter.
+    // `empty` leaves: both kinds, Agent only with the first save left to go
+    // on in the background, and a setup quit half way and resumed with its
+    // choices. Each deletes everything again at the end, so their order
+    // doesn't matter.
     project(
       'onboarding-agent',
-      ['onboarding-agent.spec.ts', 'onboarding-agent-background.spec.ts'],
+      [
+        'onboarding-agent.spec.ts',
+        'onboarding-agent-background.spec.ts',
+        'onboarding-agent-resume.spec.ts',
+      ],
       'empty',
     ),
     // A browsing-only first run that opens move.spec's file: its Agent

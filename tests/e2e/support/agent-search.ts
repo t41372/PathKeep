@@ -1,8 +1,10 @@
 /**
- * Records search and the reader's find, for the specs: a search or a find
- * run through the backend the way the window runs one, read to its last
- * frame over the bridge (`/previews/{streamId}/events`), to check the
- * screen against; and what find lights on the page (the CSS highlights).
+ * Records search and the reader's find, for the specs: a search (by words
+ * or by meaning) or a find run through the backend the way the window runs
+ * one, read to its last frame over the bridge
+ * (`/previews/{streamId}/events`), to check the screen against; the
+ * semantic index's status; and what find lights on the page (the CSS
+ * highlights).
  */
 import type { Page } from '@playwright/test'
 import { resolveDesktopBridgeEnv } from '../../../scripts/pathkeep-dev-desktop-bridge.mjs'
@@ -59,6 +61,69 @@ export async function wireSearch(request: object) {
     searched: finished.payload.searchedCount!,
     filtered: finished.payload.filtered!,
   }
+}
+
+/** One passage of a semantic search, as the backend streams it. */
+export interface WirePassage {
+  id: string
+  title: string | null
+  address: {
+    conversationId: string
+    sourceId: string
+    ordinal: number
+    publication: string
+  }
+  role: string
+  text: string
+  chunk: number
+  score: number
+}
+
+/**
+ * The passage's identity as Records writes it on the page
+ * (`data-passage`): `<conversation>/<ordinal>:<source>/<chunk>`.
+ */
+export const passageKey = (passage: WirePassage) =>
+  `${passage.address.conversationId}/${passage.address.ordinal}:${passage.address.sourceId}/${passage.chunk}`
+
+/**
+ * A search by meaning to its end: every passage in the order streamed
+ * (closest first) and the finished frame. `request` is the full-text one;
+ * `mode: 'semantic'` is added here.
+ */
+export async function wireSemantic(request: object) {
+  const frames = await readStream('search_agent_conversations', {
+    mode: 'semantic',
+    ...request,
+  })
+  const started = frames.find((frame) => frame.type === 'started')
+  const finished = frames.find((frame) => frame.type === 'finished')
+  if (!started || !finished)
+    throw new Error(
+      `The semantic search did not finish: ${frames.at(-1)?.type} ${JSON.stringify(frames.at(-1)?.payload)}`,
+    )
+  const passages = frames.flatMap((frame) =>
+    frame.type === 'passages'
+      ? (frame.payload.items as unknown as WirePassage[])
+      : [],
+  )
+  const end = finished.payload as unknown as {
+    hits: number
+    generation: string
+    stale: boolean
+  }
+  return { passages, ...end }
+}
+
+/** `get_agent_semantic_index`: whether the index may exist, what serves and what builds. */
+export function semanticStatus() {
+  return backend<{
+    enabled: boolean
+    serving: { generation: string; provider: string; model: string } | null
+    stale?: boolean
+    job: { jobId: string; state: string; passages: number } | null
+    reason?: string
+  }>('get_agent_semantic_index', { request: {} })
 }
 
 /** Find in one conversation to its end: how many occurrences. */

@@ -149,6 +149,21 @@ export interface AppConfig {
   insightsZoneKeptFor?: string | null
   /** The user keeps the archive password safe themselves; Home stops warning about it. */
   passwordKeptElsewhere?: boolean
+  /**
+   * What an unfinished setup chose, kept on this computer before the
+   * archive exists (`save_onboarding_choices`); creating the archive
+   * applies it and clears it. Absent: nothing saved.
+   */
+  onboardingChoices?: OnboardingChoicesConfig
+}
+
+/** Setup's choices before the archive exists; mirror of `vault_core::OnboardingChoices`. */
+export interface OnboardingChoicesConfig {
+  /** Kebab-case kind ids (`browsing`, `agent-history`), sorted by the backend. */
+  kinds: string[]
+  /** Kebab-case Agent tool ids, sorted by the backend. */
+  agentTools: string[]
+  readGit: boolean
 }
 
 /**
@@ -169,11 +184,12 @@ export interface OgImageSettingsConfig {
   dailyRefetchBudget: number
   newVisitPrefetchBudget: number
   blockedHosts: string[]
+  /** As persisted: the mode is camelCase, its fields snake_case. */
   cleanup:
     | { mode: 'off' }
-    | { mode: 'timeTtl'; maxAgeDays: number }
-    | { mode: 'sizeCap'; maxBytes: number }
-    | { mode: 'lru'; maxBytes: number }
+    | { mode: 'timeTtl'; max_age_days: number }
+    | { mode: 'sizeCap'; max_bytes: number }
+    | { mode: 'lru'; max_bytes: number }
 }
 
 /**

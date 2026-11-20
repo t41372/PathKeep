@@ -4,7 +4,8 @@
  * at once on Enter, and clears it on Esc; `/` anywhere outside a text
  * field comes here, and so does ⌘F / Ctrl+F while no conversation is open
  * (with one open, ⌘F finds in it). A search sent from an empty box is a
- * new history entry; changing it after that is not.
+ * new history entry; changing it after that is not. In semantic mode the
+ * placeholder asks for a description instead of words.
  */
 import { Search, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -24,6 +25,7 @@ function isTyping(target: EventTarget | null) {
 export function SearchBox({
   value,
   scoped,
+  semantic,
   readerOpen,
   onCommit,
 }: {
@@ -31,6 +33,8 @@ export function SearchBox({
   value: string | null
   /** On a project's page: "search this project". */
   scoped: boolean
+  /** Searches by meaning (`mode=semantic`). */
+  semantic: boolean
   readerOpen: boolean
   onCommit: (q: string | null, options: { push: boolean }) => void
 }) {
@@ -109,9 +113,13 @@ export function SearchBox({
         value={draft}
         aria-label={t('agentSearch.box.label')}
         placeholder={t(
-          scoped
-            ? 'agentSearch.box.placeholderProject'
-            : 'agentSearch.box.placeholder',
+          semantic
+            ? scoped
+              ? 'agentSearch.box.placeholderSemanticProject'
+              : 'agentSearch.box.placeholderSemantic'
+            : scoped
+              ? 'agentSearch.box.placeholderProject'
+              : 'agentSearch.box.placeholder',
         )}
         onChange={(event) => {
           setDraft(event.target.value)

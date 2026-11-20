@@ -40,6 +40,7 @@ pub enum SearchMode {
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScreenQuery {
+    pub cursor: Option<String>,
     #[serde(default)]
     pub mode: SearchMode,
     pub query: String,
@@ -50,7 +51,13 @@ pub struct ScreenQuery {
 }
 impl ScreenQuery {
     pub fn all(query: String) -> Self {
-        Self { mode: SearchMode::Lexical, query, roles: all_roles(), filters: ListQuery::default() }
+        Self {
+            cursor: None,
+            mode: SearchMode::Lexical,
+            query,
+            roles: all_roles(),
+            filters: ListQuery::default(),
+        }
     }
     pub fn validate(&self) -> Result<()> {
         self.expression().map(drop)
@@ -66,6 +73,9 @@ impl ScreenQuery {
             || q.group == Group::Project
         {
             return Err(Error::InvalidInput("search streams in last activity order".into()));
+        }
+        if self.cursor.is_some() {
+            return Err(Error::InvalidInput("cursor requires semantic search".into()));
         }
         Expression::parse(&self.query)
     }

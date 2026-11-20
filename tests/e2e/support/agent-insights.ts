@@ -220,13 +220,29 @@ export function coverageText(known: number, count: number) {
 
 /** Steps the year calendar back until it shows `year`. */
 export async function showYear(page: Page, year: number) {
-  const grid = (y: number) =>
-    page.getByRole('group', { name: `Agent work per day in ${y}` })
+  // The calendar is a skeleton until its year arrives (again after the
+  // time zone changes): read which year it shows only once it is drawn,
+  // and after each step wait for the year before.
+  const calendar = page.getByRole('group', {
+    name: /^Agent work per day in \d{4}$/,
+  })
   for (let step = 0; step < 5; step += 1) {
-    if (await grid(year).isVisible()) return
+    await expect(calendar).toBeVisible()
+    const shown = Number((await calendar.getAttribute('aria-label'))?.slice(-4))
+    expect(
+      shown,
+      'the calendar starts at or after that year',
+    ).toBeGreaterThanOrEqual(year)
+    if (shown === year) return
     await page.getByRole('button', { name: 'Previous year' }).click()
+    await expect(calendar).toHaveAttribute(
+      'aria-label',
+      `Agent work per day in ${shown - 1}`,
+    )
   }
-  await expect(grid(year)).toBeVisible()
+  await expect(
+    page.getByRole('group', { name: `Agent work per day in ${year}` }),
+  ).toBeVisible()
 }
 
 /** A search parameter of the hash route (`#/agent/chats?day=…`). */

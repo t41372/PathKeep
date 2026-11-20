@@ -30,10 +30,20 @@ export const ask = defineMessages({
     },
     empty: {
       title: 'Ask about the path you’ve walked',
-      bodyLocal:
-        'The assistant only reads your local archive. With a local model, nothing leaves this computer.',
-      bodyRemote:
-        'The assistant only reads your local archive. {provider} is an online service, so the snippets it needs are sent there when you ask.',
+      readsArchive: 'The assistant reads your archive.',
+      readsBrowsing:
+        'The assistant reads the browsing history in your archive.',
+      readsBoth:
+        'The assistant reads the browsing history and the Agent conversations in your archive.',
+      readsAgent:
+        'The assistant reads the Agent conversations in your archive.',
+      readsNothing:
+        'The assistant has nothing to read: browsing history is off, and it isn’t allowed to read Agent conversations.',
+      agentNotAllowed:
+        'It doesn’t read your Agent conversations unless you allow it in Settings › Agent conversations.',
+      privacyLocal: 'With a local model, nothing leaves this computer.',
+      privacyRemote:
+        '{provider} is an online service, so the parts it needs are sent there when you ask.',
       examplesLabel: 'Try asking',
       example1: 'What did I spend the most time on this week?',
       example2: 'Find the article I read about Rust last month',
@@ -90,6 +100,7 @@ export const ask = defineMessages({
       toolFailed: 'Failed',
       code: 'Script',
       openInHistory: 'Open in History',
+      openRecord: 'Open the Agent conversation',
       copy: 'Copy answer',
       copied: 'Copied',
       retry: 'Try again',
@@ -100,9 +111,12 @@ export const ask = defineMessages({
       failedTitle: 'The assistant could not answer',
       tokens: '{prompt} in · {completion} out',
       sources: 'Pages used',
+      sourcesRecords: 'Agent conversations used',
+      sourcesMixed: 'Pages and Agent conversations used',
       moreSources: '+{count} more',
       lessSources: 'Show fewer',
       sourceTitle: '{title} · {date}',
+      recordTitle: '{title} · {tool} · “{passage}”',
       notes: {
         maxStepsReached:
           'It stopped after reaching the search step limit, so the answer may be incomplete.',
@@ -148,10 +162,16 @@ export const ask = defineMessages({
     },
     empty: {
       title: '问问你走过的路',
-      bodyLocal:
-        '助理只读取本机存档。使用本地模型时，任何内容都不会离开这台电脑。',
-      bodyRemote:
-        '助理只读取本机存档。{provider} 是在线服务，你提问时会把所需的片段发送过去。',
+      readsArchive: '助理读取你的存档。',
+      readsBrowsing: '助理读取存档里的浏览记录。',
+      readsBoth: '助理读取存档里的浏览记录和 Agent 对话。',
+      readsAgent: '助理读取存档里的 Agent 对话。',
+      readsNothing:
+        '助理没有可读的内容：浏览记录关着，也没有允许它读 Agent 对话。',
+      agentNotAllowed:
+        '除非你在“设置 › Agent 对话”里允许，它不读你的 Agent 对话。',
+      privacyLocal: '使用本地模型时，任何内容都不会离开这台电脑。',
+      privacyRemote: '{provider} 是在线服务，你提问时会把所需的部分发送过去。',
       examplesLabel: '可以这样问',
       example1: '这周我花最多时间在什么上？',
       example2: '找回上个月我读过的那篇 Rust 文章',
@@ -207,6 +227,7 @@ export const ask = defineMessages({
       toolFailed: '失败',
       code: '脚本',
       openInHistory: '在记录中打开',
+      openRecord: '打开这段 Agent 对话',
       copy: '复制回答',
       copied: '已复制',
       retry: '重试',
@@ -217,9 +238,12 @@ export const ask = defineMessages({
       failedTitle: '助理无法回答',
       tokens: '输入 {prompt} · 输出 {completion}',
       sources: '用到的页面',
+      sourcesRecords: '用到的 Agent 对话',
+      sourcesMixed: '用到的页面和 Agent 对话',
       moreSources: '另外 {count} 个',
       lessSources: '收起',
       sourceTitle: '{title} · {date}',
+      recordTitle: '{title} · {tool} · 「{passage}」',
       notes: {
         maxStepsReached: '已达到搜索步数上限而停止，回答可能不完整。',
         tokenBudgetReached: '模型的 context 快满了，所以停下，回答可能不完整。',
@@ -262,10 +286,16 @@ export const ask = defineMessages({
     },
     empty: {
       title: '問問你走過的路',
-      bodyLocal:
-        '助理只讀取本機存檔。使用本機模型時，任何內容都不會離開這台電腦。',
-      bodyRemote:
-        '助理只讀取本機存檔。{provider} 是線上服務，你提問時會把所需的片段傳送過去。',
+      readsArchive: '助理讀取你的存檔。',
+      readsBrowsing: '助理讀取存檔裡的瀏覽紀錄。',
+      readsBoth: '助理讀取存檔裡的瀏覽紀錄和 Agent 對話。',
+      readsAgent: '助理讀取存檔裡的 Agent 對話。',
+      readsNothing:
+        '助理沒有可讀的內容：瀏覽紀錄關著，也沒有允許它讀 Agent 對話。',
+      agentNotAllowed:
+        '除非你在「設定 › Agent 對話」裡允許，它不讀你的 Agent 對話。',
+      privacyLocal: '使用本機模型時，任何內容都不會離開這台電腦。',
+      privacyRemote: '{provider} 是線上服務，你提問時會把所需的部分傳送過去。',
       examplesLabel: '可以這樣問',
       example1: '這週我花最多時間在什麼上？',
       example2: '找回上個月我讀過的那篇 Rust 文章',
@@ -321,6 +351,7 @@ export const ask = defineMessages({
       toolFailed: '失敗',
       code: '腳本',
       openInHistory: '在紀錄中開啟',
+      openRecord: '開啟這段 Agent 對話',
       copy: '複製回答',
       copied: '已複製',
       retry: '重試',
@@ -331,9 +362,12 @@ export const ask = defineMessages({
       failedTitle: '助理無法回答',
       tokens: '輸入 {prompt} · 輸出 {completion}',
       sources: '用到的頁面',
+      sourcesRecords: '用到的 Agent 對話',
+      sourcesMixed: '用到的頁面和 Agent 對話',
       moreSources: '另外 {count} 個',
       lessSources: '收合',
       sourceTitle: '{title} · {date}',
+      recordTitle: '{title} · {tool} · 「{passage}」',
       notes: {
         maxStepsReached: '已達到搜尋步數上限而停止，回答可能不完整。',
         tokenBudgetReached: '模型的 context 快滿了，所以停下，回答可能不完整。',

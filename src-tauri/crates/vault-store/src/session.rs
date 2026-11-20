@@ -25,6 +25,8 @@ use tokio::runtime::Runtime;
 /// }
 /// ```
 pub struct Session<'a> {
+    pub(crate) watched_tables: Cell<&'static [&'static str]>,
+    pub(crate) changes_before: Cell<Option<i64>>,
     pub(crate) reader_repair: Option<&'a Cell<Option<bool>>>,
     pub(crate) plans: Option<&'a crate::query_plans::PlanCapture>,
     pub(crate) statements: Cell<usize>,
@@ -73,17 +75,27 @@ impl<'a> Session<'a> {
         self
     }
     pub(crate) fn check_sql(&self, sql: &str) -> Result<()> {
-        let (scratch, archive) = match self.prepared {
+        let policy = match self.prepared {
             Some(cache) => cache.validated(sql, self.read_only)?,
             None => crate::sql::validate(sql, self.read_only)?,
         };
-        if archive && let Some(gate) = self.archive {
+        if self.changes_before.get().is_none()
+            && let Some(table) = policy.write_table.as_deref()
+            && self.watched_tables.get().contains(&table)
+        {
+            self.changes_before.set(Some(self.total_changes()?));
+        }
+        if policy.archive
+            && let Some(gate) = self.archive
+        {
             let mut held = self.archive_read.borrow_mut();
             if held.is_none() {
                 *held = Some(gate.enter());
             }
         }
-        if scratch && let Some(gate) = self.scratch {
+        if policy.scratch
+            && let Some(gate) = self.scratch
+        {
             let mut held = self.scratch_read.borrow_mut();
             if held.is_none() {
                 *held = Some(gate.enter());
@@ -92,6 +104,10 @@ impl<'a> Session<'a> {
         self.statements.set(self.statements.get() + 1);
         Ok(())
     }
+    pub(crate) fn total_changes(&self) -> Result<i64> {
+        self.query_one("SELECT total_changes()", (), |r| Ok(r.get(0)?))
+    }
+
     /// Counts application statements in this job, for bounded-write diagnostics.
     pub fn statement_count(&self) -> usize {
         self.statements.get()

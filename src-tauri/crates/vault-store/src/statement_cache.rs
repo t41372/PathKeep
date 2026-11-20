@@ -30,7 +30,7 @@ pub(crate) struct StatementCache {
     compiled: Arc<AtomicU64>,
     /// Each text's validation, for a writer's and a reader's session apart. Checking a text again
     /// on every call took a tenth of a Takeout import's write time. Refusals are not kept.
-    validated: RefCell<HashMap<String, [Option<(bool, bool)>; 2]>>,
+    validated: RefCell<HashMap<String, [Option<crate::sql::Policy>; 2]>>,
 }
 struct Entry {
     statement: turso::Statement,
@@ -49,9 +49,10 @@ impl StatementCache {
 
     /// `sql::validate(sql, read_only)`, checked once per text. Dynamic SQL beyond a few times the
     /// statement bound starts the record over instead of growing it.
-    pub fn validated(&self, sql: &str, read_only: bool) -> Result<(bool, bool)> {
+    pub fn validated(&self, sql: &str, read_only: bool) -> Result<crate::sql::Policy> {
         let slot = usize::from(read_only);
-        if let Some(known) = self.validated.borrow().get(sql).and_then(|known| known[slot]) {
+        if let Some(known) = self.validated.borrow().get(sql).and_then(|known| known[slot].clone())
+        {
             return Ok(known);
         }
         let checked = crate::sql::validate(sql, read_only)?;
@@ -59,7 +60,7 @@ impl StatementCache {
         if validated.len() >= 4 * CAPACITY {
             validated.clear();
         }
-        validated.entry(sql.to_owned()).or_default()[slot] = Some(checked);
+        validated.entry(sql.to_owned()).or_default()[slot] = Some(checked.clone());
         Ok(checked)
     }
 

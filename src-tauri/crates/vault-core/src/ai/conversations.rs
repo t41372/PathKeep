@@ -17,8 +17,12 @@ pub fn consent(vault: &Vault, cap: AiCapability) -> Result<AppConfig> {
         AiCapability::Mcp => config.agent_viewer.mcp_may_read,
         _ => false,
     };
-    ensure!(allowed, "agent-conversations-access-disabled");
-    ensure!(vault.agent_visibility(&config.capture_policy)? != crate::KindState::Off, "kind-off");
+    if !allowed {
+        return Err(crate::AiRefusal::AgentAccessDisabled.into());
+    }
+    if vault.agent_visibility(&config.capture_policy)? == crate::KindState::Off {
+        return Err(crate::AiRefusal::KindOff.into());
+    }
     Ok(config)
 }
 #[derive(Serialize)]

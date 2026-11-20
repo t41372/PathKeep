@@ -116,6 +116,7 @@ impl Store {
             rejected_pair: Default::default(),
             initial_access_refusal: Default::default(),
             pending_anchors: Default::default(),
+            table_writes: Default::default(),
             availability_events: Default::default(),
             conversation_failure: RwLock::default(),
             closed: false.into(),

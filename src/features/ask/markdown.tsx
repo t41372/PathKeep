@@ -2,16 +2,25 @@
  * Renders the assistant's markdown while it streams.
  *
  * Streamdown's own utility classes are not part of our Tailwind scan, so the
- * typography is set here. Links open in the system browser and code has no
- * highlighter (no extra dependency for something a history answer rarely has).
- * A link the model wrote opens like a page from History: a local file only if
- * the user visited it.
+ * typography is set here. Code has no highlighter (no extra dependency for
+ * something a history answer rarely has). A link the model wrote opens like
+ * a page from History, in the system browser, and a local file only if the
+ * user visited it. A `pathkeep://conversation/open?…` link (what the model
+ * is told to cite an Agent conversation with) opens the Agent reader at that
+ * record inside the app; any other `pathkeep:` link is plain text.
  */
 import { memo, type ComponentProps } from 'react'
-import { Streamdown, type Components } from 'streamdown'
+import { Link } from 'react-router-dom'
+import {
+  defaultRehypePlugins,
+  Streamdown,
+  type Components,
+  type StreamdownProps,
+} from 'streamdown'
 import { useOpenPage } from '@/features/history/open-link'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
+import { agentRecordPath, conversationLinkTarget } from '@/lib/spaces'
 
 const prose = cn(
   'text-[15px] leading-[1.65] break-words',
@@ -30,6 +39,35 @@ const prose = cn(
   '[&_td]:border-b [&_td]:px-2 [&_td]:py-1.5',
 )
 
+type Plugins = NonNullable<StreamdownProps['rehypePlugins']>
+type SanitizeSchema = { protocols?: Record<string, string[] | undefined> }
+
+/**
+ * Streamdown's own plugins in their order, except that the sanitizer keeps
+ * `pathkeep:` links: its default list of protocols would drop the address of
+ * a conversation link before `AnswerLink` sees it.
+ */
+const rehypePlugins: Plugins = Object.values({
+  ...defaultRehypePlugins,
+  sanitize: (() => {
+    const [sanitize, schema] = defaultRehypePlugins.sanitize as unknown as [
+      unknown,
+      SanitizeSchema,
+    ]
+    const protocols = schema.protocols ?? {}
+    return [
+      sanitize,
+      {
+        ...schema,
+        protocols: {
+          ...protocols,
+          href: [...(protocols.href ?? []), 'pathkeep'],
+        },
+      },
+    ] as unknown as Plugins[number]
+  })(),
+})
+
 function ExternalLink({ href, children }: ComponentProps<'a'>) {
   const { t } = useI18n()
   const openPage = useOpenPage()
@@ -46,8 +84,22 @@ function ExternalLink({ href, children }: ComponentProps<'a'>) {
   )
 }
 
+function AnswerLink({ href, children }: ComponentProps<'a'>) {
+  const record = href ? conversationLinkTarget(href) : null
+  if (record)
+    return (
+      <Link to={agentRecordPath(record.conversationId, record)}>
+        {children}
+      </Link>
+    )
+  // Nothing outside the app can open one, and inside it only conversations have links.
+  if (href?.toLowerCase().startsWith('pathkeep:'))
+    return <span>{children}</span>
+  return <ExternalLink href={href}>{children}</ExternalLink>
+}
+
 // Streamdown types `components` with an index signature our component cannot satisfy.
-const components = { a: ExternalLink } as Components
+const components = { a: AnswerLink } as Components
 
 export const Markdown = memo(function Markdown({
   content,
@@ -63,6 +115,7 @@ export const Markdown = memo(function Markdown({
         controls={false}
         lineNumbers={false}
         linkSafety={{ enabled: false }}
+        rehypePlugins={rehypePlugins}
         components={components}
       >
         {content}

@@ -236,6 +236,14 @@ pub(crate) fn view(tx: &Session<'_>) -> vault_store::Result<(i64, i64)> {
     tx.query_one("SELECT c.publication,m.generation FROM ah_chat_clock c JOIN ah_state_generation m ON m.id=1 WHERE c.id=1",(),|r|Ok((r.get(0)?,r.get(1)?)))
 }
 impl Archive {
+    /// Current display title for a local Ask citation, including a user rename.
+    pub fn citation_title(&self, id: &str) -> Result<Option<String>> {
+        self.ensure_state_visible()?;
+        let id = id.to_owned();
+        Ok(self.store.read(DB, move |tx|tx.query_one(&format!(
+            "SELECT coalesce(u.title,s.title){JOIN} WHERE s.live=1 AND s.id=?1 AND u.trashed_at IS NULL"
+        ), [id], |r| Ok(r.get::<Option<String>>(0)?)).optional().map(Option::flatten))?)
+    }
     /// Lets a backup notification and a list response identify the same committed screen view.
     pub fn chat_view_token(&self) -> Result<String> {
         let (heads, marks) = self.store.read(DB, view)?;

@@ -6,6 +6,16 @@
       "title": "StoredSettings",
       "type": "object",
       "properties": {
+        "onboardingChoices": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OnboardingChoices"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "agentViewer": {
           "$ref": "#/$defs/AgentViewerSettings"
         },
@@ -243,6 +253,50 @@
         }
       },
       "$defs": {
+        "OnboardingChoices": {
+          "type": "object",
+          "properties": {
+            "kinds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/DataKind"
+              }
+            },
+            "agentTools": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/AgentTool"
+              }
+            },
+            "readGit": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kinds",
+            "agentTools",
+            "readGit"
+          ]
+        },
+        "DataKind": {
+          "type": "string",
+          "enum": [
+            "browsing",
+            "agent-history"
+          ]
+        },
+        "AgentTool": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "pi",
+            "deepseek"
+          ]
+        },
         "AgentViewerSettings": {
           "type": "object",
           "properties": {
@@ -330,15 +384,6 @@
             "on",
             "paused",
             "off"
-          ]
-        },
-        "AgentTool": {
-          "type": "string",
-          "enum": [
-            "claude-code",
-            "codex",
-            "pi",
-            "deepseek"
           ]
         },
         "AgentHint": {

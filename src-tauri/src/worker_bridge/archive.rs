@@ -34,6 +34,11 @@ pub(crate) fn initialize_archive_with_progress_impl(
         config = live.clone();
     }
     super::data_kinds::settings_result(vault_worker::data_kinds::validate_config_input(&config))?;
+    if !live.initialized && live.onboarding_choices.as_ref().is_some_and(|d| d.kinds.is_empty()) {
+        return super::data_kinds::surface_result(Err(
+            vault_worker::data_kinds::Refusal::LastActive.into(),
+        ));
+    }
     config.capture_policy = live.capture_policy;
     if paths.archive_db.exists() {
         if live.archive_mode != config.archive_mode {

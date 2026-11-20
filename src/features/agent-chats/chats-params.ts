@@ -1,6 +1,7 @@
 /**
- * The list's state in the URL (`agent-history.md` §3.1): the search and
- * what it searches, project, tools, range or day, "only" flags, sort,
+ * The list's state in the URL (`agent-history.md` §3.1): the search, how
+ * it matches (words or meaning) and what it searches, project, tools,
+ * range or day, "only" flags, sort,
  * group, the open conversation, and the reader's find and record.
  * Defaults are left out of the URL, so a plain `#/agent/chats` is the
  * default list, and a link from anywhere (Insights' calendar, ⌘K) opens
@@ -28,6 +29,7 @@ import {
   SEARCH_ROLES,
   type SearchRequest,
   type SearchRole,
+  type SemanticSearchRequest,
 } from '@/lib/backend-client/agent-search'
 import { isDateKey } from '@/lib/time-zone'
 
@@ -58,6 +60,14 @@ export const SORTS: readonly ChatSort[] = [
 ]
 export const GROUPS: readonly ChatGroup[] = ['day', 'project', 'none']
 
+/**
+ * How a search matches: the words as written (`text`: words, a "phrase"
+ * or a /regular expression/), or passages close in meaning from the
+ * semantic index (`semantic`, `mode=semantic` in the URL).
+ */
+export type ChatSearchMode = 'text' | 'semantic'
+export const SEARCH_MODES: readonly ChatSearchMode[] = ['text', 'semantic']
+
 /** Sorts that put a number on each row, and cannot be grouped by date. */
 export function isMetricSort(sort: ChatSort) {
   return sort === 'agentTime' || sort === 'tokens' || sort === 'turns'
@@ -72,6 +82,8 @@ export interface RecordAt {
 export interface ChatsParams {
   /** The search; `null` shows the list. */
   q: string | null
+  /** Kept without a search, so the next one matches the same way. */
+  mode: ChatSearchMode
   /** What a search reads besides titles; all four by default. */
   roles: SearchRole[]
   project: string | null
@@ -137,6 +149,7 @@ export function parseChatsParams(
     : [...SEARCH_ROLES]
   return {
     q: params.get('q')?.trim() ? params.get('q') : null,
+    mode: oneOf(params.get('mode'), SEARCH_MODES, 'text'),
     roles: roles.length > 0 ? roles : [...SEARCH_ROLES],
     project: fixedProject ?? (params.get('project') || null),
     fixedProject: fixedProject !== null,
@@ -158,6 +171,7 @@ function write(params: URLSearchParams, next: ChatsParams) {
     else params.set(key, value)
   }
   set('q', next.q)
+  set('mode', next.mode, 'text')
   set(
     'roles',
     next.roles.length === SEARCH_ROLES.length
@@ -270,6 +284,18 @@ export function searchRequest(
       timeZone,
     },
   }
+}
+
+/**
+ * The same search by meaning: the same text, kinds of text and filters,
+ * passages instead of cards.
+ */
+export function semanticRequest(
+  params: ChatsParams,
+  timeZone: string | undefined,
+): SemanticSearchRequest | null {
+  const words = searchRequest(params, timeZone)
+  return words && { mode: 'semantic', ...words }
 }
 
 /**

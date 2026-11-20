@@ -171,6 +171,7 @@ impl VaultSession {
             eprintln!("PathKeep could not prepare retained conversations: {error:#}");
         }
         crate::data_kinds::backups::observe_availability(self, &archive.vault);
+        let paths = archive.vault.paths().clone();
         let old = {
             let mut state = self.inner.0.lock().expect("session state");
             state.password = password.map(Zeroizing::new);
@@ -185,6 +186,7 @@ impl VaultSession {
             crate::data_kinds::delivery::revoke(&old.paths().app_root);
             old.close()?;
         }
+        crate::data_kinds::backups::notify_browsing_tasks(&self.conversations, &paths);
         keyring_result.map_err(|error| KeychainNotUpdated(error).into())
     }
 

@@ -14,6 +14,7 @@ export const agentTasks = defineMessages({
     names: {
       backup: 'Back up Agent conversations',
       firstSave: 'Save Agent conversations for the first time',
+      semanticIndex: 'Index Agent conversations for semantic search',
     },
     progress: {
       waiting: 'Waiting to start',
@@ -30,6 +31,8 @@ export const agentTasks = defineMessages({
       indexing: 'Making what was saved searchable',
       finishing: 'Finishing up',
       stopping: 'Stopping',
+      passages_one: '{count} passage read so far',
+      passages_other: '{count} passages read so far',
       join: ' · ',
     },
     availability: {
@@ -176,6 +179,7 @@ export const agentTasks = defineMessages({
     names: {
       backup: '备份 Agent 对话',
       firstSave: '第一次保存 Agent 对话',
+      semanticIndex: '为 Agent 对话建立语义搜索索引',
     },
     progress: {
       waiting: '等着开始',
@@ -192,6 +196,8 @@ export const agentTasks = defineMessages({
       indexing: '正在让存下的内容可以搜索',
       finishing: '正在收尾',
       stopping: '正在停下',
+      passages_one: '已读 {count} 个段落',
+      passages_other: '已读 {count} 个段落',
       join: ' · ',
     },
     availability: {
@@ -318,6 +324,7 @@ export const agentTasks = defineMessages({
     names: {
       backup: '備份 Agent 對話',
       firstSave: '第一次保存 Agent 對話',
+      semanticIndex: '為 Agent 對話建立語意搜尋索引',
     },
     progress: {
       waiting: '等著開始',
@@ -334,6 +341,8 @@ export const agentTasks = defineMessages({
       indexing: '正在讓存下的內容可以搜尋',
       finishing: '正在收尾',
       stopping: '正在停下',
+      passages_one: '已讀 {count} 個段落',
+      passages_other: '已讀 {count} 個段落',
       join: ' · ',
     },
     availability: {

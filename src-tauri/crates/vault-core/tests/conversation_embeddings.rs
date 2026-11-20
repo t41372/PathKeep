@@ -139,6 +139,7 @@ fn model2vec_ranks_a_paraphrase_above_an_unrelated_conversation() {
         .unwrap();
     let unrelated_score: f32 = q[0].iter().zip(&other[0]).map(|(x, y)| x * y).sum();
     let hits = ranked.hits;
+    assert_eq!(hits.len(), 2);
     assert!(hits[0].score > unrelated_score);
     let first = archive.ai_passage(hits[0].event, hits[0].chunk).unwrap().unwrap();
     assert!(first.text.contains("veterinarian"), "{first:?}");

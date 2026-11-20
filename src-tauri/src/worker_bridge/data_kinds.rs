@@ -192,3 +192,9 @@ pub(crate) fn create_archive_safety_copy_impl(
 ) -> Result<vault_core::RecoverySnapshot, CommandError> {
     surface_result(kinds::repair::create_safety_copy(s, r))
 }
+
+pub(crate) fn save_onboarding_choices_impl(
+    q: vault_core::OnboardingChoices,
+) -> Result<vault_core::OnboardingChoices, CommandError> {
+    surface_result(kinds::save_onboarding_choices(q))
+}

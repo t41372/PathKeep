@@ -124,6 +124,14 @@ fn app_surface_policy_contract() {
         dispatch_command(&state, "lock_app_session", json!({"reason":"manual"})).await.unwrap();
         for (command, request) in [
             ("get_agent_settings", json!({"request":{}})),
+            (
+                "save_onboarding_choices",
+                json!({"request":{"kinds":["browsing"],"agentTools":[],"readGit":true}}),
+            ),
+            (
+                "cancel_agent_export",
+                json!({"request":{"exportId":"fd25afcf-5aa6-483b-9d23-fa932b76b9c0"}}),
+            ),
             ("list_data_kinds", json!({"request":{"includeArchiveBytes":true}})),
             ("get_agent_viewer_preferences", json!({"request":{}})),
             ("set_agent_viewer_preferences", json!({"request":{"assistantMayRead":true}})),
@@ -330,7 +338,6 @@ fn damaged_conversation_store_refuses_each_backup_and_tasks_command() {
             ("get_agent_overview", json!({"purpose":"backup"})),
             ("list_agent_sources", json!({"limit":1})),
             ("list_background_tasks", json!({"group":"attention","limit":1})),
-            ("get_task_summary", json!({})),
             (
                 "control_background_task",
                 json!({"taskId":"missing","action":"cancel","expectedToken":"p","requestId":"q"}),
@@ -342,6 +349,10 @@ fn damaged_conversation_store_refuses_each_backup_and_tasks_command() {
                 dispatch_command(&state, command, json!({"request":request})).await.unwrap_err();
             assert_eq!(error.code.as_deref(), Some("kind-unavailable"), "{command}: {error:?}");
         }
+        let summary =
+            dispatch_command(&state, "get_task_summary", json!({"request":{}})).await.unwrap();
+        assert_eq!(summary["unavailableKinds"], json!(["agent-history"]));
+        assert_eq!(summary["runningCount"], 0);
         let snapshot =
             dispatch_command(&state, "list_data_kinds", json!({"request":{}})).await.unwrap();
         assert_eq!(snapshot["kinds"][0]["availability"], "available");
@@ -353,6 +364,14 @@ fn damaged_conversation_store_refuses_each_backup_and_tasks_command() {
             vault_core::save_config(&gate, &config).unwrap();
         }
         dispatch_command(&state, "lock_app_session", json!({"reason":"manual"})).await.unwrap();
+        assert_eq!(
+            dispatch_command(&state, "get_task_summary", json!({"request":{}}))
+                .await
+                .unwrap_err()
+                .code
+                .as_deref(),
+            Some("lock-required")
+        );
         for (command, request) in requests {
             let error =
                 dispatch_command(&state, command, json!({"request":request})).await.unwrap_err();
@@ -776,3 +795,73 @@ fn conversation_repair_screen_wire_contract() {
 
 #[path = "chat_wire_tests.rs"]
 mod chat_wire;
+
+#[test]
+fn onboarding_choices_are_a_window_contract_before_setup() {
+    let (_guard, _platform) = isolated_env();
+    let root = tempdir().unwrap();
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+    }
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(async {
+        let draft = json!({"kinds":["browsing","agent-history"],"agentTools":["codex","pi"],"readGit":false});
+        let saved = dispatch_command(&state, "save_onboarding_choices", json!({"request":draft}))
+            .await
+            .unwrap();
+        assert_eq!(saved, draft);
+        let init = dispatch_command(&state, "initialize_archive", json!({"config":test_config()}))
+            .await
+            .unwrap();
+        assert!(init["config"].get("onboardingChoices").is_none());
+        assert_eq!(init["config"]["capturePolicy"]["agentHistory"], "on");
+        assert_eq!(init["config"]["capturePolicy"]["enabledTools"], json!(["codex", "pi"]));
+        let err = dispatch_command(&state, "save_onboarding_choices", json!({"request":draft}))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code.as_deref(), Some("archive-already-initialized"));
+    });
+}
+
+#[test]
+fn browsing_queue_commits_reach_the_tasks_event_stream() {
+    let (_guard, _platform) = isolated_env();
+    let root = tempdir().unwrap();
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+    }
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(async {
+        dispatch_command(&state, "initialize_archive", json!({"config":test_config()}))
+            .await
+            .unwrap();
+        let observed = state.events.observe();
+        let vault = state.session.vault().unwrap();
+        let queued = vault_core::ai_queue::enqueue_index_job(
+            &vault,
+            &serde_json::from_value(json!({"clearOnly":true,"fullRebuild":false})).unwrap(),
+            true,
+        )
+        .unwrap();
+        assert!(observed().iter().any(|(n, v)| *n == "pathkeep://background-tasks-changed"
+            && *v == json!({"kind":"browsing","taskId":null})));
+        let waiting = dispatch_command(
+            &state,
+            "list_background_tasks",
+            json!({"request":{"group":"waiting","kind":"browsing","limit":10}}),
+        )
+        .await
+        .unwrap();
+        assert!(
+            waiting["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["taskId"] == format!("browsing:index/{}", queued.id))
+        );
+        vault_core::ai_queue::cancel_ai_job(&vault, queued.id).unwrap();
+        assert!(observed().iter().any(|(n, _)| *n == "pathkeep://background-tasks-changed"));
+    });
+}

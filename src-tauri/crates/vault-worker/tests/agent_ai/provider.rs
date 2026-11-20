@@ -11,7 +11,9 @@ use std::{
     thread,
     time::Duration,
 };
+type Hook = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
 pub struct Provider {
+    pub on_embed: Hook,
     pub url: String,
     pub requests: Arc<Mutex<Vec<(String, Value)>>>,
     stop: Arc<AtomicBool>,
@@ -24,18 +26,20 @@ impl Provider {
         listener.set_nonblocking(true).unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let log = requests.clone();
+        let on_embed: Hook = Default::default();
+        let hook = on_embed.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = stop.clone();
         let thread = thread::spawn(move || {
             while !stopped.load(Ordering::Acquire) {
                 if let Ok((socket, _)) = listener.accept() {
-                    serve(socket, &log);
+                    serve(socket, &log, &hook);
                 } else {
                     thread::sleep(Duration::from_millis(5));
                 }
             }
         });
-        Self { url, requests, stop, thread: Some(thread) }
+        Self { on_embed, url, requests, stop, thread: Some(thread) }
     }
 }
 impl Drop for Provider {
@@ -44,7 +48,7 @@ impl Drop for Provider {
         self.thread.take().unwrap().join().unwrap();
     }
 }
-fn serve(mut socket: TcpStream, log: &Mutex<Vec<(String, Value)>>) {
+fn serve(mut socket: TcpStream, log: &Mutex<Vec<(String, Value)>>, hook: &Hook) {
     socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     let mut input = BufReader::new(&socket);
     let mut request = String::new();
@@ -67,8 +71,11 @@ fn serve(mut socket: TcpStream, log: &Mutex<Vec<(String, Value)>>) {
     let q: Value = serde_json::from_slice(&bytes).unwrap_or_default();
     log.lock().unwrap().push((path.clone(), q.clone()));
     let (mime, body) = if path.ends_with("/embeddings") {
+        if let Some(call) = hook.lock().unwrap().take() {
+            call();
+        }
         let inputs = q["input"].as_array().unwrap();
-        let data=inputs.iter().enumerate().map(|(i,v)|json!({"object":"embedding","index":i,"embedding":if v.as_str().unwrap().contains("kitten"){[1.,0.,0.]}else{[0.,1.,0.]}})).collect::<Vec<_>>();
+        let data=inputs.iter().enumerate().map(|(i,v)|json!({"object":"embedding","index":i,"embedding":if v.as_str().unwrap().contains("kitten"){[1.,0.,0.]}else if v.as_str().unwrap().contains("opposite"){[-1.,0.,0.]}else{[0.,1.,0.]}})).collect::<Vec<_>>();
         ("application/json",json!({"object":"list","model":"fixture","data":data,"usage":{"prompt_tokens":1,"total_tokens":1}}).to_string())
     } else if path.ends_with("/chat/completions") {
         let tools = q["tools"]

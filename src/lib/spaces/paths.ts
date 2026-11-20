@@ -72,6 +72,44 @@ export function agentChatPath(id: string) {
 }
 
 /**
+ * Records with one conversation open at one of its records (`?chat=…&at=…`,
+ * the ordinal first so the source id can hold anything): where a semantic
+ * search result, an Ask citation or a `pathkeep://conversation/open` link
+ * leads.
+ */
+export function agentRecordPath(
+  id: string,
+  at: { sourceId: string; ordinal: number },
+) {
+  const search = new URLSearchParams({
+    chat: id,
+    at: `${at.ordinal}:${at.sourceId}`,
+  })
+  return `/${'agent' satisfies SpaceWithPagesId}/chats?${search.toString()}`
+}
+
+/**
+ * The record a `pathkeep://conversation/open?conversationId=…&sourceId=…&ordinal=…`
+ * link names (what Ask's model is told to cite, and what MCP returns), or
+ * null for any other link.
+ */
+export function conversationLinkTarget(href: string) {
+  let link: URL
+  try {
+    link = new URL(href)
+  } catch {
+    return null
+  }
+  if (link.protocol !== 'pathkeep:' || link.host !== 'conversation') return null
+  const conversationId = link.searchParams.get('conversationId')
+  const sourceId = link.searchParams.get('sourceId')
+  const ordinal = Number(link.searchParams.get('ordinal'))
+  return conversationId && sourceId && Number.isInteger(ordinal) && ordinal >= 0
+    ? { conversationId, sourceId, ordinal }
+    : null
+}
+
+/**
  * The Agent space's Insights (`#/agent/insights`); with a project, only
  * that project's conversations (`?project=<id>`).
  */

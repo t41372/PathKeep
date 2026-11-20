@@ -320,6 +320,8 @@ fn observe(operation: Operation, control: &str) -> Observation {
             use vault_worker::data_kinds::{self as kinds, preview};
             let quiet: backups::Events = Arc::new(|_, _| {});
             let failures = [
+                error(kinds::save_onboarding_choices(from_value(json!({"kinds":["browsing"],"agentTools":[],"readGit":false})).unwrap())),
+                error(kinds::exports::cancel(from_value(json!({"exportId":"f1e73842-94c8-40bd-935d-255e6ace76b3"})).unwrap())),
                 error(backups::enable(&f.session,from_value(json!({"previewId":"preview","selectedRootIds":[],"expectedPolicyToken":"old","readGit":false,"requestId":"id"})).unwrap(),quiet.clone())),
                 error(backups::start(&f.session,from_value(json!({"scope":{"type":"kind","kind":"agent-history"},"requestId":"id"})).unwrap(),quiet.clone())),
                 error(backups::list_runs(&f.session,from_value(json!({"includeArchiveWide":true,"limit":1})).unwrap())),
@@ -329,6 +331,8 @@ fn observe(operation: Operation, control: &str) -> Observation {
                 error(backups::tasks(&f.session,from_value(json!({"group":"attention","limit":1})).unwrap())),
                 error(backups::task_summary(&f.session,from_value(json!({})).unwrap())),
                 error(backups::control(&f.session,from_value(json!({"taskId":"task","action":"retry","expectedToken":"old","requestId":"id"})).unwrap(),quiet)),
+                error(kinds::semantic::preview_free(&f.session,from_value(json!({})).unwrap())),
+                error(kinds::semantic::free(&f.session,from_value(json!({"previewId":"f1e73842-94c8-40bd-935d-255e6ace76b3","confirm":true})).unwrap())),
                 error(kinds::list(&f.session)),
                 error(kinds::settings()),
                 error(kinds::retry_agent_store(&f.session,|_|{})),

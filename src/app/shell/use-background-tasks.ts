@@ -1,28 +1,26 @@
 /**
- * What the rail's background-task indicator shows, from work the app already
- * follows on every screen.
+ * What the rail's background-task indicator shows, for every kind at once.
  *
  * Responsibilities: one list of running tasks and two counts, from
- * - the backup runner (a backup started here, with its progress events);
- * - the Takeout and browser-file imports (`import-runner.tsx`);
- * - the search-index queue's counts and running jobs in the app snapshot,
- *   which is read again when a backup or an import ends, when Settings
- *   starts index work, and when the queue reports a job ended;
- * - the last backup, which needs a look when it failed (the same signal as
- *   Home's backup status), until a backup succeeds;
- * - conversation backups (`get_task_summary`): those running, in the units
- *   they have (no percentage: no total is known until they end), and how
- *   many need a look. The frame keeps that answer current from the
- *   backend's task events (`useAgentBackupSync`); it is read only while
- *   Agent conversations are on or paused and their store opens.
+ * - the backend's summary (`get_task_summary`): running work of every kind
+ *   (browsing backups and imports, the Insights and search-index queues,
+ *   work on the whole archive, conversation backups, the conversations'
+ *   semantic index build), and its own totals of what waits and what needs
+ *   a look. The frame keeps it current from the backend's events: the
+ *   ledger's (`useBackgroundTasksSync`), conversation backups'
+ *   (`useAgentBackupSync`) and the semantic build's
+ *   (`useAgentSemanticSync`);
+ * - this window's own browsing backup and imports, which report progress
+ *   as they go: their figures go on the ledger's row of the same run type
+ *   (`useLiveWork`), and one started a moment ago is listed before the
+ *   ledger has been read again.
  *
- * It adds no polling. So it leaves out what nothing follows outside the
- * background tasks page (`#/tasks`): the Insights queue's jobs, and a live
- * percentage for an index job (the snapshot's figure would stand still).
+ * It adds no polling and no reads of its own. Conversation backups and the
+ * semantic build show no percentage: no total is known until they end.
  *
  * Not responsible for: drawing (`task-indicator.tsx`), or the page's full
  * lists (`features/tasks/`), which take the window's own work from
- * `useWindowWork`.
+ * `useLiveWork` too.
  */
 import { useMemo } from 'react'
 import { useBackupRunner } from '@/app/backup-runner'
@@ -30,16 +28,20 @@ import {
   useBrowserImport,
   useTakeoutImport,
 } from '@/features/backup/import-runner'
-import { useJobViews } from '@/features/settings/background/job-view'
 import { taskName, taskProgressText } from '@/features/agent-backup/words'
+import { browsingTaskName } from '@/features/tasks/task-entry'
 import type { KindTask } from '@/lib/backend-client/agent-backup'
-import { useFormat, useI18n } from '@/lib/i18n'
 import {
-  useAgentKind,
-  useTaskSummary,
-  wireNumber,
-} from '@/lib/queries/agent-backup'
-import { useSnapshot } from '@/lib/queries/app'
+  browsingTaskSource,
+  type BrowsingTask,
+} from '@/lib/backend-client/background-tasks'
+import {
+  useFormat,
+  useI18n,
+  type Formatters,
+  type Translator,
+} from '@/lib/i18n'
+import { useTaskSummary, wireNumber } from '@/lib/queries/agent-backup'
 import type { ImportProgressEvent } from '@/lib/types'
 
 export interface BackgroundTask {
@@ -56,11 +58,14 @@ export interface BackgroundTask {
 
 export interface BackgroundTasks {
   running: BackgroundTask[]
+  /** Waiting work of every kind, paused work included. */
   queued: number
-  /** The last backup when it failed, to open its details. */
-  failedRun: number | null
-  /** Conversation backups that need a look (the background tasks page lists them). */
-  kindAttention: number
+  /**
+   * What the background tasks page lists under "Needs a look", every kind
+   * counted: failed or partial work nobody dismissed, conversation backups
+   * that did not save everything, format notices.
+   */
+  attention: number
 }
 
 function clampPercent(value: number | null | undefined) {
@@ -150,29 +155,75 @@ export function useWindowWork(): BackgroundTask[] {
   }, [t, backup.running, backup.progress, takeout, browserFile])
 }
 
+/**
+ * This window's own browsing work, by the run type the ledger gives it
+ * (`backup`, `import`): its live figures go on the ledger's row of the
+ * same type, so it is listed once, with what this window knows.
+ */
+export type LiveWork = Partial<Record<string, BackgroundTask>>
+
+export function useLiveWork(): LiveWork {
+  const windowWork = useWindowWork()
+  return useMemo(
+    () => ({
+      backup: windowWork.find((work) => work.id === 'backup'),
+      import: windowWork.find((work) => work.id !== 'backup'),
+    }),
+    [windowWork],
+  )
+}
+
+/** Running work on the run ledger, as the rail lists it. */
+function ledgerTask(
+  t: Translator,
+  format: Formatters,
+  task: BrowsingTask,
+  live: BackgroundTask | undefined,
+): BackgroundTask {
+  const name = browsingTaskName(t, task)
+  if (live) return { ...live, id: `ledger-${task.taskId}`, name: live.name }
+  const progress = task.progress
+  return {
+    id: `ledger-${task.taskId}`,
+    name,
+    percent:
+      progress?.total && progress.total > 0
+        ? clampPercent((progress.done / progress.total) * 100)
+        : null,
+    preparing: false,
+    detail: progress
+      ? progress.total
+        ? t('tasks.row.progress', {
+            done: format.number(progress.done),
+            total: format.number(progress.total),
+          })
+        : t('tasks.row.done', { count: progress.done })
+      : null,
+  }
+}
+
 export function useBackgroundTasks(): BackgroundTasks {
   const { t } = useI18n()
   const format = useFormat()
   const windowWork = useWindowWork()
-  const summaryQuery = useTaskSummary()
-  // A kind turned off keeps its last answer in the cache; it is not current.
-  const summary = useAgentKind().readable ? summaryQuery.data : undefined
-  const { aiStatus, recentRuns } = useSnapshot()
-  const { fromAiQueue } = useJobViews()
+  const live = useLiveWork()
+  const summary = useTaskSummary().data
 
   return useMemo(() => {
-    const running: BackgroundTask[] = [...windowWork]
+    const running: BackgroundTask[] = []
+    const shown = new Set<string>()
 
-    for (const job of aiStatus.recentJobs) {
-      if (job.state !== 'running') continue
-      running.push({
-        id: `ai-${job.id}`,
-        name: fromAiQueue(job).name,
-        percent: null,
-        preparing: false,
-        detail: null,
-      })
+    // The ledger's running rows, with this window's live figures on its own.
+    for (const task of summary?.ledger ?? []) {
+      const mine =
+        task.kind === 'browsing' && browsingTaskSource(task) === 'run'
+          ? live[task.operation]
+          : undefined
+      if (mine) shown.add(mine.id)
+      running.push(ledgerTask(t, format, task, mine))
     }
+    // Started here a moment ago: the ledger has not been read again yet.
+    for (const work of windowWork) if (!shown.has(work.id)) running.push(work)
 
     for (const task of summary?.running ?? []) {
       running.push({
@@ -185,12 +236,26 @@ export function useBackgroundTasks(): BackgroundTasks {
       })
     }
 
-    const last = recentRuns[0]
+    // A paused build waits; the backend counts it in `queuedCount`.
+    const semantic = summary?.semantic
+    if (semantic && semantic.state !== 'paused')
+      running.push({
+        id: `semantic-${semantic.taskId}`,
+        name: t('agentTasks.names.semanticIndex'),
+        percent: null,
+        preparing: false,
+        detail:
+          semantic.state === 'cancelling'
+            ? t('agentTasks.progress.stopping')
+            : t('agentTasks.progress.passages', {
+                count: Number(semantic.progress.done),
+              }),
+      })
+
     return {
       running,
-      queued: aiStatus.queuedJobs + (summary?.queuedCount ?? 0),
-      failedRun: last?.status === 'failed' ? last.id : null,
-      kindAttention: wireNumber(summary?.attentionCount),
+      queued: summary?.queuedCount ?? 0,
+      attention: wireNumber(summary?.attentionCount),
     }
-  }, [t, format, summary, windowWork, aiStatus, recentRuns, fromAiQueue])
+  }, [t, format, summary, windowWork, live])
 }

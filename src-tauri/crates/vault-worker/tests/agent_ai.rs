@@ -3,6 +3,8 @@
 #[allow(dead_code)]
 #[path = "../../agent-history/tests/support/fixtures.rs"]
 mod fixtures;
+#[path = "agent_ai/paging.rs"]
+mod paging;
 #[path = "agent_ai/provider.rs"]
 mod provider;
 #[allow(dead_code)]
@@ -175,7 +177,7 @@ fn provider_receives_only_the_independently_authorized_content() {
                 hits.extend(e["payload"]["items"].as_array().unwrap().clone());
             }
         }
-        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert!(hits.iter().any(|h| h["text"].as_str().unwrap().contains("UNRELATED_MARKER")));
         assert!(hits[0]["text"].as_str().unwrap().contains("CITED_MARKER"));
     });
     let sent = std::mem::take(&mut *p.requests.lock().unwrap());
@@ -363,6 +365,9 @@ fn encrypted_build_can_pause_and_cancel_while_the_previous_generation_serves() {
         }),
     )
     .unwrap();
+    assert!(
+        vault_worker::foreground_work().contains(&vault_worker::ForegroundWork::AgentSemanticIndex)
+    );
     assert_eq!(wait("paused")["serving"], first["serving"]);
     let mut search = kinds::chats::search(
         &f.session,
@@ -377,7 +382,7 @@ fn encrypted_build_can_pause_and_cancel_while_the_previous_generation_serves() {
                 matches += frame["payload"]["items"].as_array().unwrap().len();
             }
         }
-        assert_eq!(matches, 1);
+        assert_eq!(matches as u64, first["serving"]["passages"].as_u64().unwrap());
     });
     semantic::control(
         &f.session,
@@ -386,6 +391,48 @@ fn encrypted_build_can_pause_and_cancel_while_the_previous_generation_serves() {
     )
     .unwrap();
     assert_eq!(wait("cancelled")["serving"], first["serving"]);
+    assert!(
+        !vault_worker::foreground_work()
+            .contains(&vault_worker::ForegroundWork::AgentSemanticIndex)
+    );
+    assert_eq!(p.requests.lock().unwrap().len(), initial + 1);
+    let empty = || from_value(json!({})).unwrap();
+    prefs(&f, json!({"buildSemanticIndex":false}));
+    let off = status();
+    assert!(off["serving"].is_null());
+    let expected = std::fs::metadata(root.join("current")).unwrap().len()
+        + std::fs::read_dir(root.join(first["serving"]["generation"].as_str().unwrap()))
+            .unwrap()
+            .map(|entry| entry.unwrap().metadata().unwrap().len())
+            .sum::<u64>();
+    assert_eq!(off["keptBytes"], expected.to_string());
+    let preview = semantic::preview_free(&f.session, empty()).unwrap();
+    let request =
+        |yes: bool| from_value(json!({"previewId":preview["previewId"],"confirm":yes})).unwrap();
+    assert!(semantic::free(&f.session, request(false)).is_err());
+    assert_eq!(preview["keptBytes"], status()["keptBytes"]);
+    let freed = semantic::free(&f.session, request(true)).unwrap();
+    assert_eq!(freed["freedBytes"], preview["keptBytes"]);
+    assert!(semantic::free(&f.session, request(true)).is_err());
+    assert_eq!(status()["keptBytes"], "0");
+    assert!(!root.join("current").exists());
+    assert!(
+        f.vault()
+            .agent_history()
+            .unwrap()
+            .search_page(
+                &agent_history::SearchQuery {
+                    text: "kitten".into(),
+                    harness: None,
+                    project_path: None,
+                    limit: 1
+                },
+                0
+            )
+            .unwrap()
+            .total
+            > 0
+    );
     assert_eq!(p.requests.lock().unwrap().len(), initial + 1);
 }
 
@@ -410,6 +457,28 @@ fn a_saved_citation_reopens_at_the_record_and_revocation_excludes_its_reply_from
         encoded.contains(r#""kind":"conversation""#) && encoded.contains("sourceId"),
         "{encoded}"
     );
+    let citation = saved.messages.iter().flat_map(|m| &m.citations).next().unwrap();
+    let vault_core::ConversationCitation::Conversation { conversation_id, .. } =
+        citation.target.as_ref().unwrap();
+    kinds::chats::edit(
+        &f.session,
+        from_value(json!({"action":"rename","id":conversation_id,"title":"[Feline] care"}))
+            .unwrap(),
+        events(),
+    )
+    .unwrap();
+    f.vault().store().write(vault_store::Db::Agent,vault_store::Priority::Interactive,|s|{
+        s.execute("INSERT INTO agent_citations(run_id,history_id,canonical_url,url,title) SELECT run_id,999,'https://fixture.test','https://fixture.test','Reference' FROM agent_citations LIMIT 1",())?;
+        Ok(())
+    }).unwrap();
+    for (label, expected) in [(None, "Conversations used"), (Some("引用的對話"), "引用的對話")]
+    {
+        let request=from_value(json!({"id":"chat","labels":{"untitled":"Untitled","you":"You","assistant":"Assistant","pagesUsed":"Pages used","conversationsUsed":label}})).unwrap();
+        let md = vault_core::conversation_markdown(f.vault(), &request).unwrap().unwrap().markdown;
+        assert!(md.contains("Pages used:\n\n1. [Reference](<https://fixture.test>)"), "{md}");
+        assert!(md.contains(&format!("{expected}:\n\n1. \\[Feline\\] care")), "{md}");
+        assert!(!md.contains("pathkeep://"), "{md}");
+    }
     prefs(&f, json!({"assistantMayRead":false}));
     p.requests.lock().unwrap().clear();
     send(
@@ -429,7 +498,7 @@ fn a_first_save_with_all_three_grants_off_never_contacts_the_configured_provider
     save_reviewed_pi(&f, &f.temp.path().join("pi"));
     assert!(p.requests.lock().unwrap().is_empty());
     let status = semantic::status(&f.session, from_value(json!({})).unwrap()).unwrap();
-    assert_eq!(status, json!({"enabled":false,"serving":null,"job":null}));
+    assert_eq!(status, json!({"enabled":false,"serving":null,"job":null,"keptBytes":"0"}));
     assert!(
         !f.paths()
             .artifact_path(vault_layout::ArtifactId::AgentHistorySearch)

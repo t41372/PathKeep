@@ -1,6 +1,7 @@
 /**
- * Records while searching (`agent-history.md` §3.4): which kinds of text
- * are searched, how far the search is (said aloud as it goes), and every
+ * Records while searching the full text (`agent-history.md` §3.4): how it
+ * matches and which kinds of text are searched (`search-controls.tsx`),
+ * how far the search is (said aloud as it goes), and every
  * matching conversation as it arrives, in a virtualized list. When it
  * ends: the exact numbers, or that nothing matched and what was searched;
  * a regular expression that does not compile or a search that failed says
@@ -11,10 +12,11 @@
  */
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { SearchX, TriangleAlert } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
+import type { ChatSearchMode } from '@/features/agent-chats/chats-params'
 import {
   SEARCH_ROLES,
   type SearchCard,
@@ -22,70 +24,11 @@ import {
   type SearchRequest,
   type SearchRole,
 } from '@/lib/backend-client/agent-search'
-import { cn } from '@/lib/cn'
-import { useI18n, type Formatters, type MessageKey } from '@/lib/i18n'
+import { useI18n, type Formatters } from '@/lib/i18n'
 import { ResultCard } from './result-card'
+import { SearchControls } from './search-controls'
+import { useAnnounced } from './use-announced'
 import { useChatSearch, type SearchState } from './use-chat-search'
-
-const roleName: Record<SearchRole, MessageKey> = {
-  user: 'agentSearch.roles.user',
-  agent: 'agentSearch.roles.agent',
-  tool: 'agentSearch.roles.tool',
-  thinking: 'agentSearch.roles.thinking',
-}
-
-function Roles({
-  roles,
-  onRoles,
-}: {
-  roles: SearchRole[]
-  onRoles: (roles: SearchRole[]) => void
-}) {
-  const { t } = useI18n()
-  return (
-    <div
-      role="group"
-      aria-label={t('agentSearch.roles.label')}
-      className="flex flex-wrap items-center gap-1.5 px-4 pt-1 pb-2"
-    >
-      <span aria-hidden className="text-[11.5px] text-muted-foreground">
-        {t('agentSearch.roles.label')}
-      </span>
-      {SEARCH_ROLES.map((role) => {
-        const on = roles.includes(role)
-        // At least one stays on.
-        const last = on && roles.length === 1
-        return (
-          <button
-            key={role}
-            type="button"
-            aria-pressed={on}
-            aria-disabled={last || undefined}
-            title={last ? t('agentSearch.roles.lastOne') : undefined}
-            onClick={() => {
-              if (last) return
-              onRoles(
-                on
-                  ? roles.filter((item) => item !== role)
-                  : SEARCH_ROLES.filter(
-                      (item) => item === role || roles.includes(item),
-                    ),
-              )
-            }}
-            className={cn(
-              'h-6 rounded-md border px-2 text-[12px] transition-colors duration-150',
-              on
-                ? 'border-brand/40 bg-brand-soft text-foreground'
-                : 'border-dashed text-muted-foreground line-through hover:text-foreground',
-            )}
-          >
-            {t(roleName[role])}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
 
 /** The sentence under the roles: running, done, stopped. */
 function statusText(
@@ -122,21 +65,6 @@ function statusText(
   if (state.phase === 'stopped')
     return t('agentSearch.status.stopped', { found, matches, progress })
   return t('agentSearch.status.searching', { found, matches, progress })
-}
-
-/** What is said aloud: at most once a second while it runs, and at the end. */
-function useAnnounced(text: string, final: boolean) {
-  const [said, setSaid] = useState(text)
-  const last = useRef(0)
-  useEffect(() => {
-    const wait = final ? 0 : Math.max(0, 1000 - (Date.now() - last.current))
-    const timer = setTimeout(() => {
-      last.current = Date.now()
-      setSaid(text)
-    }, wait)
-    return () => clearTimeout(timer)
-  }, [text, final])
-  return said
 }
 
 function NoResults({
@@ -214,6 +142,7 @@ export function SearchResults({
   selectedId,
   f,
   zone,
+  onMode,
   onRoles,
   onOpen,
 }: {
@@ -221,6 +150,7 @@ export function SearchResults({
   selectedId: string | null
   f: Formatters
   zone: string
+  onMode: (mode: ChatSearchMode) => void
   onRoles: (roles: SearchRole[]) => void
   onOpen: (card: SearchCard, snippet: SearchMatch | null) => void
 }) {
@@ -249,7 +179,12 @@ export function SearchResults({
       aria-label={t('agentSearch.results')}
       className="flex min-h-0 flex-1 flex-col"
     >
-      <Roles roles={request.roles} onRoles={onRoles} />
+      <SearchControls
+        mode="text"
+        onMode={onMode}
+        roles={request.roles}
+        onRoles={onRoles}
+      />
       {state.phase !== 'failed' && (
         <div className="flex flex-col gap-1.5 border-b px-4 pb-2">
           <div className="flex items-center gap-2">

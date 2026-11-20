@@ -6,8 +6,8 @@ use super::Fixture;
 pub(super) const ROWS: &[Fixture] = &[
     Fixture {
         table: "runs",
-        columns: "id, run_type, trigger, started_at, finished_at, timezone, status, profile_scope_json, stats_json, warnings_json, error_message, due_only",
-        values: "1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 1",
+        columns: "id, run_type, trigger, started_at, finished_at, timezone, status, profile_scope_json, stats_json, warnings_json, error_message, due_only, task_dismissed_for",
+        values: "1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 1, 'failed-at'",
     },
     Fixture {
         table: "source_profiles",

@@ -302,3 +302,13 @@ pub(crate) async fn create_archive_safety_copy(
     })
     .await
 }
+
+#[tauri::command]
+pub(crate) async fn save_onboarding_choices(
+    request: Request<vault_core::OnboardingChoices>,
+) -> Result<vault_core::OnboardingChoices, CommandError> {
+    run_blocking_command("save_onboarding_choices", move || {
+        worker_bridge::save_onboarding_choices_impl(request.0)
+    })
+    .await
+}

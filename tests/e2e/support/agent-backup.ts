@@ -176,7 +176,9 @@ export function agentOverview() {
   })
 }
 
-export async function agentTasks(group: 'running' | 'attention' | 'today') {
+export async function agentTasks(
+  group: 'running' | 'waiting' | 'attention' | 'today',
+) {
   const page = await backend<{ items: WireTask[] }>('list_background_tasks', {
     request: { group, limit: 50 },
   })
@@ -254,16 +256,24 @@ export const taskIndicator = (page: Page) =>
     name: /^(No background tasks running|\d+ background tasks? running|Background tasks: \d+ needs? a look)$/,
   })
 
+/** The backend's summary for the rail (`get_task_summary`). */
+export function taskSummary() {
+  return backend<{
+    runningCount: number
+    queuedCount: number
+    attentionCount: string
+    running: { taskId: string; kind: string }[]
+    unavailableKinds?: string[]
+  }>('get_task_summary', { request: {} })
+}
+
 /**
- * What the rail's indicator counts as needing a look: conversation backups
- * that need a look, and the last browsing backup if it failed.
+ * What the rail's indicator counts as needing a look, as the backend
+ * counts it: conversation backups and format notices, and failed or
+ * partial browsing and whole-archive work nobody dismissed.
  */
 export async function railAttention() {
-  const tasks = await agentTasks('attention')
-  const snapshot = await backend<{ recentRuns: { status: string }[] }>(
-    'app_snapshot',
-  )
-  return tasks.length + (snapshot.recentRuns[0]?.status === 'failed' ? 1 : 0)
+  return Number((await taskSummary()).attentionCount)
 }
 
 /** The indicator's name with nothing running and `n` needing a look. */
@@ -274,9 +284,22 @@ export function idleIndicatorName(n: number) {
 }
 
 /**
+ * Waits until the indicator is idle, naming what needs a look as the
+ * backend counts it by then: work that just ended (the Insights jobs a
+ * browsing backup queues, say) may still be running a moment.
+ */
+export async function expectIdleIndicator(page: Page, timeout = 60_000) {
+  await expect(async () => {
+    await expect(taskIndicator(page)).toHaveAccessibleName(
+      idleIndicatorName(await railAttention()),
+      { timeout: 1_000 },
+    )
+  }).toPass({ timeout })
+}
+
+/**
  * The list's line that leads to the background tasks page when `n` things
- * need a look (`railAttention`: conversation backups and a failed browsing
- * backup, counted together).
+ * need a look (`railAttention`: every kind, counted together).
  */
 export function needsLookText(n: number) {
   return `${n} need${n === 1 ? 's' : ''} a look`

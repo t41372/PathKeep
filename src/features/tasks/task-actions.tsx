@@ -6,17 +6,22 @@
  * while anything is on its way, every button waits.
  *
  * Not responsible for: what a button does (`use-task-control.ts`,
- * `use-browsing-control.ts`) or which a task offers (the backend).
+ * `use-browsing-control.ts`, `useSemanticIndexControl`) or which a task
+ * offers (the backend).
  */
 import { Pause, Play, RotateCcw, X } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import type { KindTask, TaskAction } from '@/lib/backend-client/agent-backup'
+import type { SemanticTask } from '@/lib/backend-client/agent-semantic'
 import type {
   BrowsingTask,
   BrowsingTaskCommand,
 } from '@/lib/backend-client/background-tasks'
+import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
+import type { useSemanticIndexControl } from '@/lib/queries/agent-semantic'
 import {
   actionKey,
   type useTaskControl,
@@ -30,6 +35,7 @@ import {
 export interface Controls {
   agent: ReturnType<typeof useTaskControl>
   browsing: ReturnType<typeof useBrowsingControl>
+  semantic: ReturnType<typeof useSemanticIndexControl>
   /** Something is on its way: every other button waits (`data-spaces.md` §5.2). */
   busy: boolean
 }
@@ -128,9 +134,55 @@ export function AgentActions({
     ))
 }
 
+const semanticOrder: SemanticTask['actions'] = ['pause', 'resume', 'cancel']
+
+/** The index build's buttons: its job's controls, named as a backup's are. */
+export function SemanticActions({
+  task,
+  name,
+  controls,
+}: {
+  task: SemanticTask
+  name: string
+  controls: Controls
+}) {
+  const { t } = useI18n()
+  const control = controls.semantic
+  const pressing = control.isPending ? control.variables?.action : undefined
+  const icons = {
+    pause: <Pause aria-hidden />,
+    resume: <Play aria-hidden />,
+    cancel: <X aria-hidden />,
+  }
+  return semanticOrder
+    .filter((action) => task.actions.includes(action))
+    .map((action) => (
+      <ActionButton
+        key={action}
+        label={t(`tasks.actions.${action}`)}
+        aria={t(`tasks.actions.${action}Label`, { name })}
+        icon={icons[action]}
+        disabled={controls.busy}
+        pressing={pressing === action}
+        onClick={() =>
+          control.mutate(
+            { action, jobId: task.jobId },
+            {
+              onError: (error) =>
+                toast.error(t('settingsAgent.ai.index.controlFailed'), {
+                  description: describeError(error),
+                }),
+            },
+          )
+        }
+      />
+    ))
+}
+
 const browsingOrder: BrowsingTaskCommand[] = [
   'retry_intelligence_job',
   'replay_ai_job',
+  'dismiss',
   'pause_ai_job',
   'cancel_intelligence_job',
   'cancel_ai_job',
@@ -151,6 +203,20 @@ export function BrowsingActions({
   return browsingOrder
     .filter((command) => task.commands.includes(command))
     .map((command) => {
+      // Dismiss reads as it does on a conversation backup's row.
+      if (command === 'dismiss')
+        return (
+          <ActionButton
+            key={command}
+            label={t('agentTasks.actions.dismiss')}
+            aria={t('agentTasks.actions.dismissLabel', { name })}
+            disabled={controls.busy}
+            pressing={
+              controls.browsing.busy === browsingActionKey(task, command)
+            }
+            onClick={() => void controls.browsing.send(task, command)}
+          />
+        )
       const kind = command.startsWith('cancel')
         ? 'cancel'
         : command === 'pause_ai_job'

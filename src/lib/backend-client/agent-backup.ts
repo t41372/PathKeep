@@ -13,6 +13,8 @@
  * `src-tauri/tests/fixtures/agent-backup.json`. Counts and sizes are
  * decimal strings (`WireCount`); times are UTC epoch milliseconds.
  */
+import { isSemanticTask, type SemanticTask } from './agent-semantic'
+import { isLedgerTask, type BrowsingTask } from './background-tasks'
 import type { AgentToolId, DataKindId, WireCount } from './data-kinds'
 import { call } from './shared'
 
@@ -107,11 +109,53 @@ export interface KindTask {
   progress?: BackupProgress
 }
 
+/**
+ * What the rail counts, for every kind at once: Agent conversations,
+ * browsing history and work on the whole archive. The counts are the
+ * backend's own totals (waiting includes paused work; needing a look
+ * includes failed and partial ledger rows nobody dismissed).
+ */
 export interface TaskSummary {
   runningCount: number
   queuedCount: number
   attentionCount: WireCount
+  /** Running conversation backups only (see `ledger` and `semantic`). */
   running: KindTask[]
+  /**
+   * Running browsing and whole-archive work from the run ledger and the
+   * queues, which the backend lists among `running` too; this client
+   * keeps them apart so a reader of a backup's fields sees backups only.
+   */
+  ledger: BrowsingTask[]
+  /** Kinds whose store would not open; the counts leave them out. */
+  unavailableKinds?: DataKindId[]
+  /**
+   * The semantic index build, when one is active. The backend lists it with
+   * the backups (and counts it: running in `runningCount`, paused in
+   * `queuedCount`); this client takes it out of `running`, so every reader
+   * of a backup's fields sees backups only.
+   */
+  semantic: SemanticTask | null
+}
+
+/** A page of one task group: backups, and on the first page the semantic build if it belongs there. */
+export interface TaskPage extends CursorPage<KindTask> {
+  semantic: SemanticTask | null
+}
+
+/**
+ * Separates the backups from what the backend listed among them: the
+ * semantic build, and (in the summary) the ledger's running rows.
+ */
+function splitSemantic(rows: (KindTask | SemanticTask | BrowsingTask)[]) {
+  return {
+    rows: rows.filter(
+      (row): row is KindTask => !isSemanticTask(row) && !isLedgerTask(row),
+    ),
+    semantic:
+      rows.find((row): row is SemanticTask => isSemanticTask(row)) ?? null,
+    ledger: rows.filter(isLedgerTask),
+  }
 }
 
 export type TaskGroup = 'running' | 'waiting' | 'attention' | 'today'
@@ -463,11 +507,27 @@ export const agentBackupClient = {
     call<ArchiveRunDetail>('get_archive_run', {
       request: { runRef, ...(detailCursor ? { detailCursor } : {}) },
     }),
-  taskSummary: () => call<TaskSummary>('get_task_summary', { request: {} }),
-  tasks: (group: TaskGroup, limit: number, cursor?: string) =>
-    call<CursorPage<KindTask>>('list_background_tasks', {
-      request: { group, limit, ...(cursor ? { cursor } : {}) },
-    }),
+  taskSummary: async (): Promise<TaskSummary> => {
+    const wire = await call<
+      Omit<TaskSummary, 'running' | 'semantic' | 'ledger'> & {
+        running: (KindTask | SemanticTask | BrowsingTask)[]
+      }
+    >('get_task_summary', { request: {} })
+    const { rows, semantic, ledger } = splitSemantic(wire.running)
+    return { ...wire, running: rows, semantic, ledger }
+  },
+  tasks: async (
+    group: TaskGroup,
+    limit: number,
+    cursor?: string,
+  ): Promise<TaskPage> => {
+    const wire = await call<CursorPage<KindTask | SemanticTask>>(
+      'list_background_tasks',
+      { request: { group, limit, ...(cursor ? { cursor } : {}) } },
+    )
+    const { rows, semantic } = splitSemantic(wire.items)
+    return { ...wire, items: rows, semantic }
+  },
   /** `notice` names the one format notice `dismiss-notice` puts away. */
   control: (
     taskId: string,

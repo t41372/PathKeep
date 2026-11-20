@@ -9,8 +9,8 @@ use anyhow::Result;
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use vault_core::KindState;
-use vault_store::{Db, Value as Sql};
+use vault_core::{KindState, Vault};
+use vault_store::{Db, OptionalRow, Value as Sql};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Cursor {
@@ -26,44 +26,26 @@ struct Row {
 pub(super) fn list(session: &VaultSession, req: ListTasks) -> Result<Value> {
     let paths = vault_core::project_paths()?;
     let config = admitted_config(&paths)?;
-    if config.capture_policy.browsing == KindState::Off {
-        return page(vec![], None);
-    }
+    let with_browsing = config.capture_policy.browsing != KindState::Off && !req.archive_only();
     let vault = session.vault().map_err(anyhow::Error::msg)?;
     let n = limit(req.limit)?;
     let mut cursor: Cursor = decode(req.cursor.as_deref())?;
     let mut rows = Vec::new();
     let today = Local::now().date_naive();
     let (lo, hi) = super::tasks::local_day(today)?;
-    // Each SELECT exposes the same narrow columns. Private run payloads and message content
-    // never cross this boundary. Native job IDs address the existing action commands.
-    let tables = [
-        (
-            "run",
-            Db::Archive,
-            "SELECT id,run_type AS operation,status AS state,started_at AS created,finished_at AS ended,NULL AS artifact,0 AS stopped FROM runs WHERE run_type NOT IN ('assistant','mcp_query','ai_index','system','doctor','retention_prune','rekey','archive_restore')",
-        ),
-        (
-            "intelligence",
-            Db::Intelligence,
-            "SELECT id,job_type AS operation,state,created_at AS created,finished_at AS ended,artifact_json AS artifact,stop_requested AS stopped FROM intelligence_jobs",
-        ),
-        (
-            "index",
-            Db::Intelligence,
-            "SELECT id,job_type AS operation,state,created_at AS created,finished_at AS ended,NULL AS artifact,0 AS stopped FROM ai_jobs WHERE job_type IN ('index-build','index-clear')",
-        ),
-    ];
-    for (table, (native, db, source)) in tables.into_iter().enumerate() {
+    for (table, (native, db, source)) in sources(with_browsing).into_iter().enumerate() {
         let (before, id) =
             cursor.positions[table].clone().unwrap_or_else(|| ("9999".into(), i64::MAX));
         let (predicate, time) = match req.group {
             Group::Running => ("state IN ('running','started')", "created"),
             Group::Waiting => ("state IN ('queued','paused','stale')", "created"),
-            Group::Attention => ("state IN ('failed','partial')", "coalesce(ended,created)"),
+            Group::Attention => (
+                "state IN ('failed','partial') AND task_dismissed_for IS NOT stamp",
+                "coalesce(ended,created)",
+            ),
             Group::Today => ("ended IS NOT NULL AND ended>=?4 AND ended<?5", "ended"),
         };
-        let sql=format!("SELECT id,operation,state,{time},ended,artifact,stopped FROM ({source}) WHERE {predicate}
+        let sql=format!("SELECT id,operation,state,{time},ended,artifact,stopped,wide,task_dismissed_for IS stamp FROM ({source}) WHERE {predicate}
             AND ({time},id)<(?1,?2) ORDER BY {time} DESC,id DESC LIMIT ?3");
         let mut args = vec![Sql::Text(before), Sql::Integer(id), Sql::Integer(n + 1)];
         if matches!(req.group, Group::Today) {
@@ -93,11 +75,98 @@ pub(super) fn list(session: &VaultSession, req: ListTasks) -> Result<Value> {
             r.value
         })
         .collect();
-    if check_reply(&vault, session, true)?.browsing == KindState::Off {
+    if check_reply(&vault, session, true)?.browsing == KindState::Off && with_browsing {
         return Err(Refusal::Off.into());
     }
     page(items, more.then(|| serde_json::to_string(&cursor)).transpose()?)
 }
+// These projections serve list, summary and dismissal with one ownership rule. Archive
+// maintenance remains visible when this installation has switched browsing off.
+fn sources(with_browsing: bool) -> Vec<(&'static str, Db, String)> {
+    use super::browsing_runs::{PRIVATE, WIDE};
+    let filter = if with_browsing {
+        format!("run_type NOT IN ({PRIVATE})")
+    } else {
+        format!("run_type IN ({WIDE})")
+    };
+    let mut sources = vec![(
+        "run",
+        Db::Archive,
+        format!(
+            "SELECT id,run_type AS operation,status AS state,started_at AS created,
+        finished_at AS ended,NULL AS artifact,0 AS stopped,run_type IN ({WIDE}) AS wide,
+        coalesce(finished_at,started_at) AS stamp,task_dismissed_for FROM runs WHERE {filter}"
+        ),
+    )];
+    if with_browsing {
+        sources.extend([("intelligence",Db::Intelligence,"SELECT id,job_type AS operation,state,created_at AS created,
+            finished_at AS ended,artifact_json AS artifact,stop_requested AS stopped,0 AS wide,
+            printf('%d/%s',attempt,coalesce(finished_at,updated_at)) AS stamp,task_dismissed_for FROM intelligence_jobs".into()),
+            ("index",Db::Intelligence,"SELECT id,job_type AS operation,state,created_at AS created,finished_at AS ended,
+            NULL AS artifact,0 AS stopped,0 AS wide,printf('%d/%s',attempt,coalesce(finished_at,updated_at)) AS stamp,task_dismissed_for
+            FROM ai_jobs WHERE job_type IN ('index-build','index-clear')".into())]);
+    }
+    sources
+}
+pub(super) fn summary(v: &Vault, with_browsing: bool) -> Result<(Vec<Value>, i64, i64)> {
+    let mut running = Vec::new();
+    let mut waiting = 0;
+    let mut attention = 0;
+    for (table, (native, db, source)) in sources(with_browsing).into_iter().enumerate() {
+        let(active,queued,failed)=v.store().read(db,move|s|{
+            let origin=if native=="run"{Some(super::browsing_runs::origin(s)?)}else{None};
+            let active=s.query(&format!("SELECT id,operation,state,created,ended,artifact,stopped,wide,
+                task_dismissed_for IS stamp FROM ({source}) WHERE state IN ('started','running') ORDER BY created,id"),(),
+                |r|Ok(read_row(r,table,native,origin.as_deref())?.value))?;
+            let counts=s.query_one(&format!("SELECT count(CASE WHEN state IN ('queued','paused','stale') THEN 1 END),
+                count(CASE WHEN state IN ('failed','partial') AND task_dismissed_for IS NOT stamp THEN 1 END)
+                FROM ({source}) WHERE state IN ('queued','paused','stale','failed','partial')"),(),|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?)))?;
+            Ok((active,counts.0,counts.1))
+        })?;
+        running.extend(active);
+        waiting += queued;
+        attention += failed;
+    }
+    Ok((running, waiting, attention))
+}
+
+pub(super) fn dismiss(session: &VaultSession, task: &str) -> Result<Value> {
+    let (kind, key) = task.split_once(':').ok_or(Refusal::InvalidRequest)?;
+    let (native, id) = key.split_once('/').ok_or(Refusal::InvalidRequest)?;
+    let id = id.parse::<i64>().map_err(|_| Refusal::InvalidRequest)?;
+    let cfg = admitted_config(&vault_core::project_paths()?)?;
+    if kind == "browsing" && cfg.capture_policy.browsing == KindState::Off {
+        return Err(Refusal::Off.into());
+    }
+    let v = session.vault().map_err(anyhow::Error::msg)?;
+    let wide = match kind {
+        "archive" => true,
+        "browsing" => false,
+        _ => return Err(Refusal::InvalidRequest.into()),
+    };
+    let table = match native {
+        "run" => "runs",
+        "intelligence" => "intelligence_jobs",
+        "index" => "ai_jobs",
+        _ => return Err(Refusal::InvalidRequest.into()),
+    };
+    let (_, db, source) = sources(!wide)
+        .into_iter()
+        .find(|(name, _, _)| *name == native)
+        .ok_or(Refusal::InvalidRequest)?;
+    let eligible=v.store().write(db,vault_store::Priority::Interactive,move|s|{
+        let sql=format!("SELECT stamp,task_dismissed_for IS stamp FROM ({source}) WHERE id=?1 AND wide=?2 AND state IN ('failed','partial')");
+        let Some((stamp,already))=s.query_one(&sql,vault_store::params![id,i64::from(wide)],|r|Ok((r.get::<String>(0)?,r.get::<i64>(1)?!=0))).optional()? else{return Ok(false);};
+        if !already {s.execute(&format!("UPDATE {table} SET task_dismissed_for=?2 WHERE id=?1"),vault_store::params![id,stamp])?;}
+        Ok(true)
+    })?;
+    if !eligible {
+        return Err(Refusal::ActionUnavailable.into());
+    }
+    check_reply(&v, session, true)?;
+    Ok(json!({"taskId":task,"dismissed":true}))
+}
+
 fn read_row(
     r: &vault_store::Row,
     table: usize,
@@ -116,7 +185,12 @@ fn read_row(
     let done = artifact.get("processedItems").or(artifact.get("completedSteps"));
     let total = artifact.get("totalItems").or(artifact.get("totalSteps"));
     let progress = done.map(|done| json!({"done":done,"total":total}));
-    let commands = actions(native, &state, r.get::<i64>(6)? != 0);
+    let attention = matches!(state.as_str(), "failed" | "partial") && r.get::<i64>(8)? == 0;
+    let kind = if r.get::<i64>(7)? == 0 { "browsing" } else { "archive" };
+    let mut commands = actions(native, &state, r.get::<i64>(6)? != 0);
+    if attention {
+        commands.push("dismiss");
+    }
     let millis = |s: &str| DateTime::parse_from_rfc3339(s).ok().map(|t| t.timestamp_millis());
     let display_state = match state.as_str() {
         "success" | "complete" => "succeeded",
@@ -124,9 +198,9 @@ fn read_row(
         s => s,
     };
     let value = json!({
-        "taskId":format!("browsing:{native}/{id}"),"jobId":id,"kind":"browsing",
+        "taskId":format!("{kind}:{native}/{id}"),"jobId":id,"kind":kind,
         "operation":operation,"state":display_state,"at":millis(&at),"endedAt":ended.as_deref().and_then(millis),
-        "progress":progress,"attention":matches!(state.as_str(),"failed"|"partial"),
+        "progress":progress,"attention":attention,
         "runRef":origin.map(|o|format!("browsing:{o}/{id}")),"commands":commands
     });
     Ok(Row { table, at, id, value })

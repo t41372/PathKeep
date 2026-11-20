@@ -142,11 +142,16 @@ pub(crate) async fn find_in_agent_conversation(
 pub(crate) async fn export_agent_conversation(
     app: AppHandle,
     state: State<'_, SessionState>,
-    request: Request<chats::ConversationExport>,
+    request: Request<vault_worker::data_kinds::exports::Request>,
 ) -> Result<Value, CommandError> {
     let session = state.inner().clone();
     run_blocking_command("export_agent_conversation", move || {
-        worker_bridge::export_agent_conversation_impl(Some(&app), &session, request.0)
+        worker_bridge::export_agent_conversation_impl(
+            Some(&app),
+            &session,
+            request.0,
+            super::data_kinds::desktop_events(app.clone()),
+        )
     })
     .await
 }
@@ -201,6 +206,28 @@ pub(crate) async fn get_agent_semantic_index(
     .await
 }
 #[tauri::command]
+pub(crate) async fn preview_free_agent_semantic_index(
+    state: State<'_, SessionState>,
+    request: Request<vault_worker::data_kinds::Empty>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("preview_free_agent_semantic_index", move || {
+        worker_bridge::preview_free_agent_semantic_index_impl(&session, request.0)
+    })
+    .await
+}
+#[tauri::command]
+pub(crate) async fn free_agent_semantic_index(
+    state: State<'_, SessionState>,
+    request: Request<vault_worker::data_kinds::semantic::Confirm>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("free_agent_semantic_index", move || {
+        worker_bridge::free_agent_semantic_index_impl(&session, request.0)
+    })
+    .await
+}
+#[tauri::command]
 pub(crate) async fn control_agent_semantic_index(
     app: AppHandle,
     state: State<'_, SessionState>,
@@ -213,6 +240,16 @@ pub(crate) async fn control_agent_semantic_index(
             request.0,
             super::data_kinds::desktop_events(app),
         )
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn cancel_agent_export(
+    request: Request<vault_worker::data_kinds::exports::Cancel>,
+) -> Result<Value, CommandError> {
+    run_blocking_command("cancel_agent_export", move || {
+        worker_bridge::cancel_agent_export_impl(request.0)
     })
     .await
 }

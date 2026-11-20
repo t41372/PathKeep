@@ -192,13 +192,15 @@ test('link previews are set in Settings › Browsing history, where History’s 
     ])
     await page.goto('/#/browsing/backup')
     await page.getByRole('button', { name: 'Back up now' }).first().click()
+    // The row's text runs on into its duration ("1 new visit0.2s"): no word
+    // boundary after the count's noun, so "not followed by a letter".
     await expect(
       page
         .getByRole('heading', { name: 'Recent runs' })
         .locator('xpath=ancestor::*[.//li][1]')
         .getByRole('listitem')
         .first(),
-    ).toContainText(new RegExp(`\\b${QUIET_VISITS} new visits?\\b`), {
+    ).toContainText(new RegExp(`\\b${QUIET_VISITS} new visits?(?![a-z])`), {
       timeout: 60_000,
     })
     let figure = await openDetails(page, QUIET_TITLE)
@@ -230,7 +232,7 @@ test('link previews are set in Settings › Browsing history, where History’s 
       .toEqual({
         enabled: true,
         mode: 'on_demand',
-        cleanup: { mode: 'timeTtl', maxAgeDays: 90 },
+        cleanup: { mode: 'timeTtl', max_age_days: 90 },
       })
     await page.reload()
     await unlockIfLocked(page)
@@ -322,13 +324,13 @@ function keepLabel(
 ) {
   const MB = 1024 * 1024
   if (cleanup.mode === 'off') return 'Until cleared'
-  if (cleanup.mode === 'timeTtl' && cleanup.maxAgeDays === 30)
+  if (cleanup.mode === 'timeTtl' && cleanup.max_age_days === 30)
     return 'For 30 days'
-  if (cleanup.mode === 'timeTtl' && cleanup.maxAgeDays === 90)
+  if (cleanup.mode === 'timeTtl' && cleanup.max_age_days === 90)
     return 'For 90 days'
-  if (cleanup.mode === 'lru' && cleanup.maxBytes === 100 * MB)
+  if (cleanup.mode === 'lru' && cleanup.max_bytes === 100 * MB)
     return 'Up to 100 MB'
-  if (cleanup.mode === 'lru' && cleanup.maxBytes === 500 * MB)
+  if (cleanup.mode === 'lru' && cleanup.max_bytes === 500 * MB)
     return 'Up to 500 MB'
   return 'Custom'
 }

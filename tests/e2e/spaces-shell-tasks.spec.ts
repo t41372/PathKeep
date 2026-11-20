@@ -2,9 +2,10 @@
  * The background-task indicator at the top of the rail's shared part
  * (`WORK-SPACES-SHELL`, `data-spaces.md` §5.1), with a real backup.
  *
- * Proves: when nothing runs the indicator says so, and its list, opened by
- * hovering, says nothing is running and stays open while the pointer is in
- * it. "Back up everything now" there runs a backup; while it runs the
+ * Proves: when nothing runs the indicator says so (with how many things
+ * need a look, as the backend counts them: an earlier spec's backup that
+ * ended short is one), and its list, opened by hovering, says nothing is
+ * running and stays open while the pointer is in it. "Back up everything now" there runs a backup; while it runs the
  * indicator's name reports one task, and its list shows the backup with its
  * progress. When the backup ends the indicator is idle again, and "Open
  * background tasks" leads to the background tasks page (`#/tasks`), which
@@ -16,15 +17,26 @@
  * The backup's answer is held at the transport (`page.route` on the dev IPC
  * bridge's command): the backup runs to the end and reports its progress,
  * while the app still waits for it, so "running" lasts as long as the test
- * needs. Runs last in its project and waits for the Insights work the backup
- * queued, so the specs after it start from an idle queue.
+ * needs. Background work is paused meanwhile, so the Insights work the
+ * backup queues waits instead of running beside it (the indicator lists
+ * that work too). Runs last in its project and waits for that work once
+ * background work runs again, so the specs after it start from an idle
+ * queue.
  */
 import { expect, test, type Page } from '@playwright/test'
 import type {
   AppSnapshot,
   IntelligenceRuntimeSnapshot,
 } from '../../src/lib/types'
-import { browsingRunGroup, taskRow } from './support/agent-backup'
+import {
+  browsingRunGroup,
+  expectIdleIndicator,
+  idleIndicatorName,
+  needsLookText,
+  railAttention,
+  taskIndicator,
+  taskRow,
+} from './support/agent-backup'
 import { unlockIfLocked } from './support/app'
 import { backend } from './support/fixture'
 
@@ -39,15 +51,23 @@ test('the keyboard reaches the indicator’s list and comes back', async ({
 }) => {
   await page.goto('/#/browsing/insights')
   await unlockIfLocked(page)
-  const indicator = rail(page).getByRole('button', {
-    name: 'No background tasks running',
-  })
+  const indicator = taskIndicator(page)
+  const attention = await railAttention()
+  await expect(indicator).toHaveAccessibleName(idleIndicatorName(attention))
   await indicator.focus()
   const list = taskList(page)
   await expect(list).toBeVisible()
 
-  // The list is drawn outside the rail, so ↓ is the way in.
+  // The list is drawn outside the rail, so ↓ is the way in, to its first
+  // button: what needs a look when anything does (an earlier spec's backup
+  // that ended short), then "Back up everything now".
   await page.keyboard.press('ArrowDown')
+  if (attention > 0) {
+    await expect(
+      list.getByRole('button', { name: needsLookText(attention) }),
+    ).toBeFocused()
+    await page.keyboard.press('Tab')
+  }
   await expect(
     list.getByRole('button', { name: 'Back up everything now' }),
   ).toBeFocused()
@@ -73,7 +93,7 @@ test('the indicator shows a running backup with its progress, and says when noth
   await page.goto('/#/browsing/insights')
   await unlockIfLocked(page)
   const idle = rail(page).getByRole('button', {
-    name: 'No background tasks running',
+    name: idleIndicatorName(await railAttention()),
   })
   await expect(idle).toBeVisible()
 
@@ -97,6 +117,11 @@ test('the indicator shows a running backup with its progress, and says when noth
     await route.fulfill({ response })
   })
 
+  // Background work waits while the backup is held (see the header).
+  const { config } = await backend<AppSnapshot>('app_snapshot')
+  await backend('save_config', {
+    config: { ...config, ai: { ...config.ai, jobQueuePaused: true } },
+  })
   try {
     await list.getByRole('button', { name: 'Back up everything now' }).click()
     const running = rail(page).getByRole('button', {
@@ -120,9 +145,21 @@ test('the indicator shows a running backup with its progress, and says when noth
   } finally {
     release()
   }
+  // The backup's answer arrived; background work runs again (the queues
+  // reload, which starts their workers on what the backup queued).
+  const after = (await backend<AppSnapshot>('app_snapshot')).config
+  await backend('save_config', {
+    config: {
+      ...after,
+      ai: { ...after.ai, jobQueuePaused: config.ai.jobQueuePaused },
+    },
+  })
+  await backend('load_intelligence_runtime')
 
-  await expect(idle).toBeVisible({ timeout: 60_000 })
-  await idle.hover()
+  // Idle again, once the Insights work the backup queued is done; with what
+  // needs a look as the backend counts it now.
+  await expectIdleIndicator(page)
+  await taskIndicator(page).hover()
   await expect(list.getByText(/^Nothing is running\./)).toBeVisible()
   await list.getByRole('button', { name: 'Open background tasks' }).click()
   await expect(page).toHaveURL(/#\/tasks$/)

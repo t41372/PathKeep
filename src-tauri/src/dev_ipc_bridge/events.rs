@@ -31,6 +31,7 @@ use vault_worker::data_kinds::delivery::Permit;
 const APP_EVENTS: &[&str] = &[
     vault_worker::data_kinds::POLICY_EVENT,
     "pathkeep://agent-settings-changed",
+    "pathkeep://agent-export-progress",
     "pathkeep://agent-semantic-index-changed",
     "pathkeep://agent-viewer-preferences-changed",
     "pathkeep://agent-insights-preferences-changed",
@@ -38,6 +39,7 @@ const APP_EVENTS: &[&str] = &[
     "pathkeep://agent-conversations-changed",
     "pathkeep://kind-backup-progress",
     "pathkeep://kind-backup-finished",
+    "pathkeep://background-tasks-changed",
     "pathkeep://background-task-changed",
     "pathkeep://agent-catalog-changed",
     "pathkeep://backup-progress",
@@ -75,11 +77,13 @@ impl Hub {
     fn emit_json(&self, name: &'static str, json: String) {
         let permit = matches!(
             name,
-            "pathkeep://agent-settings-changed"
+            "pathkeep://background-tasks-changed"
+                | "pathkeep://agent-settings-changed"
                 | "pathkeep://agent-semantic-index-changed"
                 | "pathkeep://agent-viewer-preferences-changed"
                 | "pathkeep://agent-insights-preferences-changed"
                 | "pathkeep://agent-projects-changed"
+                | "pathkeep://agent-export-progress"
                 | "pathkeep://agent-conversations-changed"
                 | "pathkeep://kind-backup-progress"
                 | "pathkeep://kind-backup-finished"
@@ -141,6 +145,7 @@ impl futures_core::Stream for Browser {
             if matches!(
                 name,
                 vault_worker::data_kinds::POLICY_EVENT
+                    | "pathkeep://background-tasks-changed"
                     | "pathkeep://agent-settings-changed"
                     | "pathkeep://agent-viewer-preferences-changed"
             ) && vault_worker::data_kinds::settings().is_err()
@@ -152,6 +157,7 @@ impl futures_core::Stream for Browser {
                 "pathkeep://agent-semantic-index-changed"
                     | "pathkeep://agent-insights-preferences-changed"
                     | "pathkeep://agent-projects-changed"
+                    | "pathkeep://agent-export-progress"
                     | "pathkeep://agent-conversations-changed"
                     | "pathkeep://kind-backup-progress"
                     | "pathkeep://kind-backup-finished"

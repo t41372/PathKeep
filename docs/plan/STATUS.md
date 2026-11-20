@@ -60,7 +60,7 @@
 
 - [ ] 讀取模型與查詢（`WORK-AH-READ-MODEL`）：對話摘要、大綱、每一輪的事實、專案歸類；清單翻頁、閱讀器、搜尋、洞察。
   - [ ] 紀錄與閱讀器後端：摘要和分組分頁、每輪事實、閱讀器視窗與標記操作（命令已寫好、Rust 測試通過；畫面的 E2E 在 Linux 通過才勾）。[命令與資料契約](../architecture/desktop-command-surface.md#conversation-list-and-reader)。畫面與 E2E 在 `WORK-AH-SCREENS`。
-- [ ] 接進 app（`WORK-AH-APP-SURFACE`）：啟用的預覽（PME）、每個空間的立即備份、進度與取消、背景任務共用的讀法、設定、排程與選單列。
+- [ ] 接進 app（`WORK-AH-APP-SURFACE`）：啟用的預覽（PME）、每個空間的立即備份、進度與取消、背景任務共用的讀法、設定、排程與選單列。 背景任務推送與收起、初次設定草稿、匯出進度與取消的[後端契約](../architecture/desktop-command-surface.md#tasks-first-run-choices-and-export-control)已提供，畫面接線與 E2E 另驗。
 - [ ] 啟用預覽的「存檔預計多出」改用 Linux release 實測的分角色比例，普通檔與原生壓縮檔分開計算，保留「估計」（後端改好；啟用流程的 E2E 通過才勾）。[量測方法與結果](../architecture/research/agent-history/preview-growth.md)
 - [ ] 存檔裡已經有對話時，不必啟用備份就看得到（Claude 2026-11-18 定）。現在「Agent 對話開不開」是每台電腦自己的選擇，搬家檔與還原都不帶，新電腦預設關，關著時整個空間藏起來；啟用又要求這台電腦上讀得到工具資料夾。所以存檔搬到沒裝工具的新電腦，搬過去的對話會看不到。改成兩件事分開：從這台電腦備份（照舊，要走預覽與啟用）；看存檔裡已有的（跟著資料走：這台電腦沒做過選擇、存檔裡有對話，就是「暫停」：看得到、搜得到、不備份）。使用者自己關掉的維持關閉，匯入的預覽要講明對話會留著但藏起來。 後端的還原、搬家、換安裝與明確關閉已有 lifecycle 測試；畫面驗收留給 E2E。
 - [ ] Agent 空間的畫面（`WORK-AH-SCREENS`）：洞察、紀錄與閱讀器、專案、備份、設定、啟用流程、背景任務頁。
@@ -72,7 +72,7 @@
   - [ ] 專案頁做好後：標頭和資訊面板的專案連到專案頁；篩選的專案清單改用列專案的命令（現在全部封存的專案會漏掉）。
   - [ ] 側欄在全頁閱讀器時，「紀錄」也要設 `aria-current`（現在只有外觀亮起）。
   - 只記錄、不修：清單的 `viewToken` 沒用來判斷過期；讀到一半發布換了，舊的視窗留給快取回收；專案下拉要先讀完全部才會顯示「沒有這個專案」；有「復原」的通知只停 4 秒；提示的語氣由前端依代碼決定。
-- [ ] Agent 對話的 AI 存取（agent-history.md §7「AI 存取」三個開關）：助理回答時引用 Agent 對話、對話的語意搜尋索引、MCP 讀 Agent 對話。後端已接入三項各自的權限、可定位到記錄的引用、可暫停與取消的語意索引工作及讀取審計；設定頁、Ask 引用、紀錄的搜尋模式與 E2E 待接。[命令與權限](../architecture/desktop-command-surface.md#agent-conversation-ai-access)。
+- [ ] Agent 對話的 AI 存取（agent-history.md §7「AI 存取」三個開關）：助理回答時引用 Agent 對話、對話的語意搜尋索引、MCP 讀 Agent 對話。後端已接入三項各自的權限、可定位到記錄的引用、可暫停與取消的語意索引工作及讀取審計；設定頁、Ask 引用與紀錄的搜尋模式已合併。後端另提供語意結果續頁、索引釋放預覽與確認、退出時的工作種類和拒絕原因，待畫面接入並以 E2E 驗證。[命令與權限](../architecture/desktop-command-surface.md#agent-conversation-ai-access)。
 - [ ] 背景任務做成 dashboard（`WORK-BACKGROUND-DASHBOARD`）：設計原型裡的背景任務頁（`#/tasks`），設定裡的工作清單搬過去，設定只留排程與限制。是上面兩塊的一部分，單獨列出來免得漏。
 - [ ] 刪掉原型資料夾（`WORK-PROTOTYPE-2026-10-REMOVE`）。
 

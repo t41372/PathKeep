@@ -3,8 +3,9 @@
  * for when each step may continue.
  *
  * Responsible for: the step order, the draft shape and its starting values
- * (which kinds of data start ticked, from what this computer has), password
- * strength, and per-step validation.
+ * (which kinds of data start ticked, from what this computer has, or what
+ * an unfinished setup saved), what is saved for a setup to resume with,
+ * password strength, and per-step validation.
  * Not responsible for: saving anything or calling the backend (see
  * `use-finish-setup.ts`), walking the Agent tool folders
  * (`use-agent-sources.ts`), or rendering.
@@ -15,10 +16,12 @@ import {
   frequencyForHours,
   type Frequency,
 } from '@/features/backup/schedule-actions'
-import type {
-  AgentToolId,
-  DataKindId,
-  DetectedSources,
+import {
+  AGENT_TOOLS,
+  type AgentToolId,
+  type DataKindId,
+  type DetectedSources,
+  type OnboardingChoices,
 } from '@/lib/backend-client/data-kinds'
 import {
   browserDiscoveryState,
@@ -79,6 +82,34 @@ export function listedProfiles(profiles: BrowserProfile[]) {
 }
 
 /**
+ * The kinds and Agent tools an unfinished setup saved, in the order they
+ * are shown. Each is `null` when nothing was saved for it: no tools are
+ * saved before the sources step, and that step can't be left with none.
+ */
+function savedChoices(snapshot: AppSnapshot) {
+  const saved = snapshot.config.onboardingChoices
+  const kinds = KINDS.filter((kind) => saved?.kinds.includes(kind))
+  const tools = AGENT_TOOLS.filter((tool) => saved?.agentTools.includes(tool))
+  return {
+    kinds: kinds.length > 0 ? kinds : null,
+    agentTools: tools.length > 0 ? tools : null,
+  }
+}
+
+/**
+ * What to keep for a setup to resume with (`save_onboarding_choices`):
+ * creating the archive applies the last one saved, so it is saved again
+ * with the final choices just before. A backup reads each project's `.git`
+ * from the start (the sources step says so; the backup page turns it off).
+ */
+export function choicesToSave(
+  kinds: DataKindId[],
+  agentTools: AgentToolId[],
+): OnboardingChoices {
+  return { kinds, agentTools, readGit: true }
+}
+
+/**
  * Starts from whatever an earlier, unfinished setup saved; otherwise every
  * readable browser is picked and the prototype's defaults apply.
  */
@@ -86,15 +117,16 @@ export function initialDraft(snapshot: AppSnapshot): Draft {
   const { config } = snapshot
   const known = new Set(snapshot.browserProfiles.map((p) => p.profileId))
   const saved = config.selectedProfileIds.filter((id) => known.has(id))
+  const choices = savedChoices(snapshot)
   return {
-    kinds: null,
+    kinds: choices.kinds,
     selectedProfileIds:
       saved.length > 0
         ? saved
         : snapshot.browserProfiles
             .filter(isBrowserProfileReadable)
             .map((profile) => profile.profileId),
-    agentTools: null,
+    agentTools: choices.agentTools,
     encrypt: true,
     password: '',
     confirm: '',

@@ -47,6 +47,42 @@ pub fn current(a: &Archive) -> Result<Option<Generation>> {
     let _lock = SWITCH.read().unwrap();
     manifest(&a.semantic_files(&Default::default())?)
 }
+/// Size of the published manifest and its physical vector/address files, including encryption.
+#[derive(PartialEq, Eq)]
+pub struct KeptIndex {
+    generation: Option<String>,
+    pub bytes: u64,
+}
+fn kept(files: &SemanticFiles) -> Result<KeptIndex> {
+    let Some(g) = manifest(files)? else {
+        return Ok(KeptIndex { generation: None, bytes: 0 });
+    };
+    let mut bytes = fs::metadata(files.path().join("current"))?.len();
+    for entry in fs::read_dir(files.path().join(&g.generation))? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            bytes += entry.metadata()?.len();
+        }
+    }
+    Ok(KeptIndex { generation: Some(g.generation), bytes })
+}
+pub fn kept_index(a: &Archive) -> Result<KeptIndex> {
+    let _lock = SWITCH.read().unwrap();
+    kept(&a.semantic_files(&Default::default())?)
+}
+/// Remove only the generation whose size the user confirmed, under the publication lock.
+pub fn free_kept_index(a: &Archive, expected: &KeptIndex) -> Result<bool> {
+    let _lock = SWITCH.write().unwrap();
+    let files = a.semantic_files(&Default::default())?;
+    if kept(&files)? != *expected {
+        return Ok(false);
+    }
+    if let Some(generation) = &expected.generation {
+        fs::remove_file(files.path().join("current"))?;
+        fs::remove_dir_all(files.path().join(generation))?;
+    }
+    Ok(true)
+}
 fn endpoint(config: &crate::AiProviderConfig) -> String {
     crate::utils::sha256_hex(
         &serde_json::to_vec(&(&config.base_url, config.dimensions))
@@ -74,6 +110,7 @@ pub struct RankedPassage {
     index: u32,
 }
 pub struct Ranking {
+    pub query_digest: String,
     pub generation: Generation,
     pub hits: Vec<RankedPassage>,
     keys: Vec<[u8; 32]>,
@@ -133,6 +170,13 @@ async fn request(
         engine.embed(texts, role),
     )
     .await
+    .map_err(|e| {
+        if cancel.check().is_err() {
+            anyhow::Error::new(vault_store::Error::cancelled())
+        } else {
+            e.context(crate::AiRefusal::ServiceUnavailable)
+        }
+    })
 }
 pub async fn build(
     archive: &Archive,
@@ -293,7 +337,12 @@ pub async fn rank(
     let initial = current(archive)?.context("agent-semantic-index-not-ready")?;
     ensure!(initial.matches(r), "agent-semantic-index-not-ready");
     if initial.vectors == 0 {
-        return Ok(Ranking { generation: initial, hits: vec![], keys: vec![] });
+        return Ok(Ranking {
+            query_digest: String::new(),
+            generation: initial,
+            hits: vec![],
+            keys: vec![],
+        });
     }
     let mut query = request(engine, &[query.into()], EmbeddingRole::Query, cancel)
         .await?
@@ -303,7 +352,9 @@ pub async fn rank(
     cancel.check()?;
     let _lock = SWITCH.read().unwrap();
     let g = manifest(&files)?.context("agent-semantic-index-not-ready")?;
-    ensure!(g.generation == initial.generation, "agent-semantic-index-changed");
+    if g.generation != initial.generation {
+        return Err(agent_history::Error::StaleCursor.into());
+    }
     ensure!(
         g.dimension == query.len() && query.iter().all(|n| n.is_finite()),
         "query vector does not match serving index"
@@ -314,6 +365,12 @@ pub async fn rank(
             *n /= norm;
         }
     }
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    for coordinate in &query {
+        digest.update(coordinate.to_bits().to_le_bytes());
+    }
+    let query_digest = hex::encode(digest.finalize());
     let mut keys = vec![];
     let mut scores = vec![];
     for page in 0..g.vector_pages {
@@ -339,14 +396,12 @@ pub async fn rank(
             let address = i64::from_le_bytes(record[..8].try_into()?);
             let index = u32::from_le_bytes(record[8..].try_into()?);
             let score = *scores.get(index as usize).context("missing passage vector")?;
-            if score > 0. {
-                hits.push(RankedPassage {
-                    event: address / CHUNKS,
-                    chunk: (address % CHUNKS) as u32,
-                    index,
-                    score,
-                });
-            }
+            hits.push(RankedPassage {
+                event: address / CHUNKS,
+                chunk: (address % CHUNKS) as u32,
+                index,
+                score,
+            });
         }
     }
     drop(_lock);
@@ -354,5 +409,5 @@ pub async fn rank(
         b.score.total_cmp(&a.score).then_with(|| (a.event, a.chunk).cmp(&(b.event, b.chunk)))
     });
     cancel.check()?;
-    Ok(Ranking { generation: g, hits, keys })
+    Ok(Ranking { generation: g, hits, keys, query_digest })
 }
