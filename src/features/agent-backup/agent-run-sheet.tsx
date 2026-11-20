@@ -56,7 +56,8 @@ const triggerWords: Record<string, MessageKey> = {
   enable: 'agentBackup.run.trigger.enable',
   manual: 'agentBackup.run.trigger.manual',
   retry: 'agentBackup.run.trigger.retry',
-  schedule: 'agentBackup.run.trigger.schedule',
+  scheduled: 'agentBackup.run.trigger.schedule',
+  'menu-bar': 'agentBackup.run.trigger.menuBar',
 }
 
 const COUNTS: (keyof AgentRunSummary & keyof typeof countWords)[] = [

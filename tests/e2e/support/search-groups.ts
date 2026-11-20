@@ -168,7 +168,7 @@ const idle = async () =>
     .toBe(0)
 
 export async function rebuildInsights(page: Page) {
-  await visit(page, '/#/settings/background')
+  await visit(page, '/#/tasks')
   await page.getByRole('button', { name: 'Rebuild', exact: true }).click()
   const dialog = page.getByRole('alertdialog', { name: 'Rebuild Insights?' })
   await dialog.getByRole('button', { name: 'Rebuild', exact: true }).click()

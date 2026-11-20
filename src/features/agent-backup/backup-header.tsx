@@ -4,7 +4,7 @@
  * that failed, did not save everything or left notes opens its details),
  * "Back up now", or while this kind backs up
  * a line of progress in real units and a bar that slides (no total is
- * known). Under it, the states the spec asks for: paused, this computer not
+ * known; paused in its last step, the bar holds still and says so). Under it, the states the spec asks for: paused, this computer not
  * backing up yet, on with nothing to back up (no approved folder here:
  * choose folders; or every tool switched off: switch one on), the first
  * backup not finished, the last backup's problem.
@@ -99,7 +99,13 @@ function LastBackup({ run }: { run: ArchiveRun | undefined }) {
 function Running({ task }: { task: KindTask }) {
   const { t } = useI18n()
   const format = useFormat()
-  const detail = taskProgressText(t, format.bytes, task)
+  const paused = task.state === 'paused'
+  const detail = [
+    taskProgressText(t, format.bytes, task),
+    paused && t('tasks.row.youPaused'),
+  ]
+    .filter(Boolean)
+    .join(t('agentTasks.progress.join'))
   return (
     <span className="flex min-w-[260px] flex-col gap-1.5 rounded-lg border bg-card px-3 py-1.5 text-[13px] shadow-card">
       <span aria-live="polite" className="truncate tabular">
@@ -109,7 +115,11 @@ function Running({ task }: { task: KindTask }) {
         aria-label={t('agentBackup.runningLabel', {
           name: t('spaces.agent.name'),
         })}
-        className="h-1 bg-muted [&>[data-slot=progress-indicator]]:bg-brand"
+        className={cn(
+          'h-1 bg-muted [&>[data-slot=progress-indicator]]:bg-brand',
+          // Paused: the bar holds still where it was.
+          paused && '[&>[data-slot=progress-indicator]]:animate-none',
+        )}
       />
     </span>
   )

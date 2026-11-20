@@ -173,6 +173,12 @@ export interface ScheduleStatus {
   lastSuccessfulBackupAt?: string | null
   /** Current-grid estimate from Rust; login restarts the grid and sleep may shift it. */
   nextScheduledBackupAt?: string | null
+  /**
+   * The same estimate for Agent conversations, which keep their own clock
+   * (their last finished backup). Present only while the schedule is
+   * installed, the kind is on with folders approved here, and its store opens.
+   */
+  agentNextScheduledBackupAt?: string | null
   /** Actual native wake interval; present with the estimate for an open archive. */
   wakeIntervalSeconds?: number | null
   /** Last successful native scheduled run; manual backups never populate it. */

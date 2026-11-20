@@ -3,7 +3,7 @@ import { defineMessages } from '../define'
 /**
  * A backup of Agent conversations as it runs and once it ended, wherever it
  * shows: the enable dialog's save step, the backup page's header, the
- * rail's task list and Settings › Background work. Its progress in the
+ * rail's task list and the background tasks page. Its progress in the
  * units it has at each moment, how each tool's folder fared, what was not
  * saved (`warnings`) and what a saved file's notes mean (`notes`), a
  * format notice, the task's name, states and buttons, and the notice when
@@ -115,6 +115,7 @@ export const agentTasks = defineMessages({
       queued: 'Starting',
       running: 'Running',
       cancelling: 'Stopping',
+      paused: 'Paused',
       succeeded: 'Done',
       partial: 'Didn’t save everything',
       interrupted: 'Stopped before the end',
@@ -147,22 +148,6 @@ export const agentTasks = defineMessages({
       previewRequired:
         'This backup can’t run again as it was: its folders or choices changed since. Back up now reads what is chosen today.',
       openBackupPage: 'Open the backup page',
-    },
-    group: {
-      title: 'Conversation backups',
-      note: 'Backups of Agent conversations: what runs now, what needs a look, and what finished today.',
-      attention: 'Needs a look',
-      running: 'Running',
-      today: 'Finished today',
-      noneRunning: 'Nothing is running.',
-      noneToday: 'Nothing has finished today.',
-      more: 'Show more',
-      unavailable:
-        'Saved Agent conversations can’t be opened right now, so these backups can’t be listed. Browsing history is not affected.',
-    },
-    rail: {
-      needsLook_one: '{count} conversation backup needs a look',
-      needsLook_other: '{count} conversation backups need a look',
     },
     finished: {
       done: 'Agent conversations backed up',
@@ -276,6 +261,7 @@ export const agentTasks = defineMessages({
       queued: '正在开始',
       running: '正在跑',
       cancelling: '正在停下',
+      paused: '已暂停',
       succeeded: '完成',
       partial: '没有全部存下',
       interrupted: '中途停下了',
@@ -307,22 +293,6 @@ export const agentTasks = defineMessages({
       previewRequired:
         '这次备份没办法照原样再跑：它的文件夹或选择后来变了。「立即备份」会照现在的选择读。',
       openBackupPage: '打开备份页',
-    },
-    group: {
-      title: '对话的备份',
-      note: 'Agent 对话的备份：正在跑的、需要你看一下的，和今天完成的。',
-      attention: '需要你看一下',
-      running: '正在跑',
-      today: '今天完成',
-      noneRunning: '没有在跑的。',
-      noneToday: '今天还没有完成的。',
-      more: '显示更多',
-      unavailable:
-        '已存的 Agent 对话现在打不开，所以列不出这些备份。浏览记录不受影响。',
-    },
-    rail: {
-      needsLook_one: '{count} 个对话的备份需要你看一下',
-      needsLook_other: '{count} 个对话的备份需要你看一下',
     },
     finished: {
       done: 'Agent 对话备份好了',
@@ -433,6 +403,7 @@ export const agentTasks = defineMessages({
       queued: '正在開始',
       running: '正在跑',
       cancelling: '正在停下',
+      paused: '已暫停',
       succeeded: '完成',
       partial: '沒有全部存下',
       interrupted: '中途停下了',
@@ -464,22 +435,6 @@ export const agentTasks = defineMessages({
       previewRequired:
         '這次備份沒辦法照原樣再跑：它的資料夾或選擇後來變了。「立即備份」會照現在的選擇讀。',
       openBackupPage: '打開備份頁',
-    },
-    group: {
-      title: '對話的備份',
-      note: 'Agent 對話的備份：正在跑的、需要你看一下的，和今天完成的。',
-      attention: '需要你看一下',
-      running: '正在跑',
-      today: '今天完成',
-      noneRunning: '沒有在跑的。',
-      noneToday: '今天還沒有完成的。',
-      more: '顯示更多',
-      unavailable:
-        '已存的 Agent 對話現在打不開，所以列不出這些備份。瀏覽紀錄不受影響。',
-    },
-    rail: {
-      needsLook_one: '{count} 個對話的備份需要你看一下',
-      needsLook_other: '{count} 個對話的備份需要你看一下',
     },
     finished: {
       done: 'Agent 對話備份好了',

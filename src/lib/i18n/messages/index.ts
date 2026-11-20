@@ -35,11 +35,13 @@ import { settingsBackground } from './settings-background'
 import { settingsStorage } from './settings-storage'
 import { shell } from './shell'
 import { spaces } from './spaces'
+import { tasks } from './tasks'
 
 const namespaces = {
   common,
   shell,
   spaces,
+  tasks,
   dataKinds,
   enableAgent,
   agentBackup,

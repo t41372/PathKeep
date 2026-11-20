@@ -11,7 +11,7 @@
  * Not responsible for rendering or for running the actions.
  */
 import { useCallback } from 'react'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useFormat, useI18n, type Translator } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
 import { presentIndexProgress } from '@/features/ai-setup/index-progress'
 import type { AiQueueJob, IntelligenceJobOverview } from '@/lib/types'
@@ -82,6 +82,13 @@ function isJobType(value: string): value is JobType {
   return (jobTypes as readonly string[]).includes(value)
 }
 
+/** A job type's name; one this build does not know is "Background task". */
+export function jobTypeName(t: Translator, jobType: string) {
+  return isJobType(jobType)
+    ? t(`settingsBackground.job.${jobType}`)
+    : t('settingsBackground.job.unknown')
+}
+
 function percentOf(current?: number | null, total?: number | null) {
   if (current == null || !total) return null
   return Math.min(100, Math.max(0, (current / total) * 100))
@@ -93,10 +100,7 @@ export function useJobViews() {
   const profiles = useSnapshot().browserProfiles
 
   const typeName = useCallback(
-    (jobType: string) =>
-      isJobType(jobType)
-        ? t(`settingsBackground.job.${jobType}`)
-        : t('settingsBackground.job.unknown'),
+    (jobType: string) => jobTypeName(t, jobType),
     [t],
   )
 

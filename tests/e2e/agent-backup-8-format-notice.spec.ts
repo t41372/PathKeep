@@ -8,7 +8,7 @@
  * - the backup that meets the version succeeds: nothing went unsaved, and
  *   it raises one notice, for Pi and that version;
  * - that notice is one more item needing a look (`get_task_summary`, the
- *   rail), listed in Settings › Background work with the sentence that the
+ *   rail), listed on the background tasks page with the sentence that the
  *   files are saved as they are and will be readable after an update, and
  *   only the notice's own Dismiss (`dismiss-notice`); the backup page shows
  *   the same notice, and the run's details list it and note the file in
@@ -191,8 +191,8 @@ test('a format version PathKeep can’t read yet asks for a look once, and Dismi
   })
   await page.keyboard.press('Escape')
 
-  // Background work: listed under Needs a look, with the notice's Dismiss.
-  await page.goto('/#/settings/background?show=conversations')
+  // Background tasks: listed under Needs a look, with the notice's Dismiss.
+  await page.goto('/#/tasks')
   await unlockIfLocked(page)
   const row = page
     .locator('section[data-task-group="attention"]')
@@ -202,7 +202,7 @@ test('a format version PathKeep can’t read yet asks for a look once, and Dismi
   await expect(
     row.getByRole('button', { name: DISMISS_NOTICE(VERSION) }),
   ).toHaveText('Dismiss')
-  await testInfo.attach('the notice in Background work', {
+  await testInfo.attach('the notice on the background tasks page', {
     body: await page.screenshot({ fullPage: true }),
     contentType: 'image/png',
   })

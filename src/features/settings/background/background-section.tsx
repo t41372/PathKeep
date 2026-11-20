@@ -1,39 +1,50 @@
 /**
- * Settings → Background work: the one place that shows what PathKeep does
- * after a backup and lets the user steer it. Replaces the old Jobs page and
- * sidebar job strip.
+ * Settings › Schedule and background work (`#/settings/background`):
+ * settings only, no state (`data-spaces.md` §8). The automatic backup card
+ * (one schedule for every kind of data that is on), then the choices about
+ * background work itself (run it or pause it, how many at a time), then
+ * the way to the background tasks page, which lists what runs, waits,
+ * needs a look or finished, with the queues and the data they build.
  *
- * Order: the controls that govern every queue, then each queue, then the
- * online work, then conversation backups (while Agent conversations are
- * on or paused), then the data the work produces. Each row owns its own data
- * and copy; this file only lays them out.
+ * Each row owns its own data and copy; this file only lays them out.
  */
-import { SettingsGroup, SettingsSection } from '@/components/app/setting-row'
+import { ListChecks } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import {
+  SettingRow,
+  SettingsGroup,
+  SettingsSection,
+} from '@/components/app/setting-row'
+import { Button } from '@/components/ui/button'
 import { useI18n } from '@/lib/i18n'
-import { ConversationTasks } from './conversation-tasks'
-import { InsightsDataRow, PageDetailsRow } from './derived-data-rows'
-import { LinkPreviewsRow, PageSummariesRow } from './online-work-rows'
-import { AiQueueRow, InsightsQueueRow, QueueControls } from './queue-rows'
+import { ScheduleCard } from '@/features/backup/schedule-card'
+import { QueueControls } from './queue-rows'
 
 export function BackgroundSection() {
   const { t } = useI18n()
   return (
     <SettingsSection title={t('settings.nav.background')}>
       <p className="-mt-2 mb-1 text-[13px] text-muted-foreground">
-        {t('settingsBackground.intro')}
+        {t('tasks.settings.oneSchedule')}
       </p>
-      <QueueControls />
-      <InsightsQueueRow />
-      <AiQueueRow />
-      <PageSummariesRow />
-      <LinkPreviewsRow />
-      <ConversationTasks />
+      <ScheduleCard />
       <SettingsGroup
-        title={t('settingsBackground.data.group')}
-        note={t('settingsBackground.data.note')}
+        title={t('tasks.settings.workGroup')}
+        note={t('settingsBackground.intro')}
       />
-      <InsightsDataRow />
-      <PageDetailsRow />
+      <QueueControls />
+      <SettingRow
+        title={t('tasks.settings.title')}
+        description={t('tasks.settings.body')}
+        control={
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/tasks">
+              <ListChecks aria-hidden />
+              {t('tasks.settings.open')}
+            </Link>
+          </Button>
+        }
+      />
     </SettingsSection>
   )
 }

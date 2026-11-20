@@ -123,7 +123,7 @@ test('updated visits and a later backup keep one truthful progress scope', async
       path: info.outputPath('updated-progress.png'),
       fullPage: true,
     })
-    await page.goto('/#/settings/background')
+    await page.goto('/#/tasks')
     const job = page.locator(`[data-job="ai-${during.jobId}"]`)
     await expect(job).toContainText(label!)
     await expect(job).toContainText(counts)

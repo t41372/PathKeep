@@ -134,7 +134,7 @@ export const settingsAi = defineMessages({
       continue: 'Continue',
       pause: 'Pause',
       cancelBuild: 'Cancel',
-      inBackground: 'Background work',
+      inBackground: 'Background tasks',
       pausedByUser: 'Paused at {done} of {total} visits.',
       pausedByService:
         '{name} could not run the model, so building the index is paused. It said: {message}',
@@ -771,7 +771,7 @@ export const settingsAi = defineMessages({
       continue: '繼續',
       pause: '暫停',
       cancelBuild: '取消',
-      inBackground: '背景工作',
+      inBackground: '背景任務',
       pausedByUser: '已暫停：{done} / {total} 次造訪。',
       pausedByService:
         '{name} 沒能執行這個模型，建立索引已暫停。它的回覆：{message}',

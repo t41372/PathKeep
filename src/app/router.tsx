@@ -3,7 +3,8 @@
  * A space's pages live under `#/<space>/<page>` and come from the registry
  * (`src/lib/spaces`); every address of a space goes through its kind's
  * state first (`kind-gate.tsx`), so a kind that is off says so at any of
- * its addresses. Ask and Settings are shared and carry no space.
+ * its addresses. Ask, background tasks and Settings are shared and carry
+ * no space.
  */
 import { lazy, Suspense, type ComponentType } from 'react'
 import { createHashRouter, Navigate, type RouteObject } from 'react-router-dom'
@@ -81,6 +82,10 @@ export function createAppRouter() {
             {
               path: 'ask',
               element: screen(() => import('@/features/ask/ask-page')),
+            },
+            {
+              path: 'tasks',
+              element: screen(() => import('@/features/tasks/tasks-page')),
             },
             {
               path: 'settings/:section?',

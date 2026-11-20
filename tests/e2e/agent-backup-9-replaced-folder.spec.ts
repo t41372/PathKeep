@@ -10,7 +10,7 @@
  * Proves:
  * - the backup ends as not having saved everything; Codex's folder is
  *   `root-changed`; its source row says why and offers "Look at it again…";
- * - "Try again" on that backup in Settings › Background work, which the
+ * - "Try again" on that backup on the background tasks page, which the
  *   backend answers with `previewRequired`, opens the look at that folder
  *   on the backup page (`?renew=`) instead of a dead end;
  * - the look says it is a different folder; "Approve and back up" approves
@@ -91,7 +91,7 @@ test('a folder made again at the same path is approved again, and backed up', as
     })
 
     // "Try again" cannot run it as it was: it opens the look instead.
-    await page.goto('/#/settings/background?show=conversations')
+    await page.goto('/#/tasks')
     await unlockIfLocked(page)
     const task = page
       .locator('section[data-task-group="attention"]')
@@ -130,7 +130,7 @@ test('a folder made again at the same path is approved again, and backed up', as
     await expect(sourceRow(page, 'codex')).not.toContainText('Needs a look')
 
     // The old attempt still needs a look; Dismiss puts it away.
-    await page.goto('/#/settings/background?show=conversations')
+    await page.goto('/#/tasks')
     await unlockIfLocked(page)
     await expect(task).toBeVisible()
     await task

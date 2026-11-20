@@ -8,14 +8,14 @@
  * Proves:
  * - after the restart, that first save is over: it ended stopped before
  *   the end because PathKeep closed, and nothing started it again;
- * - Settings › Background work lists it with that reason and "Try again",
+ * - the background tasks page lists it with that reason and "Try again",
  *   which runs it once more to the end;
  * - nothing ran twice: the ledger has the stopped first save once and the
  *   retry after it, and the archive holds the same conversations;
  * - format notices dismissed before the restart (agent-backup-8 dismissed
  *   Pi's formats 1000 and 1001, each with its own Dismiss) stay dismissed:
- *   no item needing a look and no run carries one, and Background work
- *   shows none.
+ *   no item needing a look and no run carries one, and the background
+ *   tasks page shows none.
  */
 import { expect, test } from '@playwright/test'
 import {
@@ -68,7 +68,7 @@ test('a first save cut off by a restart ends stopped, and a retry finishes it on
   })
 
   await killAndRestartApp()
-  await page.goto('/#/settings/background?show=conversations')
+  await page.goto('/#/tasks')
   await unlockIfLocked(page)
 
   // Over, stopped by the restart; nothing started it again.
@@ -91,7 +91,7 @@ test('a first save cut off by a restart ends stopped, and a retry finishes it on
     (await agentRuns()).filter((run) => (run.formatNotices ?? []).length > 0),
   ).toEqual([])
   await expect(page.locator('[data-format-notice]')).toHaveCount(0)
-  await testInfo.attach('Background work after the restart', {
+  await testInfo.attach('Background tasks after the restart', {
     body: await page.screenshot({ fullPage: true }),
     contentType: 'image/png',
   })

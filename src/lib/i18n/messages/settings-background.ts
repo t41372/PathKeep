@@ -1,9 +1,11 @@
 import { defineMessages } from '../define'
 
 /**
- * Settings → Background work: the queues that rebuild Insights, the search
- * index and page summaries, link-preview fetching, and the data worked out
- * from the history (what it is, how fresh, clearing it).
+ * Background work: the switch and the limit (Settings › Schedule and
+ * background work), and on the background tasks page the queues that
+ * rebuild Insights, the search index and page summaries, link-preview
+ * fetching, and the data worked out from the history (what it is, how
+ * fresh, clearing it).
  */
 export const settingsBackground = defineMessages({
   en: {

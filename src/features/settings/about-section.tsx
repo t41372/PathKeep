@@ -1,7 +1,7 @@
 /**
  * Settings → About: which build this is, updates, diagnostics (logs, crash
  * reports, a copyable report) and the archive health check. The places to go when something is wrong. (Rebuilding
- * Insights lives in Settings → Background work.)
+ * Insights lives on the background tasks page.)
  */
 import { useSession } from '@/app/session'
 import { SettingRow, SettingsSection } from '@/components/app/setting-row'

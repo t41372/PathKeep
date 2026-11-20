@@ -229,7 +229,7 @@ export const backupRuns = defineMessages({
     },
     actions: {
       aiSettings: '前往 AI 设置',
-      backgroundSettings: '前往后台任务',
+      backgroundSettings: '前往后台工作',
     },
   },
   'zh-TW': {

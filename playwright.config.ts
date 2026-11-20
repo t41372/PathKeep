@@ -299,6 +299,20 @@ export default defineConfig({
       ],
       'agent-chats',
     ),
+    // The shell around both spaces, with both on: the background tasks
+    // page (a backup of both kinds, cancelled and tried again), ⌘K's
+    // conversations and projects, switching spaces, and the Agent page's
+    // automatic-backup row. In name order; each puts back what it changed.
+    project(
+      'shell',
+      [
+        'shell-1-tasks.spec.ts',
+        'shell-2-palette.spec.ts',
+        'shell-3-switch.spec.ts',
+        'shell-4-schedule.spec.ts',
+      ],
+      'agent-insights',
+    ),
     // They kill the app, or let it quit, and the launcher starts it again,
     // behind App Lock.
     project(
@@ -311,7 +325,7 @@ export default defineConfig({
         'semantic-progress.spec.ts',
         'takeout-continue.spec.ts',
       ],
-      'agent-insights',
+      'shell',
     ),
     // The built-in model's download, from a test model served on this
     // computer: it restarts the app with the model's address, and its index

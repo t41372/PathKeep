@@ -99,7 +99,9 @@ test('linux: the main window, a dialog over it and App Lock keep one set of wind
   // taking clicks, but the window buttons stand in for the system's, so a
   // click on one reaches it and leaves the palette open, its field focused.
   await page.keyboard.press('Control+k')
-  const palette = page.getByPlaceholder('Search pages, visits or commands…')
+  const palette = page.getByPlaceholder(
+    'Search conversations, projects, pages…',
+  )
   await expect(palette).toBeVisible()
   await expectWindowButtons(page)
   const minimize = await windowButtonCenter(page, 'Minimize')

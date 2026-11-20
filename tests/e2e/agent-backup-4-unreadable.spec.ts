@@ -14,7 +14,7 @@
  * - Codex's source row says it needs a look and, unfolded, why; the run's
  *   details give the same reason for Codex and list what was not saved;
  * - the rail counts one more needing a look, and leads to Settings ›
- *   Background work, where this run is listed under Needs a look;
+ *   the background tasks page, where this run is listed under Needs a look;
  * - with the folder readable again, "Try again" there reads Codex again,
  *   and this run leaves Needs a look (a successful retry clears its
  *   original).
@@ -90,20 +90,21 @@ test('a tool that can’t be read leaves a partial run that a retry finishes', a
     })
     await page.keyboard.press('Escape')
 
-    // The rail: one more needs a look, which leads to Background work.
+    // The rail: one more needs a look, which leads to the background tasks page.
     const attention = attentionBefore + 1
     expect((await agentTasks('attention')).length).toBe(attention)
+    const onRail = await railAttention()
     await expect(taskIndicator(page)).toHaveAccessibleName(
-      idleIndicatorName(await railAttention()),
+      idleIndicatorName(onRail),
     )
     const list = await openTaskList(page)
-    await list.getByRole('button', { name: needsLookText(attention) }).click()
-    await expect(page).toHaveURL(/#\/settings\/background\?show=conversations$/)
+    await list.getByRole('button', { name: needsLookText(onRail) }).click()
+    await expect(page).toHaveURL(/#\/tasks$/)
     const group = page.locator('section[data-task-group="attention"]')
     const task = group.locator(`li[data-run-ref="${run.runRef}"]`)
     await expect(task).toBeVisible()
     await expect(task).toContainText('Didn’t save everything')
-    await testInfo.attach('Needs a look in Background work', {
+    await testInfo.attach('Needs a look on the background tasks page', {
       body: await page.screenshot({ fullPage: true }),
       contentType: 'image/png',
     })

@@ -110,7 +110,7 @@ export const insights = defineMessages({
         'module-never-built':
           'Not worked out yet. It happens in the background after a backup, or the next time PathKeep opens.',
         'module-no-successful-rebuild':
-          'The last attempt to work this out did not finish. Settings → Background work says why and can try again.',
+          'The last attempt to work this out did not finish. The background tasks page says why and can try again.',
         'module-disabled': 'Turned off in Settings.',
         'module-rebuild-required':
           'This needs working out again; that happens in the background.',
@@ -600,7 +600,7 @@ export const insights = defineMessages({
         'module-never-built':
           '还没整理出来。备份之后、或下次打开 PathKeep 时会在后台整理。',
         'module-no-successful-rebuild':
-          '上次整理没有完成。设置 → 后台工作 会说明原因，也可以重试。',
+          '上次整理没有完成。「后台任务」会说明原因，也可以重试。',
         'module-disabled': '已在设置里关闭。',
         'module-rebuild-required': '这部分需要重新整理，会在后台进行。',
         'module-version-mismatch':
@@ -1082,7 +1082,7 @@ export const insights = defineMessages({
         'module-never-built':
           '還沒整理出來。備份之後、或下次打開 PathKeep 時會在背景整理。',
         'module-no-successful-rebuild':
-          '上次整理沒有完成。設定 → 背景工作 會說明原因，也可以重試。',
+          '上次整理沒有完成。「背景任務」會說明原因，也可以重試。',
         'module-disabled': '已在設定裡關閉。',
         'module-rebuild-required': '這部分需要重新整理，會在背景進行。',
         'module-version-mismatch':

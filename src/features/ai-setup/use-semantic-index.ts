@@ -59,7 +59,7 @@ import { useIndexPace, useSmoothCount } from './use-index-pace'
  */
 export const STATIC_MODEL_APPROX_BYTES = 531 * 1024 * 1024
 
-/** Shared with Settings → Background work, which reads the same query. */
+/** Shared with the background tasks page, which reads the same query. */
 export const AI_QUEUE_POLL_MS = 1000
 
 /** Master switch stays on only while something else still needs it. */

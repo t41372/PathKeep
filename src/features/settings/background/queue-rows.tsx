@@ -1,6 +1,6 @@
 /**
- * The queue controls and the two queue rows of Settings → Background work:
- * pause / resume and tasks-at-a-time (`config.ai.jobQueuePaused` /
+ * The queue controls (Settings › Schedule and background work) and the two
+ * queue rows (the background tasks page): pause / resume and tasks-at-a-time (`config.ai.jobQueuePaused` /
  * `jobQueueConcurrency`, which govern both queues), the Insights queue with
  * its rebuild button, and the search-index / assistant queue.
  *
