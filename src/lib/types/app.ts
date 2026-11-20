@@ -184,11 +184,12 @@ export interface OgImageSettingsConfig {
   dailyRefetchBudget: number
   newVisitPrefetchBudget: number
   blockedHosts: string[]
+  /** As persisted: the mode is camelCase, its fields snake_case. */
   cleanup:
     | { mode: 'off' }
-    | { mode: 'timeTtl'; maxAgeDays: number }
-    | { mode: 'sizeCap'; maxBytes: number }
-    | { mode: 'lru'; maxBytes: number }
+    | { mode: 'timeTtl'; max_age_days: number }
+    | { mode: 'sizeCap'; max_bytes: number }
+    | { mode: 'lru'; max_bytes: number }
 }
 
 /**

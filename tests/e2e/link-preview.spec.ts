@@ -232,7 +232,7 @@ test('link previews are set in Settings › Browsing history, where History’s 
       .toEqual({
         enabled: true,
         mode: 'on_demand',
-        cleanup: { mode: 'timeTtl', maxAgeDays: 90 },
+        cleanup: { mode: 'timeTtl', max_age_days: 90 },
       })
     await page.reload()
     await unlockIfLocked(page)
@@ -324,13 +324,13 @@ function keepLabel(
 ) {
   const MB = 1024 * 1024
   if (cleanup.mode === 'off') return 'Until cleared'
-  if (cleanup.mode === 'timeTtl' && cleanup.maxAgeDays === 30)
+  if (cleanup.mode === 'timeTtl' && cleanup.max_age_days === 30)
     return 'For 30 days'
-  if (cleanup.mode === 'timeTtl' && cleanup.maxAgeDays === 90)
+  if (cleanup.mode === 'timeTtl' && cleanup.max_age_days === 90)
     return 'For 90 days'
-  if (cleanup.mode === 'lru' && cleanup.maxBytes === 100 * MB)
+  if (cleanup.mode === 'lru' && cleanup.max_bytes === 100 * MB)
     return 'Up to 100 MB'
-  if (cleanup.mode === 'lru' && cleanup.maxBytes === 500 * MB)
+  if (cleanup.mode === 'lru' && cleanup.max_bytes === 500 * MB)
     return 'Up to 500 MB'
   return 'Custom'
 }

@@ -19,10 +19,10 @@ export const keepRules: Record<
   OgImageSettingsConfig['cleanup']
 > = {
   off: { mode: 'off' },
-  days30: { mode: 'timeTtl', maxAgeDays: 30 },
-  days90: { mode: 'timeTtl', maxAgeDays: 90 },
-  size100: { mode: 'lru', maxBytes: 100 * MB },
-  size500: { mode: 'lru', maxBytes: 500 * MB },
+  days30: { mode: 'timeTtl', max_age_days: 30 },
+  days90: { mode: 'timeTtl', max_age_days: 90 },
+  size100: { mode: 'lru', max_bytes: 100 * MB },
+  size500: { mode: 'lru', max_bytes: 500 * MB },
 }
 
 export const keepChoices = Object.keys(keepRules) as (keyof typeof keepRules)[]
