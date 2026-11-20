@@ -194,12 +194,11 @@ const browsing = {
 
 /**
  * Agent conversations. Its pages are insights, records, projects and
- * backup (`data-spaces-tradeoff.md` §4.1); this build has records (the
- * list and the reader) and backup, so for now the space opens at records.
- * ⌘K finds its sources and recent backups, with no "Search in" row: the
- * list does not search yet. Insights goes first (where the space opens)
- * when it is built; projects comes between records and backup; with
- * search, ⌘K finds conversations and searches them.
+ * backup (`data-spaces-tradeoff.md` §4.1); this build has insights,
+ * records (the list and the reader) and backup, and the space opens at
+ * insights. ⌘K finds its sources and recent backups, with no "Search in"
+ * row: the list does not search yet. Projects comes between records and
+ * backup; with search, ⌘K finds conversations and searches them.
  */
 const agent = {
   id: 'agent',
@@ -211,6 +210,12 @@ const agent = {
   icon: Bot,
   hue: 195,
   pages: [
+    {
+      id: 'insights',
+      label: 'shell.nav.insights',
+      icon: ChartColumn,
+      screen: () => import('@/features/agent-insights/insights-page'),
+    },
     {
       id: 'chats',
       label: 'shell.nav.history',

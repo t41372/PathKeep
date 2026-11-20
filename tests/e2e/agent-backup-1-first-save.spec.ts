@@ -14,7 +14,7 @@
  *   saved with their size), never a percentage, and no row for the others;
  * - Done's numbers are the run's (`get_archive_run`), and those are what
  *   the fixture says the two tools hold: every conversation and subagent;
- * - "View conversations" opens the space at History, which lists them;
+ * - "View conversations" opens the space at Insights; History lists them;
  *   its backup page's header counts the same conversations and its recent
  *   backups list the run;
  *   its details name only the two tools and say `.git` was not read;
@@ -153,9 +153,11 @@ test('a first save from the off page, with two tools and no .git, leaves notes a
     contentType: 'image/png',
   })
 
-  // The space opens at History, which lists what the first save saved;
-  // its backup page shows the same run.
+  // The space opens at Insights (`data-spaces.md` §3.2); History lists what
+  // the first save saved; its backup page shows the same run.
   await dialog.getByRole('button', { name: 'View conversations' }).click()
+  await expect(page).toHaveURL(/#\/agent\/insights$/)
+  await page.getByRole('link', { name: 'History', exact: true }).click()
   await expect(page).toHaveURL(/#\/agent\/chats$/)
   await expect(
     page.getByRole('heading', { name: 'History', level: 1 }),

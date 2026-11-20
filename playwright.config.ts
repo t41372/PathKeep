@@ -282,6 +282,19 @@ export default defineConfig({
       ],
       'agent-sources',
     ),
+    // Insights of the Agent space on the same conversations. In name
+    // order: the report puts back the choices it changes; the project spec
+    // backs up one more Codex conversation (without usage); the zone spec
+    // ends in the zone it found.
+    project(
+      'agent-insights',
+      [
+        'agent-insights-1-report.spec.ts',
+        'agent-insights-2-project.spec.ts',
+        'agent-insights-3-zone.spec.ts',
+      ],
+      'agent-chats',
+    ),
     // They kill the app, or let it quit, and the launcher starts it again,
     // behind App Lock.
     project(
@@ -294,7 +307,7 @@ export default defineConfig({
         'semantic-progress.spec.ts',
         'takeout-continue.spec.ts',
       ],
-      'agent-chats',
+      'agent-insights',
     ),
     // The built-in model's download, from a test model served on this
     // computer: it restarts the app with the model's address, and its index

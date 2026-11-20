@@ -9,6 +9,8 @@ import { agentInfo } from './agent-info'
 import { agentReader } from './agent-reader'
 import { agentRepair } from './agent-repair'
 import { agentTasks } from './agent-tasks'
+import { agentInsights } from './agent-insights'
+import { agentInsightsCards } from './agent-insights-cards'
 import { ask } from './ask'
 import { backup } from './backup'
 import { backupImport } from './backup-import'
@@ -44,6 +46,8 @@ const namespaces = {
   agentInfo,
   agentRepair,
   agentTasks,
+  agentInsights,
+  agentInsightsCards,
   home,
   history,
   historyPage,

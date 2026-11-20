@@ -5,7 +5,8 @@
  * so only PathKeep still has it).
  *
  * Proves, against what the backend lists (`list_agent_conversations`):
- * - switching to the space opens History; by date, the newest
+ * - switching to the space opens Insights, and History is the next page
+ *   in the rail; by date, the newest
  *   conversation is the first row, under a heading that counts its whole
  *   day, and the oldest is the last row once the list is scrolled down;
  * - sorting by token usage puts the most tokens first with each row's
@@ -62,13 +63,19 @@ const countOf = (heading: Locator) => heading.locator(':scope > span').last()
 test('History lists, sorts, groups and filters the saved conversations', async ({
   page,
 }, testInfo) => {
-  // Switching to the space opens History, by date, newest first.
+  // The space opens at Insights; History is next in the rail, by date,
+  // newest first.
   await page.goto('/#/browsing/home')
   await unlockIfLocked(page)
   await page.getByRole('button', { name: /^Switch data type\. Now: / }).click()
   await page
     .getByRole('menu', { name: /^Switch data type/ })
     .getByRole('menuitemradio', { name: /Agent conversations/ })
+    .click()
+  await expect(page).toHaveURL(/#\/agent\/insights$/)
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('link', { name: 'History', exact: true })
     .click()
   await expect(page).toHaveURL(/#\/agent\/chats$/)
   await expect(
