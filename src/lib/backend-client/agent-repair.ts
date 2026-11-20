@@ -119,6 +119,7 @@ export const REPAIR_ERROR_CODES = [
   'conversation-schema-too-new',
   'conversation-repair-healthy',
   'conversation-evidence-readable',
+  'conversation-pair-unverified',
   'snapshot-digest-mismatch',
   'archive-password-required',
   'archive-password-wrong',

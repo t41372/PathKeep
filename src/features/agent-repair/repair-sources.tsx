@@ -34,6 +34,7 @@ const sourceOf = (value: string): SourceChoice =>
 
 const reasons: Record<string, MessageKey> = {
   missingEvidence: 'agentRepair.sources.missingEvidence',
+  missingReadModel: 'agentRepair.sources.missingReadModel',
   unsealed: 'agentRepair.sources.unsealed',
 }
 

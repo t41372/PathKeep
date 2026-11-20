@@ -28,6 +28,7 @@ const plain: Partial<Record<RepairErrorCode, MessageKey>> = {
   'conversation-schema-too-new': 'agentRepair.errors.schemaTooNew',
   'conversation-repair-healthy': 'agentRepair.errors.healthy',
   'conversation-evidence-readable': 'agentRepair.errors.evidenceReadable',
+  'conversation-pair-unverified': 'agentRepair.errors.pairUnverified',
   'archive-password-required': 'agentRepair.sources.passwordAsked',
   'archive-password-wrong': 'agentRepair.errors.wrongPassword',
   'archive-busy': 'agentRepair.errors.busy',

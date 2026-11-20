@@ -168,6 +168,8 @@ export function useAgentRepair() {
             repairErrorIs(error, 'archive-password-required')
           )
             setAsked((now) => new Set(now).add(source.path))
+          if (repairErrorIs(error, 'conversation-pair-unverified'))
+            setCanChoose(true)
           if (repairErrorIs(error, 'conversation-repair-healthy'))
             void client.invalidateQueries({ queryKey: queryKeys.dataKinds })
         }

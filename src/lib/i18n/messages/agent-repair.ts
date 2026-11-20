@@ -112,6 +112,8 @@ export const agentRepair = defineMessages({
         'This copy hasn’t been checked, so it can’t be used for a repair.',
       missingEvidence:
         'This copy holds no saved Agent conversations, so it can’t bring them back.',
+      missingReadModel:
+        'This copy doesn’t have all the conversation files a repair needs.',
       unusable: 'This copy can’t be used for a repair.',
       marked:
         'Conversations couldn’t be read when this copy was made. Checking it shows whether the conversations it holds still check out.',
@@ -149,6 +151,8 @@ export const agentRepair = defineMessages({
         'Saved conversations open normally now. There’s nothing to repair.',
       evidenceReadable:
         'The saved conversations themselves are intact, so they’re rebuilt from themselves, not from a copy.',
+      pairUnverified:
+        'The two files that hold the conversations don’t belong together, so PathKeep can’t rebuild from them. Choose a safety copy.',
       wrongPassword: 'That isn’t this copy’s password.',
       busy: 'Another change to the archive is running. Try again when it’s done.',
       checkFailed: 'Couldn’t check what can be brought back. {message}',
@@ -287,6 +291,7 @@ export const agentRepair = defineMessages({
         '重新开始不会带回另一个存档的文件里的对话。下面的安全副本可能还有这个存档的对话：先选一份检查，再决定要不要重新开始。',
       unsealed: '这份副本还没检查过，不能用来修复。',
       missingEvidence: '这份副本里没有已存的 Agent 对话，没法用来找回。',
+      missingReadModel: '这份副本缺少修复需要的对话文件。',
       unusable: '这份副本不能用来修复。',
       marked:
         '创建这份副本时对话读不了。检查它就知道里面的对话还能不能核对无误。',
@@ -317,6 +322,8 @@ export const agentRepair = defineMessages({
         '这些对话是较新版本的 PathKeep 存的。更新 PathKeep 就能读，修复帮不上忙。',
       healthy: '已存的对话现在能正常打开，不需要修复。',
       evidenceReadable: '已存的对话本身完好，会直接用它们重建，不用副本。',
+      pairUnverified:
+        '存放对话的两个文件对不上，PathKeep 没法用它们重建。请选一份安全副本。',
       wrongPassword: '这不是这份副本的密码。',
       busy: '存档正在进行另一项改动。等它完成后再试一次。',
       checkFailed: '无法检查能找回哪些对话。{message}',
@@ -451,6 +458,7 @@ export const agentRepair = defineMessages({
         '重新開始不會帶回另一個存檔的檔案裡的對話。下面的安全副本可能還有這個存檔的對話：先選一份檢查，再決定要不要重新開始。',
       unsealed: '這份副本還沒檢查過，不能用來修復。',
       missingEvidence: '這份副本裡沒有已存的 Agent 對話，沒辦法用來救回。',
+      missingReadModel: '這份副本缺少修復需要的對話檔案。',
       unusable: '這份副本不能用來修復。',
       marked:
         '建立這份副本時對話讀不了。檢查它就知道裡面的對話還能不能核對無誤。',
@@ -481,6 +489,8 @@ export const agentRepair = defineMessages({
         '這些對話是較新版本的 PathKeep 存的。更新 PathKeep 就能讀，修復幫不上忙。',
       healthy: '已存的對話現在可以正常打開，不需要修復。',
       evidenceReadable: '已存的對話本身完好，會直接從它們重建，不用副本。',
+      pairUnverified:
+        '存放對話的兩個檔案對不起來，PathKeep 無法從它們重建。請選一份安全副本。',
       wrongPassword: '這不是這份副本的密碼。',
       busy: '存檔正在進行另一項變更。等它完成再試一次。',
       checkFailed: '無法檢查能救回哪些對話。{message}',

@@ -616,7 +616,11 @@ export type ArchiveRecoveryKind =
 
 /** `RecoverySnapshot.conversationRepairSource`; a later backend may add or drop reasons. */
 export type ConversationRepairSource =
-  'checkRequired' | 'missingEvidence' | 'unsealed' | (string & {})
+  | 'checkRequired'
+  | 'missingEvidence'
+  | 'missingReadModel'
+  | 'unsealed'
+  | (string & {})
 
 /**
  * Describes one verified full-archive safety snapshot available for restore.
@@ -649,9 +653,9 @@ export interface RecoverySnapshot {
   /**
    * Whether the copy can be the source of a conversation repair, judged from
    * the files it holds (no database is opened). `checkRequired`: it can be
-   * chosen; the repair's check still verifies it (a copy of the saved
-   * conversations alone will do). Otherwise why not: it holds no saved
-   * conversations (`missingEvidence`), or has no seal (`unsealed`).
+   * chosen; the repair's check still verifies it. Otherwise why not: it holds
+   * no saved conversations (`missingEvidence`), lacks the other conversation
+   * file a check needs (`missingReadModel`), or has no seal (`unsealed`).
    * `verifiedOpenable` is about restoring browsing and says nothing here.
    */
   conversationRepairSource: ConversationRepairSource
