@@ -24,7 +24,7 @@ import {
   Sun,
   type LucideIcon,
 } from 'lucide-react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import {
   Tooltip,
   TooltipContent,
@@ -38,7 +38,7 @@ import {
   isMacOsHost,
   shortcutLabel,
 } from '@/lib/runtime'
-import { spacePagePath } from '@/lib/spaces'
+import { pageElsewhere, spacePagePath } from '@/lib/spaces'
 import { useTheme } from '@/lib/theme'
 import { useCurrentSpace, useSlideDirection } from './current-space'
 import { SpaceSlide } from './space-slide'
@@ -50,18 +50,23 @@ function RailLink({
   to,
   icon: Icon,
   label,
+  also = [],
 }: {
   to: string
   icon: LucideIcon
   label: string
+  /** Other address prefixes that belong to this page (`pageElsewhere`). */
+  also?: string[]
 }) {
+  const { pathname } = useLocation()
+  const elsewhere = also.some((prefix) => pathname.startsWith(prefix))
   return (
     <NavLink
       to={to}
       className={({ isActive }) =>
         cn(
           'flex h-[54px] w-[60px] shrink-0 flex-col items-center justify-center gap-1 rounded-xl text-muted-foreground transition-[background-color,color,box-shadow] duration-150 hover:text-foreground',
-          isActive && 'bg-card text-foreground shadow-card',
+          (isActive || elsewhere) && 'bg-card text-foreground shadow-card',
         )
       }
     >
@@ -189,6 +194,7 @@ export function NavRail({
             to={spacePagePath(space, page)}
             icon={page.icon}
             label={t(page.label)}
+            also={pageElsewhere(space, page)}
           />
         ))}
       </SpaceSlide>

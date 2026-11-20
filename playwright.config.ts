@@ -269,6 +269,19 @@ export default defineConfig({
       ],
       'agent',
     ),
+    // History and the reader on the conversations the projects above
+    // backed up (Claude Code, Codex, Pi; one Codex conversation deleted
+    // from its folder). In name order; the marks spec takes off every mark
+    // it puts on.
+    project(
+      'agent-chats',
+      [
+        'agent-chats-1-list.spec.ts',
+        'agent-chats-2-reader.spec.ts',
+        'agent-chats-3-marks.spec.ts',
+      ],
+      'agent-sources',
+    ),
     // They kill the app, or let it quit, and the launcher starts it again,
     // behind App Lock.
     project(
@@ -281,7 +294,7 @@ export default defineConfig({
         'semantic-progress.spec.ts',
         'takeout-continue.spec.ts',
       ],
-      'agent-sources',
+      'agent-chats',
     ),
     // The built-in model's download, from a test model served on this
     // computer: it restarts the app with the model's address, and its index

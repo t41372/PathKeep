@@ -31,11 +31,16 @@ function screen(load: () => Promise<{ default: ComponentType }>) {
 function pageRoutes(space: Space): RouteObject[] {
   return space.pages.flatMap((page) => {
     const children = 'children' in page ? (page.children ?? []) : []
+    const elsewhere = 'elsewhere' in page ? (page.elsewhere ?? []) : []
     return [
       { path: page.id, element: screen(page.screen) },
       ...children.map((child) => ({
         path: `${page.id}/${child.path}`,
         element: screen(child.screen),
+      })),
+      ...elsewhere.map((other) => ({
+        path: other.path,
+        element: screen(other.screen),
       })),
     ]
   })

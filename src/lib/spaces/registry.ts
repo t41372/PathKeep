@@ -22,6 +22,7 @@ import {
   HardDriveDownload,
   History,
   House,
+  MessagesSquare,
   type LucideIcon,
 } from 'lucide-react'
 import { lazy, type ComponentType, type ReactNode } from 'react'
@@ -63,6 +64,12 @@ export interface SpacePage {
    * page in the rail.
    */
   children?: readonly { path: string; screen: Screen }[]
+  /**
+   * Screens at other addresses of the space (`#/<space>/<path>`) that
+   * still belong to this page and light it in the rail: the Agent
+   * space's full-page reader (`#/agent/chat/:id`) belongs to its list.
+   */
+  elsewhere?: readonly { path: string; screen: Screen }[]
 }
 
 /**
@@ -187,12 +194,12 @@ const browsing = {
 
 /**
  * Agent conversations. Its pages are insights, records, projects and
- * backup (`data-spaces-tradeoff.md` §4.1); this build has the backup page,
- * so for now it is also where the space opens and its list page. ⌘K finds
- * its sources and recent backups, with no "Search in" row (the backup page
- * does not search). Insights, records and projects come with the
- * conversation read model: insights goes first (where the space opens),
- * records becomes `listPage`, and ⌘K finds conversations and searches them.
+ * backup (`data-spaces-tradeoff.md` §4.1); this build has records (the
+ * list and the reader) and backup, so for now the space opens at records.
+ * ⌘K finds its sources and recent backups, with no "Search in" row: the
+ * list does not search yet. Insights goes first (where the space opens)
+ * when it is built; projects comes between records and backup; with
+ * search, ⌘K finds conversations and searches them.
  */
 const agent = {
   id: 'agent',
@@ -205,13 +212,25 @@ const agent = {
   hue: 195,
   pages: [
     {
+      id: 'chats',
+      label: 'shell.nav.history',
+      icon: MessagesSquare,
+      screen: () => import('@/features/agent-chats/chats-page'),
+      elsewhere: [
+        {
+          path: 'chat/:id',
+          screen: () => import('@/features/agent-reader/chat-page'),
+        },
+      ],
+    },
+    {
       id: 'backup',
       label: 'shell.nav.backup',
       icon: HardDriveDownload,
       screen: () => import('@/features/agent-backup/agent-backup-page'),
     },
   ],
-  listPage: 'backup',
+  listPage: 'chats',
   backupPage: 'backup',
   Status: lazy(() => import('@/features/agent-backup/agent-status')),
   palette: {

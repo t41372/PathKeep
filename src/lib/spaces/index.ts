@@ -22,6 +22,8 @@ export {
 } from './registry'
 export { kindStateOf, useKindList, type KindListAnswer } from './kind-states'
 export {
+  agentChatPath,
+  pageElsewhere,
   spaceBackupPath,
   spaceOfPath,
   spacePagePath,

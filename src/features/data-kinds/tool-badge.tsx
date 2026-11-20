@@ -7,7 +7,7 @@ import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
 import { toolLooks } from './tools'
 
-function ToolIcon({ id }: { id: AgentToolId }) {
+export function ToolIcon({ id }: { id: AgentToolId }) {
   const { icon, iconDark } = toolLooks[id]
   const img = 'size-4 shrink-0 object-contain'
   return (

@@ -35,6 +35,17 @@ export function spacePagePath(space: Space, page: SpacePage) {
   return `/${space.id}/${page.id}`
 }
 
+/**
+ * The address prefixes outside a page's own path that light it in the
+ * rail: each of its `elsewhere` screens up to its first parameter
+ * (`chat/:id` → `/agent/chat/`).
+ */
+export function pageElsewhere(space: Space, page: SpacePage): string[] {
+  return (page.elsewhere ?? []).map(
+    (other) => `/${space.id}/${other.path.split(':')[0]}`,
+  )
+}
+
 /** Where a space opens: its first page. */
 export function spaceStartPath(space: Space) {
   return spacePagePath(space, space.pages[0])
@@ -50,6 +61,14 @@ export function spaceSearchPath(space: Space, query?: string) {
 export function spaceBackupPath(id: SpaceWithPagesId, rest = '') {
   const space = spaces.find((item) => item.id === id) as Space
   return `/${id}/${space.backupPage}${rest}`
+}
+
+/**
+ * One Agent conversation in the full-page reader (`#/agent/chat/:id`, an
+ * `elsewhere` screen of the space's list page).
+ */
+export function agentChatPath(id: string) {
+  return `/${'agent' satisfies SpaceWithPagesId}/chat/${encodeURIComponent(id)}`
 }
 
 /**

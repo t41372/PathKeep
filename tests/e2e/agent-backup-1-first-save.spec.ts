@@ -14,8 +14,9 @@
  *   saved with their size), never a percentage, and no row for the others;
  * - Done's numbers are the run's (`get_archive_run`), and those are what
  *   the fixture says the two tools hold: every conversation and subagent;
- * - "View conversations" opens the space at its backup page, whose header
- *   counts the same conversations and whose recent backups list the run;
+ * - "View conversations" opens the space at History, which lists them;
+ *   its backup page's header counts the same conversations and its recent
+ *   backups list the run;
  *   its details name only the two tools and say `.git` was not read;
  * - Pi and DeepSeek Harness were not read: their rows say not backed up,
  *   and the archive holds nothing of them;
@@ -29,6 +30,7 @@
  */
 import { expect, test } from '@playwright/test'
 import { unlockIfLocked } from './support/app'
+import { chatList } from './support/agent-chats'
 import { enableDialog, TOOL_NAMES } from './support/agent-tools'
 import {
   agentOverview,
@@ -151,8 +153,15 @@ test('a first save from the off page, with two tools and no .git, leaves notes a
     contentType: 'image/png',
   })
 
-  // The space opens at its backup page, which shows the same run.
+  // The space opens at History, which lists what the first save saved;
+  // its backup page shows the same run.
   await dialog.getByRole('button', { name: 'View conversations' }).click()
+  await expect(page).toHaveURL(/#\/agent\/chats$/)
+  await expect(
+    page.getByRole('heading', { name: 'History', level: 1 }),
+  ).toBeVisible()
+  await expect(chatList(page).locator('[data-chat-id]').first()).toBeVisible()
+  await page.getByRole('link', { name: 'Backup', exact: true }).click()
   await expect(page).toHaveURL(/#\/agent\/backup$/)
   await expect(
     page.getByRole('heading', { name: 'Backup', level: 1 }),

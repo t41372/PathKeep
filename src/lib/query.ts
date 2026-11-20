@@ -92,6 +92,51 @@ export const queryKeys = {
   archiveRuns: ['archive', 'run'] as const,
   /** The first save the enable dialog started in this session; cleared by the lock. */
   firstSave: ['first-save'] as const,
+  /**
+   * Prefix for the conversation list and reader. A changed conversation or a
+   * finished backup refetches everything under it.
+   */
+  agentChats: ['archive', 'agent-chats'] as const,
+  agentChatList: (query: object) =>
+    ['archive', 'agent-chats', 'list', query] as const,
+  agentChatCounts: (query: object) =>
+    ['archive', 'agent-chats', 'counts', query] as const,
+  /** The projects (working folders) the filter offers. */
+  agentChatProjects: ['archive', 'agent-chats', 'projects'] as const,
+  agentChat: (id: string) => ['archive', 'agent-chats', 'chat', id] as const,
+  agentChatInfo: (id: string) =>
+    ['archive', 'agent-chats', 'chat', id, 'info'] as const,
+  agentChatChildren: (id: string, publication: string) =>
+    ['archive', 'agent-chats', 'chat', id, 'children', publication] as const,
+  agentChatVersions: (id: string, publication: string, ordinal: number) =>
+    [
+      'archive',
+      'agent-chats',
+      'chat',
+      id,
+      'versions',
+      publication,
+      ordinal,
+    ] as const,
+  /** A fixed-size window of one view of one line, by its index. */
+  agentChatWindow: (
+    id: string,
+    publication: string,
+    view: string,
+    line: string,
+    index: number,
+  ) =>
+    [
+      'archive',
+      'agent-chats',
+      'chat',
+      id,
+      'window',
+      publication,
+      view,
+      line,
+      index,
+    ] as const,
   /** Prefix for background tasks that live in the backend (conversation backups). */
   kindTasks: ['kind-tasks'] as const,
   taskSummary: ['kind-tasks', 'summary'] as const,

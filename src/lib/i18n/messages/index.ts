@@ -4,6 +4,9 @@
  */
 import type { MessagePath, ResolvedLanguage } from '../define'
 import { agentBackup } from './agent-backup'
+import { agentChats } from './agent-chats'
+import { agentInfo } from './agent-info'
+import { agentReader } from './agent-reader'
 import { agentRepair } from './agent-repair'
 import { agentTasks } from './agent-tasks'
 import { ask } from './ask'
@@ -36,6 +39,9 @@ const namespaces = {
   dataKinds,
   enableAgent,
   agentBackup,
+  agentChats,
+  agentReader,
+  agentInfo,
   agentRepair,
   agentTasks,
   home,
