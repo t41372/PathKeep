@@ -45,6 +45,53 @@ use vault_core::{
     record_agent_citations, register_ai_chat_run, request_ai_chat_cancel,
 };
 
+fn conversation_tools(vault: &vault_core::Vault) -> ToolRegistry {
+    let mut tools = ToolRegistry::with_default_search_tools();
+    if vault_core::ai::conversations::consent(vault, AiCapability::Assistant).is_ok() {
+        tools.register(vault_core::ai::conversations::ConversationSearchTool);
+    }
+    tools
+}
+
+/// After revocation a follow-up can still include the window's earlier assistant replies.
+/// Preserve user-authored questions, but do not replay answers derived from Agent passages.
+fn permitted_transcript(
+    vault: &vault_core::Vault,
+    request: &AiChatSendRequest,
+) -> Result<LlmChatRequest> {
+    use vault_store::{Db, OptionalRow};
+    let mut outgoing = to_llm_request(request);
+    let Some(id) = request.conversation_id.clone() else {
+        return Ok(outgoing);
+    };
+    if !outgoing.messages.iter().any(|m| matches!(m.role, LlmRole::Assistant | LlmRole::Tool))
+        || vault_core::ai::conversations::consent(vault, AiCapability::Assistant).is_ok()
+    {
+        return Ok(outgoing);
+    }
+    let cited=vault.store().read(Db::Agent,move|s|s.query_one("SELECT m.content FROM agent_runs r
+        LEFT JOIN messages m ON m.id=r.message_id AND m.conversation_id=r.conversation_id
+        WHERE r.conversation_id=?1 AND EXISTS(SELECT 1 FROM agent_citations c WHERE c.run_id=r.id AND c.profile_id='agent-history')
+        ORDER BY r.created_at,r.rowid LIMIT 1",[id],|r|Ok(r.get::<Option<String>>(0)?)).optional())?;
+    if let Some(first) = cited {
+        let cutoff = first
+            .and_then(|text| {
+                outgoing
+                    .messages
+                    .iter()
+                    .position(|m| m.role == LlmRole::Assistant && m.content == text)
+            })
+            .unwrap_or(0);
+        let mut pos = 0;
+        outgoing.messages.retain(|m| {
+            let keep = pos < cutoff || !matches!(m.role, LlmRole::Assistant | LlmRole::Tool);
+            pos += 1;
+            keep
+        });
+    }
+    Ok(outgoing)
+}
+
 /// Monotonic component of each run id, so ids stay unique within a process run.
 static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -133,6 +180,7 @@ where
         request.model.as_deref(),
     );
 
+    let outgoing = permitted_transcript(vault, request)?;
     let run_id = next_run_id();
     let cancel = register_ai_chat_run(&run_id);
 
@@ -145,7 +193,7 @@ where
             vault: vault.clone(),
             llm_runtime: runtime,
             embedding_runtime,
-            request: to_llm_request(request),
+            request: outgoing,
             answer_reserve_override: request.max_tokens,
             conversation_id: request.conversation_id.clone(),
             message_id: request.message_id.clone(),
@@ -155,7 +203,7 @@ where
         };
         spawn_agent_run(run_id.clone(), setup, cancel, emit);
     } else {
-        spawn_chat_run(run_id.clone(), runtime, to_llm_request(request), cancel, emit);
+        spawn_chat_run(run_id.clone(), runtime, outgoing, cancel, emit);
     }
     Ok(AiChatSendAck { run_id })
 }
@@ -258,10 +306,17 @@ fn run_chat_stream<E>(
 /// same `register_ai_chat_run` token, so this adapter lets `ai_chat_cancel` flip ONE token for both
 /// paths. `checkpoint` returns `AiRunCancelled` (the harness routes that to a graceful `Done`).
 struct WorkerCancelControl {
+    conversation_access: Option<vault_core::Vault>,
     cancel: Arc<AtomicBool>,
 }
 
 impl AiRunControl for WorkerCancelControl {
+    fn before_model_turn(&self) -> Result<()> {
+        if let Some(v) = &self.conversation_access {
+            vault_core::ai::conversations::consent(v, AiCapability::Assistant)?;
+        }
+        Ok(())
+    }
     fn checkpoint(&self, detail: &str) -> Result<()> {
         if self.cancel.load(Ordering::SeqCst) {
             return Err(AiRunCancelled::new(detail).into());
@@ -404,9 +459,16 @@ where
     }
 
     let provider = RigLlmProvider::new(setup.llm_runtime.clone());
-    let registry = ToolRegistry::with_default_search_tools();
+    let registry = conversation_tools(&setup.vault);
     let journal = AgentVaultJournal { vault: setup.vault.clone(), run_id: run_id.to_string() };
-    let control: Arc<dyn AiRunControl> = Arc::new(WorkerCancelControl { cancel });
+    let control: Arc<dyn AiRunControl> = Arc::new(WorkerCancelControl {
+        cancel,
+        conversation_access: registry
+            .definitions()
+            .iter()
+            .any(|t| t.name == "search_agent_conversations")
+            .then(|| setup.vault.clone()),
+    });
     let tool_context = AgentToolContext {
         vault: setup.vault.clone(),
         paths: setup.paths.clone(),
@@ -549,7 +611,7 @@ pub fn ai_chat_context(
         &config.ai.assistant_system_prompt,
     );
     let mut fixed = LlmChatRequest::new(vec![LlmMessage::new(LlmRole::System, system)]);
-    fixed.tools = ToolRegistry::with_default_search_tools().definitions();
+    fixed.tools = conversation_tools(vault).definitions();
     let answer = answer_room(context_length.map(u64::from));
     Ok(vault_core::AiChatContext {
         model,

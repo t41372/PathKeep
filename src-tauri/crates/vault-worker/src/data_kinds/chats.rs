@@ -195,6 +195,9 @@ pub fn search(s: &VaultSession, mut q: ScreenQuery) -> Result<super::preview::Fr
     if q.filters.time_zone.is_none() {
         q.filters.time_zone = Some(vault_core::insights_time_zone(&vault)?.shown);
     }
+    if q.mode == agent_history::search::SearchMode::Semantic {
+        return super::semantic::search(s, vault, q);
+    }
     let frames = super::preview::search_stream(s, vault.agent_history()?, None, q)?;
     backups::check_reply(&vault, s, false)?;
     Ok(frames)

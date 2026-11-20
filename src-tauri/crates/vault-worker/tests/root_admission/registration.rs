@@ -43,7 +43,7 @@ fn every_owner_and_mcp_registration_has_a_literal_row() {
     assert_eq!(
         quoted_arms(source),
         literal(
-            "ping backup mcp ai-jobs intelligence-jobs doctor ai-index ai-queue search-history archive-status usage-guide"
+            "ping backup mcp ai-jobs intelligence-jobs doctor ai-index ai-queue search-history search-conversations read-conversation archive-status usage-guide"
         )
     );
     assert!(source.contains("call.tool == \"initialize\""));

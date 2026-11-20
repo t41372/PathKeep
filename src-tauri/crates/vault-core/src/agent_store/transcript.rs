@@ -272,14 +272,23 @@ fn hydrate_messages(
         ),
         args,
         |r| {
+            let profile_id = r.get::<Option<String>>(7)?.unwrap_or_default();
+            let url: String = r.get(3)?;
+            let target = if profile_id == "agent-history" {
+                crate::ai::conversations::citation_target(&url)
+            } else {
+                None
+            };
+            let target_is_conversation = target.is_some();
             citations.entry(r.get(0)?).or_default().push(AgentCitation {
+                target,
                 history_id: r.get(1)?,
-                canonical_url: Some(r.get(2)?),
-                url: r.get(3)?,
+                canonical_url: if target_is_conversation { None } else { Some(r.get(2)?) },
+                url,
                 title: r.get(4)?,
                 visited_at: r.get::<Option<String>>(5)?.unwrap_or_default(),
                 score: r.get::<Option<f64>>(6)?.map(|v| v as f32),
-                profile_id: r.get::<Option<String>>(7)?.unwrap_or_default(),
+                profile_id,
             });
             Ok(())
         },

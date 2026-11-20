@@ -209,6 +209,19 @@ fn conversation_screen_wire_opens_a_saved_pi_turn_and_reads_its_image() {
             .map(|item| item["bytes"].as_str().unwrap().parse::<u64>().unwrap())
             .sum::<u64>();
         assert_eq!(agent["archiveBytes"], bytes.to_string());
+        let semantic = dispatch_command(&state, "get_agent_semantic_index", json!({"request":{}}))
+            .await
+            .unwrap();
+        assert_eq!(semantic, json!({"enabled":false,"serving":null,"job":null}));
+        assert!(
+            dispatch_command(
+                &state,
+                "control_agent_semantic_index",
+                json!({"request":{"action":"build"}})
+            )
+            .await
+            .is_err()
+        );
         let viewer =
             dispatch_command(&state, "get_agent_viewer_preferences", json!({"request":{}}))
                 .await

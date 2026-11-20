@@ -42,7 +42,7 @@ pub struct Patch {
     build_semantic_index: Option<bool>,
     mcp_may_read: Option<bool>,
 }
-pub fn set(p: Patch, events: backups::Events) -> Result<Value> {
+pub fn set(session: &crate::VaultSession, p: Patch, events: backups::Events) -> Result<Value> {
     let paths = vault_core::project_paths()?;
     let gate = ControlGate::acquire(&paths);
     let mut cfg = admitted_config(&paths)?;
@@ -75,6 +75,9 @@ pub fn set(p: Patch, events: backups::Events) -> Result<Value> {
     drop(gate);
     let result = response(&cfg)?;
     events("pathkeep://agent-viewer-preferences-changed", result.clone());
+    if let Some(enabled) = p.build_semantic_index {
+        super::semantic::preferences_changed(session, enabled, events.clone());
+    }
     if cfg.agent_viewer.scratch_locations != previous_locations {
         events("pathkeep://agent-projects-changed", json!({}));
         events("pathkeep://agent-conversations-changed", json!({"id":null}));

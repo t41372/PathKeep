@@ -18,18 +18,21 @@ impl Archive {
     /// Searches the whole synchronized corpus. Terms are literal, case-insensitive
     /// and conjunctive; filters retain exact harness/project identity.
     pub fn search(&self, query: &SearchQuery) -> Result<SearchPage> {
+        self.search_page(query, 0)
+    }
+    pub fn search_page(&self, query: &SearchQuery, offset: usize) -> Result<SearchPage> {
         self.initial_search.wait();
         let _job = self.jobs.enter(None)?;
         loop {
             let state = self.state_visibility()?;
-            let page = self.search_current(query)?;
+            let page = self.search_current(query, offset)?;
             if self.state_visibility()? == state {
                 return Ok(page);
             }
         }
     }
 
-    fn search_current(&self, query: &SearchQuery) -> Result<SearchPage> {
+    fn search_current(&self, query: &SearchQuery, offset: usize) -> Result<SearchPage> {
         if query.limit == 0 || query.limit > 100 {
             return Err(Error::InvalidInput("search limit must be between 1 and 100".into()));
         }
@@ -84,13 +87,18 @@ impl Archive {
             &opened.directory,
         )?;
         let searcher = reader.searcher();
-        let (top, total) = index::checked(
-            searcher.search(
-                &BooleanQuery::new(clauses),
-                &(TopDocs::with_limit(query.limit).order_by_score(), Count),
-            ),
-            &opened.directory,
-        )?;
+        let expression = BooleanQuery::new(clauses);
+        let (top, total) = if offset as u64 >= searcher.num_docs() {
+            (Vec::new(), index::checked(searcher.search(&expression, &Count), &opened.directory)?)
+        } else {
+            index::checked(
+                searcher.search(
+                    &expression,
+                    &(TopDocs::with_limit(query.limit).and_offset(offset).order_by_score(), Count),
+                ),
+                &opened.directory,
+            )?
+        };
         let mut items = Vec::with_capacity(top.len());
         for (score, address) in top {
             let document: TantivyDocument =

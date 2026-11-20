@@ -105,7 +105,7 @@ impl FlatVectorIndex {
 }
 
 // Independent lanes let the compiler vectorise without a loop-carried f32 reduction.
-fn scaled_dot(query: &[f32], codes: &[u8], scale: f32) -> f32 {
+pub(super) fn scaled_dot(query: &[f32], codes: &[u8], scale: f32) -> f32 {
     let mut sums = [0f32; 8];
     let mut q = query.chunks_exact(8);
     let mut c = codes.chunks_exact(8);

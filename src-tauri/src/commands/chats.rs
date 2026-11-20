@@ -162,11 +162,14 @@ pub(crate) async fn get_agent_viewer_preferences(
 }
 #[tauri::command]
 pub(crate) async fn set_agent_viewer_preferences(
+    state: State<'_, SessionState>,
     app: AppHandle,
     request: Request<vault_worker::data_kinds::viewer::Patch>,
 ) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
     run_blocking_command("set_agent_viewer_preferences", move || {
         worker_bridge::set_agent_viewer_preferences_impl(
+            &session,
             request.0,
             super::data_kinds::desktop_events(app),
         )
@@ -182,6 +185,34 @@ pub(crate) async fn query_agent_palette(
     let session = state.inner().clone();
     run_blocking_command("query_agent_palette", move || {
         worker_bridge::query_agent_palette_impl(&session, request.0)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn get_agent_semantic_index(
+    state: State<'_, SessionState>,
+    request: Request<vault_worker::data_kinds::Empty>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("get_agent_semantic_index", move || {
+        worker_bridge::get_agent_semantic_index_impl(&session, request.0)
+    })
+    .await
+}
+#[tauri::command]
+pub(crate) async fn control_agent_semantic_index(
+    app: AppHandle,
+    state: State<'_, SessionState>,
+    request: Request<vault_worker::data_kinds::semantic::Control>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("control_agent_semantic_index", move || {
+        worker_bridge::control_agent_semantic_index_impl(
+            &session,
+            request.0,
+            super::data_kinds::desktop_events(app),
+        )
     })
     .await
 }

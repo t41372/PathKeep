@@ -161,6 +161,15 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             worker_bridge::get_agent_viewer_preferences_impl(surface_request(payload)?)
         }
         "set_agent_viewer_preferences" => worker_bridge::set_agent_viewer_preferences_impl(
+            &state.session,
+            surface_request(payload)?,
+            backup_events(state),
+        ),
+        "get_agent_semantic_index" => {
+            worker_bridge::get_agent_semantic_index_impl(&state.session, surface_request(payload)?)
+        }
+        "control_agent_semantic_index" => worker_bridge::control_agent_semantic_index_impl(
+            &state.session,
             surface_request(payload)?,
             backup_events(state),
         ),

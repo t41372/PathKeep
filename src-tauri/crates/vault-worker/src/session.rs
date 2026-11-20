@@ -442,6 +442,12 @@ impl VaultSession {
         if let Err(error) = crate::data_kinds::backups::recover(self, &vault) {
             eprintln!("PathKeep could not resume conversation backup: {error:#}");
         }
+        if vault.config().agent_viewer.build_semantic_index {
+            crate::data_kinds::semantic::update_if_needed(
+                &vault,
+                crate::data_kinds::backups::owner_events(self),
+            );
+        }
         if let Err(error) = crate::intelligence::resume_insights(&vault) {
             eprintln!("PathKeep could not resume Insights work: {error:#}");
         }

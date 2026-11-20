@@ -568,3 +568,11 @@ Legacy ancestor-barrier fault injection fails each of the four pre-move director
 flat source must remain named after every failure, and a successful retry retains the same inode.
 This closes the crash window where syncing only the immediate destination directory could leave
 its new ancestor entry unpersisted after the source-directory unlink was already durable.
+
+### Saved Agent passages
+
+The Agent switch adds a separately consented corpus. Its owner reuses the configured document/query embedding engines, role-specific prompts and int8 dot-product scoring. A generation deduplicates 1,024-scalar passages by SHA-256 and maps each record and chunk to its vector. The staged pages contain hashes, dimensions, quantized vectors and integer addresses. Passage text is read from the current, visible source interpretation when a result is delivered. Worker batches check the current grant before provider calls. Only the final generation switch makes a completed build visible. [Commands and progress units](desktop-command-surface.md#agent-conversation-ai-access)
+
+A later pass reuses the quantized vectors of unchanged passages for the same provider selection, output width and model. It rebuilds the address map against visible current records and carries forward only referenced vectors. Opening an enabled archive checks for a missing or stale generation. A ready generation needs no provider key lookup for its Settings status.
+
+[Linux conversation corpus, model and measurement method](research/agent-history/semantic-index.md)

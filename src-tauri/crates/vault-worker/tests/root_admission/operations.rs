@@ -538,6 +538,8 @@ fn every_mcp_tool_rechecks_the_owner_root_after_connection() {
     for (tool, arguments) in [
         ("initialize", serde_json::json!({})),
         ("search-history", serde_json::json!({"query":"fixture"})),
+        ("search-conversations", serde_json::json!({"query":"fixture"})),
+        ("read-conversation", serde_json::json!({"id":"fixture"})),
         ("archive-status", serde_json::json!({})),
         ("usage-guide", serde_json::json!({})),
     ] {

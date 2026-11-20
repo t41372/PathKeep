@@ -16,6 +16,8 @@ mod agent_tools;
 mod chat_stream;
 mod code_mode;
 mod control;
+pub mod conversation_vectors;
+pub mod conversations;
 mod dedup;
 mod embedding_engine;
 mod embedding_error;
@@ -241,6 +243,11 @@ impl AiProviderRuntime {
 
 /// Cooperative cancellation/progress hook for long-running AI work.
 pub trait AiRunControl: Send + Sync {
+    /// A turn may now contain private tool evidence. Revalidate its grant immediately before egress.
+    fn before_model_turn(&self) -> Result<()> {
+        Ok(())
+    }
+
     /// Checks whether the current run should stop at this safe boundary.
     fn checkpoint(&self, detail: &str) -> Result<()>;
 

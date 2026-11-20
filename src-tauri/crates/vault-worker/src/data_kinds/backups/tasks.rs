@@ -165,6 +165,9 @@ pub fn tasks(session: &VaultSession, req: ListTasks) -> Result<Value> {
             rows.push(task_row(&session.conversations, &record(&vault, &id)?)?);
         }
         check_reply(&vault, session, false)?;
+        if let Some(row) = super::super::semantic::task(&vault).filter(|r| r["state"] == "paused") {
+            rows.push(row);
+        }
         return page(rows, None);
     }
     let after: Option<i64> = decode(req.cursor.as_deref())?;
@@ -196,6 +199,12 @@ pub fn tasks(session: &VaultSession, req: ListTasks) -> Result<Value> {
     }
     let next = (ids.len() > req.limit).then(|| ids[req.limit - 1].0.to_string());
     check_reply(&vault, session, false)?;
+    if matches!(req.group, Group::Running)
+        && req.cursor.is_none()
+        && let Some(row) = super::super::semantic::task(&vault).filter(|r| r["state"] != "paused")
+    {
+        rows.push(row);
+    }
     page(rows, next)
 }
 /// Serve the rail from active work and unacknowledged terminal receipts.
@@ -222,6 +231,13 @@ pub fn task_summary(session: &VaultSession, _: super::super::Empty) -> Result<Va
             } else {
                 running.push(row);
             }
+        }
+    }
+    if let Some(row) = super::super::semantic::task(&vault) {
+        if row["state"] == "paused" {
+            queued += 1;
+        } else {
+            running.push(row);
         }
     }
     check_reply(&vault, session, false)?;

@@ -8,6 +8,7 @@
 //! first-party UI, and every query still writes a dedicated `mcp_query` run so
 //! the archive keeps an auditable trace.
 
+mod conversations;
 use crate::{
     context::{
         derive_ai_status, load_hydrated_config, load_unlocked_config, resolved_app_lock_status,
@@ -15,6 +16,7 @@ use crate::{
     intelligence::search_ai_history,
 };
 use anyhow::Result;
+pub(crate) use conversations::{read_agent, search_agent};
 use rmcp::ServiceExt;
 use rmcp::schemars;
 use rmcp::{
@@ -130,7 +132,7 @@ const MCP_USAGE_GUIDE_VERSION: u32 = 1;
 /// Builds the canonical, machine-facing usage guide for external agents.
 ///
 /// Authored faithfully to what the MCP tools actually accept and return: the
-/// only egress tools are `search-history` (which takes `query` + optional
+/// browsing search tool is `search-history` (which takes `query` + optional
 /// `profileId` / `domain` / `limit`, capped per call, and auto-selects its
 /// recall mode) and `archive-status`. The guide therefore never instructs the
 /// agent to pass a `mode` argument that does not exist, and it cites the
@@ -170,6 +172,7 @@ fn build_mcp_usage_guide(enabled: bool) -> McpUsageGuide {
                 title: "Search mode is chosen for you — phrase the query to match what is available".to_string(),
                 points: vec![
                     "The search-history tool takes a single `query` (plus optional `profileId`, `domain`, and `limit`); there is no mode parameter. PathKeep picks the recall mode automatically: semantic / hybrid when the user has a semantic index built, otherwise lexical (BM25 keyword) recall.".to_string(),
+                    "For saved coding-agent conversations use search-conversations, then read-conversation with the conversation ID and publication. Both require the separate Agent MCP permission. Use nextOffset, next or nextChunk to continue.".to_string(),
                     "Read the response to learn which mode actually ran: `providerId` and `model` name the recall path, and `notes` states honestly when it fell back to lexical-only (e.g. no embedding provider configured).".to_string(),
                     "When you can tell only lexical recall is available (a fallback note, or a lexical providerId), prefer precise keywords, distinctive terms, and exact phrases over conversational sentences.".to_string(),
                     "When semantic / hybrid recall is available, natural-language intent (\"articles about retirement planning I read last spring\") works well; you do not need to guess keywords.".to_string(),
@@ -483,6 +486,27 @@ impl BrowserHistoryMcpServer {
             )
             .await?;
         Ok(Json(response))
+    }
+
+    #[tool(
+        name = "search-conversations",
+        description = "Search saved Agent conversations for cited passages. Continue with nextOffset."
+    )]
+    pub(crate) async fn search_conversations(
+        &self,
+        Parameters(q): Parameters<conversations::Search>,
+    ) -> Result<Json<serde_json::Value>, rmcp::ErrorData> {
+        Ok(Json(self.forward("search-conversations", serde_json::json!(q)).await?))
+    }
+    #[tool(
+        name = "read-conversation",
+        description = "Read a bounded window of visible messages in a saved Agent conversation. Continue with next."
+    )]
+    pub(crate) async fn read_conversation(
+        &self,
+        Parameters(q): Parameters<conversations::Read>,
+    ) -> Result<Json<serde_json::Value>, rmcp::ErrorData> {
+        Ok(Json(self.forward("read-conversation", serde_json::json!(q)).await?))
     }
 
     /// Reports whether PathKeep is initialized, unlocked, and AI-ready.

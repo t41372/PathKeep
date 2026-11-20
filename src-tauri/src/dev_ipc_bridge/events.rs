@@ -31,6 +31,7 @@ use vault_worker::data_kinds::delivery::Permit;
 const APP_EVENTS: &[&str] = &[
     vault_worker::data_kinds::POLICY_EVENT,
     "pathkeep://agent-settings-changed",
+    "pathkeep://agent-semantic-index-changed",
     "pathkeep://agent-viewer-preferences-changed",
     "pathkeep://agent-projects-changed",
     "pathkeep://agent-conversations-changed",
@@ -74,6 +75,7 @@ impl Hub {
         let permit = matches!(
             name,
             "pathkeep://agent-settings-changed"
+                | "pathkeep://agent-semantic-index-changed"
                 | "pathkeep://agent-viewer-preferences-changed"
                 | "pathkeep://agent-projects-changed"
                 | "pathkeep://agent-conversations-changed"
@@ -145,7 +147,8 @@ impl futures_core::Stream for Browser {
             }
             if matches!(
                 name,
-                "pathkeep://agent-projects-changed"
+                "pathkeep://agent-semantic-index-changed"
+                    | "pathkeep://agent-projects-changed"
                     | "pathkeep://agent-conversations-changed"
                     | "pathkeep://kind-backup-progress"
                     | "pathkeep://kind-backup-finished"

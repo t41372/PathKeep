@@ -302,6 +302,7 @@ impl AgentTool for HistorySearchTool {
             .items
             .iter()
             .map(|item| AiCitation {
+                target: None,
                 history_id: item.history_id,
                 profile_id: item.profile_id.clone(),
                 url: item.url.clone(),

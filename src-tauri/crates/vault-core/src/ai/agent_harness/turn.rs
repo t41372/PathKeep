@@ -45,6 +45,9 @@ where
     P: LlmProvider,
     S: AgentRunSink,
 {
+    if let Some(control) = control {
+        control.before_model_turn().map_err(|e| TurnError::Stream(e.to_string()))?;
+    }
     // Open the stream under cancellation (a cancel here is observed as a cancellation error).
     let open = await_with_ai_cancellation(
         control,
