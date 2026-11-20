@@ -192,13 +192,15 @@ test('link previews are set in Settings › Browsing history, where History’s 
     ])
     await page.goto('/#/browsing/backup')
     await page.getByRole('button', { name: 'Back up now' }).first().click()
+    // The row's text runs on into its duration ("1 new visit0.2s"): no word
+    // boundary after the count's noun, so "not followed by a letter".
     await expect(
       page
         .getByRole('heading', { name: 'Recent runs' })
         .locator('xpath=ancestor::*[.//li][1]')
         .getByRole('listitem')
         .first(),
-    ).toContainText(new RegExp(`\\b${QUIET_VISITS} new visits?\\b`), {
+    ).toContainText(new RegExp(`\\b${QUIET_VISITS} new visits?(?![a-z])`), {
       timeout: 60_000,
     })
     let figure = await openDetails(page, QUIET_TITLE)

@@ -177,8 +177,13 @@ test('⌘K: the space’s pages under Go to, and a search of the space on its li
     await expect(
       goTo.getByRole('option', { name: `Browsing · ${name}` }),
     ).toBeVisible()
-  await expect(goTo.getByRole('option', { name: 'Ask' })).toBeVisible()
-  await expect(goTo.getByRole('option', { name: 'Settings' })).toBeVisible()
+  // Exact: "Background tasks" also contains "ask".
+  await expect(
+    goTo.getByRole('option', { name: 'Ask', exact: true }),
+  ).toBeVisible()
+  await expect(
+    goTo.getByRole('option', { name: 'Settings', exact: true }),
+  ).toBeVisible()
   // One space: nothing to switch to.
   await expect(palette.getByRole('group', { name: 'Switch to' })).toHaveCount(0)
 
