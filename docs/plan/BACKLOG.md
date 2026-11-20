@@ -482,6 +482,12 @@
   - 契約：憑證/私鑰只進加密 secrets，永不入 repo；reproducible build 原則不破；release rehearsal（`bun run verify`）通過。
   - 驗收：CI 產出 signed + notarized + stapled 的 `.app`/`.dmg`；裝在乾淨機器上 Gatekeeper 不擋；授一次 FDA 後，安裝下一個版本仍保有 FDA（備份不再靜默失效）。
 
+- [ ] **WORK-AH-EVIDENCE-LINEAGE** — 對話證據的身分與歷史，取代 pair seal（2026-11-20 擱置：先把整個 app 做完，這類極端情況只記錄）
+  - 狀態：`track/ah-lineage` 的 b5482815（第一版，Linux 測試通過）與合併 1d740e9d；審查找出的修正做到一半，存在 `parked/ah-lineage-fixes-wip`（3b5abd4a，agent-history 1 個測試、vault-worker 未通過）。都沒有合併；candidate 照舊用 pair seal。
+  - 要解的：當機落在證據寫入和讀取模型之間、Time Machine 或同步工具放回單一舊檔、別的存檔的證據檔放進來時，讀取模型可能顯示證據沒有的對話、漏掉有的，或顯示別的存檔的對話。
+  - 審查與驗證：`pathkeep-v06-handoff/merge-1118/review-lineage.report.md`、`review-lineage.verification.md`（9 項，歸成 5 個根本原因）。其中正常使用會碰到的：設定檔遺失後從副本還原，對話被判成外來的（第 3 項）；b5482815 每次沒變的備份都會重新發布每段對話（12 萬個來源 3807 秒，修正版 1084 秒）。
+  - 重新開始前先決定要不要做：做的話從 3b5abd4a 接手，先讓測試全過，再量沒變的備份。
+
 ---
 
 - [ ] **WORK-E2E-WINDOW-OFF-THE-DESKTOP** — E2E 的測試 app 在開發者的螢幕上開真的視窗、搶走焦點，視窗被關掉整輪 gate 就結束（2026-11-18 查明；2026-11-16 那次「app 自己結束」沒查明的也是這個現象）
