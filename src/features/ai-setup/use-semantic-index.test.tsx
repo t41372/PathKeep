@@ -24,6 +24,11 @@
  * Stand-ins: the backend (its settings, merged on save the way `save_config`
  * merges them, and its commands), the event channel and the toasts. The hook,
  * the download module and the save path are real.
+ *
+ * Every wait is for a signal (`until`), never a count of ticks: a screen
+ * shows a saved change only once React Query's notice reaches it, and a test
+ * that reads the screen sooner passes or fails on whatever else happened to
+ * render it.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
@@ -49,9 +54,19 @@ const backend = vi.hoisted(() => ({
   saves: [] as AppConfig[],
   /** Runs just before a save is merged: another window's save landing first. */
   beforeSave: null as (() => void) | null,
-  /** The next read answers with the settings as they are now, once this resolves. */
-  holdNextRead: null as Promise<void> | null,
+  /** Holds the next settings read: see `holdNextRead`. */
+  nextRead: null as HeldRead | null,
 }))
+
+interface HeldRead {
+  /** The read was asked for, and what it read then. */
+  taken: boolean
+  saw: AppSnapshot | null
+  /** It answered (with what it read when asked). */
+  answered: boolean
+  released: Promise<void>
+  answer: () => void
+}
 
 const channel = vi.hoisted(() => ({
   listeners: new Set<(payload: unknown) => void>(),
@@ -102,9 +117,14 @@ vi.mock('@/lib/backend-client/app', () => ({
   appClient: {
     getSnapshot: async () => {
       const read = snapshotOf(backend.config)
-      const hold = backend.holdNextRead
-      backend.holdNextRead = null
-      await hold
+      const hold = backend.nextRead
+      backend.nextRead = null
+      if (hold) {
+        hold.taken = true
+        hold.saw = read
+        await hold.released
+        hold.answered = true
+      }
       return read
     },
     saveConfig: (config: AppConfig, base: AppConfig) => {
@@ -170,7 +190,7 @@ beforeEach(async () => {
   backend.modelDownloaded = false
   backend.saves = []
   backend.beforeSave = null
-  backend.holdNextRead = null
+  backend.nextRead = null
   channel.listeners.clear()
   commands.start.mockReset()
   commands.cancel.mockReset()
@@ -204,19 +224,46 @@ function config(ai: Partial<AiSettings>): AppConfig {
   } as unknown as AppConfig
 }
 
-/** Lets promises, React Query's batched notices (zero-delay timers) and renders run. */
-async function flush() {
+/**
+ * One turn of the event loop inside `act`: React Query's batched notices
+ * (zero-delay timers, faked here) go out, every settled promise runs on, and
+ * React renders.
+ */
+async function turn() {
   await act(async () => {
-    for (let i = 0; i < 30; i++) {
-      vi.advanceTimersByTime(0)
-      await Promise.resolve()
-    }
+    vi.advanceTimersByTime(0)
+    await new Promise<void>((resolve) => setImmediate(resolve))
   })
 }
 
+/** Turns until `check` holds; `what` names the signal when it never comes. */
+async function until(check: () => boolean, what: string) {
+  for (let i = 0; i < 500; i++) {
+    await turn()
+    if (check()) return
+  }
+  throw new Error(`never happened: ${what}`)
+}
+
+/** The next settings read waits until `answer()`. */
+function holdNextRead(): HeldRead {
+  let answer!: () => void
+  const released = new Promise<void>((resolve) => {
+    answer = resolve
+  })
+  const hold = { taken: false, saw: null, answered: false, released, answer }
+  backend.nextRead = hold
+  return hold
+}
+
+let client: QueryClient
+
+/** The settings the screen holds now, whether or not it has rendered them yet. */
+const cached = () => client.getQueryData<AppSnapshot>(['snapshot'])!
+
 /** Settings → AI in a window whose copy of the settings is `seen`. */
 async function open(seen: AppConfig) {
-  const client = new QueryClient({
+  client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   client.setQueryData(['snapshot'], snapshotOf(seen))
@@ -236,7 +283,7 @@ async function open(seen: AppConfig) {
     ),
   )
   unmounts.push(() => act(() => root.unmount()))
-  await flush()
+  await until(() => index !== null, 'the screen rendered')
   return () => index!
 }
 
@@ -277,7 +324,10 @@ it('the in-app model’s Download, after another window chose a service, saves, 
   )
   expect(index().modelId).toBe(IN_APP)
   await act(() => index().enable(IN_APP))
-  await flush()
+  await until(
+    () => index().modelId === SERVICE,
+    'the screen shows the saved choice',
+  )
   expect(backend.saves).toEqual([])
   expect(commands.start).not.toHaveBeenCalled()
   expect(commands.build).not.toHaveBeenCalled()
@@ -294,12 +344,15 @@ it('turning semantic search on builds nothing when a service is chosen between t
     backend.config.ai.embeddingProviderId = SERVICE
   }
   await act(() => index().enable(IN_APP))
+  await until(
+    () => index().modelId === SERVICE,
+    'the screen shows the saved choice',
+  )
   expect(commands.start).not.toHaveBeenCalled()
   expect(commands.build).not.toHaveBeenCalled()
   expect(toasts.info).toEqual([
     'settingsAi.semantic.choiceChanged.service {"name":"E2E embeddings"}',
   ])
-  expect(index().modelId).toBe(SERVICE)
 })
 
 it('turning semantic search on with a service shown and chosen builds its index, naming it', async () => {
@@ -323,7 +376,7 @@ it('a download given up as silent that then finishes gets its build, and the sta
   act(() => {
     enabling = index().enable(IN_APP)
   })
-  await flush()
+  await until(() => commands.start.mock.calls.length === 1, 'the start')
   await send({
     transferId: A,
     kind: 'fileProgress',
@@ -331,6 +384,11 @@ it('a download given up as silent that then finishes gets its build, and the sta
     downloadedBytes: 500,
     totalBytes: 1000,
   })
+  // Shown only once the start's answer named the transfer.
+  await until(
+    () => index().download.downloadedBytes === 500,
+    'the download followed',
+  )
   await act(async () => {
     vi.advanceTimersByTime(120_000)
     await Promise.resolve()
@@ -338,12 +396,16 @@ it('a download given up as silent that then finishes gets its build, and the sta
   await act(async () => {
     await enabling
   })
+  await until(() => index().error !== null, 'the stall shown')
   expect(index().error).toBe('settingsAi.semantic.downloadStalled {"count":2}')
   expect(commands.build).not.toHaveBeenCalled()
 
   backend.modelDownloaded = true
   await send({ transferId: A, kind: 'done' })
-  await flush()
+  await until(
+    () => index().modelDownloaded && index().error === null,
+    'the screen caught up with the late end',
+  )
   expect(commands.build).toHaveBeenCalledWith({
     providerId: IN_APP,
     transferId: A,
@@ -363,20 +425,24 @@ it('the screen catching up after a stopped download does not put back settings o
   act(() => {
     void index().enable(IN_APP)
   })
-  await flush()
-  expect(index().enabled).toBe(true)
-  // The download stops; the screen reads the settings (still on) slowly...
-  let answer!: () => void
-  backend.holdNextRead = new Promise((resolve) => {
-    answer = resolve
-  })
+  await until(
+    () => commands.start.mock.calls.length === 1 && index().enabled,
+    'semantic search on and the download started',
+  )
+  // The download stops. The screen catches up: it reads the settings, still
+  // on, and the read waits...
+  const read = holdNextRead()
   await send({ transferId: A, kind: 'cancelled' })
-  await flush()
+  await until(() => read.taken, 'the catch-up read')
+  expect(read.saw?.config.ai.semanticIndexEnabled).toBe(true)
   // ...while the off is saved and shown.
   await act(() => index().disable())
-  expect(index().enabled).toBe(false)
-  answer()
-  await flush()
   expect(backend.config.ai.semanticIndexEnabled).toBe(false)
+  await until(() => !index().enabled, 'the off shown')
+  // The read answers now, with the settings from before the off.
+  read.answer()
+  await until(() => read.answered, 'the catch-up read answered')
+  expect(cached().config.ai.semanticIndexEnabled).toBe(false)
+  await turn()
   expect(index().enabled).toBe(false)
 })
