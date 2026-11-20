@@ -1,6 +1,6 @@
 # 資料類型與空間
 
-> 狀態：v0.6 的設計。外框（切換鈕、路由、色相、指示器、⌘K）已經做進 app。Agent 對話已經做了的：介紹卡（§3.1）、「沒有開啟」的畫面（§2）、啟用流程的四步，到第一次保存完成（§3.2–§3.4）、Agent 空間的備份頁（§4，`#/agent/backup`）、洞察（[agent-history.md](agent-history.md) §2，`#/agent/insights`，這個空間打開時的頁面）、紀錄與閱讀器（[agent-history.md](agent-history.md) §3、§4、§8，`#/agent/chats` 與 `#/agent/chat/:id`，搜尋還沒做）、背景任務指示器與背景任務頁（§5，`#/tasks`）、⌘K 的對話與專案（§6）、「設定 › 排程與背景工作」（§8）、Agent 備份頁的自動備份那一列（§4）、「設定 › 管理資料類型」的開啟／暫停／關閉、大小、只能看的狀態（§8，還沒有刪除）。還沒照這份文件改的：瀏覽紀錄的備份頁仍然放著整張「自動備份」卡（§4 要它換成那一列）；連結預覽的 `何時抓取`、`保留圖片` 還在背景任務頁的 `連結預覽` 那一列（§8 要它們搬到「設定 › 瀏覽紀錄」，那一頁還沒做）。其餘尚未實作，落地情況見 [data-spaces-tradeoff.md](../design/data-spaces-tradeoff.md) §6。
+> 狀態：v0.6 的設計。外框（切換鈕、路由、色相、指示器、⌘K）已經做進 app。Agent 對話已經做了的：介紹卡（§3.1）、「沒有開啟」的畫面（§2）、啟用流程的四步，到第一次保存完成（§3.2–§3.4）、Agent 空間的備份頁（§4，`#/agent/backup`）、洞察（[agent-history.md](agent-history.md) §2，`#/agent/insights`，這個空間打開時的頁面）、紀錄與閱讀器（[agent-history.md](agent-history.md) §3、§4、§8，`#/agent/chats` 與 `#/agent/chat/:id`，搜尋還沒做）、背景任務指示器與背景任務頁（§5，`#/tasks`）、⌘K 的對話與專案（§6）、「設定 › 排程與背景工作」（§8）、Agent 備份頁的自動備份那一列（§4）、「設定 › 管理資料類型」的開啟／暫停／關閉、大小、只能看的狀態（§8，還沒有刪除）。瀏覽紀錄的備份頁也換成了自動備份那一列（§4），首頁提醒列裡排程的問題、新手引導 `跳過` 的說明、刪除所有資料後排程沒移掉的說明都改指到「設定 › 排程與背景工作」。還沒照這份文件改的：連結預覽的 `何時抓取`、`保留圖片` 還在背景任務頁的 `連結預覽` 那一列（§8 要它們搬到「設定 › 瀏覽紀錄」，那一頁還沒做）。其餘尚未實作，落地情況見 [data-spaces-tradeoff.md](../design/data-spaces-tradeoff.md) §6。
 > 改過的 E2E 檢查（§0）：
 >
 > - `spaces-shell.spec` 原本檢查切換選單裡沒有空間以外的項目；Agent 對話登記之後它是關閉的，選單照 §3.1 多一項 `保存其他類型的資料…`，檢查改成「剛好這一項，按下去到管理資料類型」，沒有放寬。
@@ -14,6 +14,7 @@
 > - 工作清單搬到背景任務頁（§5.2）之後，只改了路徑和找元素的方式：`agent-backup-8`、`-9`、`agent-backup-restart` 從 `#/settings/background?show=conversations` 改到 `#/tasks`，列、說明、按鈕名稱的檢查都一樣；`background-work.spec`、`insights-reopen.spec`、`semantic-progress.spec` 和 `support/search-groups.ts` 的佇列、`重建`、`清除…` 改在 `#/tasks` 找，`執行背景工作` 的開關仍在設定裡按；`background-work.spec` 找的頁面標題從 `背景工作` 改成 `背景任務`。
 > - `spaces-shell-tasks.spec` 的 `打開背景任務` 原本到「設定 › 背景工作」並檢查那一頁的標題；現在到 `#/tasks`，並多檢查剛才那次瀏覽紀錄的備份列在頁上、連到它的詳情。是收緊。
 > - 指示器小視窗底下那一行原本只數對話備份（`{n} 個對話備份需要你看一下`），現在照 §5.1 寫 `{n} 項需要你看一下`，數的跟指示器的小點一樣（對話備份，加上失敗的瀏覽紀錄備份），按下去到 `#/tasks`。`agent-backup-4` 跟著用同一個數字（`railAttention`）檢查這一行，沒有放寬。
+> - 「自動備份」卡搬到「設定 › 排程與背景工作」（§4）之後，`schedule.spec` 和 `wipe.spec` 改到那一頁的卡上選間隔、安裝和關閉，檢查一樣；`schedule.spec` 另外先檢查瀏覽紀錄備份頁那一列寫 `自動備份關著`、`設定排程` 打開那張卡，安裝後那一列寫新的間隔，是收緊。`home-alerts.spec` 的自動備份失敗提醒原本按 `打開備份` 到 `#/browsing/backup`，現在按 `打開排程設定` 到 `#/settings/background`，其餘一樣。
 > - ⌘K 的 `Agent 對話` 原本是過渡的做法（來源和最近的備份，見 §6 舊的「現在做到的」）；照 §6 換成對話和專案之後，`agent-sources-4-palette` 裡檢查來源、備份和「沒有符合時這一組不出現」的那一段拿掉了，改由 `shell-2-palette.spec` 檢查 §6 的對話與專案（沒輸入字時的最近幾段、封存的找得到並標出、沒有符合時只剩搜尋那一列）。`立即備份` 那一段原封不動。`window-frame.spec` 找的輸入框提示換成新的 `搜尋對話、專案、頁面…`。
 >   外框本身（切換鈕、導航列、路由、每個空間的顏色、頁面寬度、快捷鍵、切換動畫）見 [data-spaces-tradeoff.md](../design/data-spaces-tradeoff.md)，這裡不重複。Agent 對話自己的畫面見 [agent-history.md](agent-history.md)。
 >

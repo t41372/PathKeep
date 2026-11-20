@@ -1,6 +1,7 @@
 /**
- * Backup: what PathKeep copies, when it runs, how older history comes in,
- * and what recent runs did. Each card owns its own data and actions, except
+ * Backup: what PathKeep copies, the automatic-backup row (the schedule
+ * itself is in Settings › Schedule and background work), how older history
+ * comes in, and what recent runs did. Each card owns its own data and actions, except
  * the two import cards: a file dropped anywhere on the window belongs to
  * exactly one of them, so the page routes each drop. Their runs live above
  * the router (`import-runner.tsx`).
@@ -15,7 +16,7 @@ import { ImportCard } from './import-card'
 import { ImportsCard } from './imports-card'
 import { ProgressCard } from './progress-card'
 import { RunsCard } from './runs-card'
-import { ScheduleCard } from './schedule-card'
+import { ScheduleRow } from './schedule-row'
 import { SourcesCard } from './sources-card'
 import { useBrowserImport, useTakeoutImport } from './import-runner'
 
@@ -43,9 +44,10 @@ export default function BackupPage() {
         actions={<BackupNowButton />}
       />
       <ProgressCard />
+      <ScheduleRow kind="browsing" />
       <SourcesCard />
+      {/* The two imports side by side; the list of imports takes a row of its own. */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <ScheduleCard />
         <ImportCard takeout={takeout} hovering={hovering && takeoutIdle} />
         <BrowserImportCard
           state={browser.state}
@@ -55,8 +57,8 @@ export default function BackupPage() {
           onStop={() => void browser.stop()}
           onReset={browser.reset}
         />
-        <ImportsCard />
       </div>
+      <ImportsCard />
       <RunsCard />
     </PageScroll>
   )

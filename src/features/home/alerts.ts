@@ -2,11 +2,13 @@
  * What Home warns about (`archive.md`: a failing or stalled automatic backup,
  * a browser PathKeep can't read, and the archive password at risk must not
  * stay hidden in Backup or Security). Each alert says what is wrong and links
- * to the place that fixes it; when nothing is wrong there are none.
+ * to the place that fixes it (a scheduler problem: Settings › Schedule and
+ * background work, where the automatic-backup card is); when nothing is
+ * wrong there are none.
  *
  * Responsible for: deciding which alerts apply, from the snapshot and the
  * scheduler's status. Not responsible for: rendering (`alerts-list.tsx`) or
- * the fixes themselves, which live in Backup and Settings → Security.
+ * the fixes themselves, which live in Backup and Settings.
  */
 import { useMemo } from 'react'
 import { scheduleCopy } from '@/features/backup/schedule-copy'
@@ -30,6 +32,7 @@ export interface HomeAlert {
 
 const BACKUP = spacePath('browsing', 'backup')
 const SECURITY = '/settings/security'
+const SCHEDULE = '/settings/background'
 
 export function useHomeAlerts(): HomeAlert[] {
   const { t } = useI18n()
@@ -41,6 +44,7 @@ export function useHomeAlerts(): HomeAlert[] {
     const alerts: HomeAlert[] = []
     const openBackup = { label: t('home.alerts.openBackup'), to: BACKUP }
     const openSecurity = { label: t('home.alerts.openSecurity'), to: SECURITY }
+    const openSchedule = { label: t('home.alerts.openSchedule'), to: SCHEDULE }
 
     for (const issue of schedule.data?.issues ?? []) {
       // Dismissible issues describe what this platform can't check (Linux
@@ -55,7 +59,7 @@ export function useHomeAlerts(): HomeAlert[] {
           scheduleCopy(t, issue.consequenceKey) ??
           scheduleCopy(t, issue.detailKey) ??
           '',
-        action: openBackup,
+        action: openSchedule,
       })
     }
 

@@ -241,11 +241,11 @@ export const settingsBackground = defineMessages({
     intro:
       '每次备份后，PathKeep 会更新洞察；如果你开启了，也会更新搜索索引和网页摘要。备份从不等这些工作完成。',
     run: {
-      title: '运行后台任务',
+      title: '运行后台工作',
       on: '更新会自动进行。',
       paused: '已暂停。新任务会在这里等候，直到你重新开启。备份照常进行。',
-      pausedToast: '后台任务已暂停。',
-      resumedToast: '后台任务已恢复。',
+      pausedToast: '后台工作已暂停。',
+      resumedToast: '后台工作已恢复。',
     },
     concurrency: {
       title: '同时运行的任务数',
@@ -272,7 +272,7 @@ export const settingsBackground = defineMessages({
       'index-build': '建立搜索索引',
       'index-clear': '清除搜索索引',
       assistant: '助手回答',
-      unknown: '后台任务',
+      unknown: '后台工作',
     },
     when: {
       queued: '{when}加入',
@@ -317,7 +317,7 @@ export const settingsBackground = defineMessages({
       confirmTitle: '重建洞察？',
       confirmBody:
         '这会让洞察跟上你的全部历史记录，已经是最新的部分会跳过。若要从头计算，请先清除下方的洞察数据。它在后台运行，你的历史记录不会被改动。',
-      pausedNote: '后台任务已暂停，重建会等到你恢复后才开始。',
+      pausedNote: '后台工作已暂停，重建会等到你恢复后才开始。',
       started: '重建已加入队列。',
       failed: '无法开始重建',
     },
@@ -337,7 +337,7 @@ export const settingsBackground = defineMessages({
       pausedBy: {
         user: '你暂停了它。',
         service: '服务没能运行模型，已暂停：{message}',
-        queue: '随所有后台任务一起暂停。',
+        queue: '随所有后台工作一起暂停。',
       },
     },
     summaries: {

@@ -220,7 +220,7 @@ export const backupRuns = defineMessages({
       'og-cleanup-summary_other':
         '链接预览缓存：移除了 {count} 条旧记录，释放了 {bytes}。',
       'ai-autoindex-queued-while-paused':
-        '新页面已加入语义搜索的索引队列，后台任务恢复后就会建立索引。',
+        '新页面已加入语义搜索的索引队列，后台工作恢复后就会建立索引。',
       'batch-reverted_one': '已撤销：这次导入的 {count} 条浏览记录已隐藏。',
       'batch-reverted_other': '已撤销：这次导入的 {count} 条浏览记录已隐藏。',
       'batch-restored_one': '已恢复：这次导入的 {count} 条浏览记录已重新显示。',

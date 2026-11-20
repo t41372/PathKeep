@@ -10,6 +10,7 @@ export const home = defineMessages({
       label: 'Needs your attention',
       openBackup: 'Open Backup',
       openSecurity: 'Open Security settings',
+      openSchedule: 'Open schedule settings',
       scheduleFallback: 'Automatic backup needs attention',
       fullDiskAccess: {
         title: 'Safari’s history can’t be read',
@@ -113,6 +114,7 @@ export const home = defineMessages({
       label: '需要你处理',
       openBackup: '打开备份',
       openSecurity: '打开安全设置',
+      openSchedule: '打开排程设置',
       scheduleFallback: '自动备份需要处理',
       fullDiskAccess: {
         title: '读不到 Safari 的历史',
@@ -214,6 +216,7 @@ export const home = defineMessages({
       label: '需要你處理',
       openBackup: '打開備份',
       openSecurity: '打開安全性設定',
+      openSchedule: '打開排程設定',
       scheduleFallback: '自動備份需要處理',
       fullDiskAccess: {
         title: '讀不到 Safari 的歷史',

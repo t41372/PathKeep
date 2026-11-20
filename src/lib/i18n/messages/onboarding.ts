@@ -190,7 +190,7 @@ export const onboarding = defineMessages({
       },
       skip: {
         keychain: 'Continue without the keychain',
-        schedule: 'Skip, set it up later in Backup',
+        schedule: 'Skip, set it up later in Settings',
         backup: 'Skip, back up later',
         ai: 'Skip, set it up later in Settings',
       },
@@ -391,7 +391,7 @@ export const onboarding = defineMessages({
       },
       skip: {
         keychain: '不用钥匙串，继续',
-        schedule: '跳过，之后在“备份”里设置',
+        schedule: '跳过，之后在“设置”里开启',
         backup: '跳过，之后再备份',
         ai: '跳过，之后在“设置”里设置',
       },
@@ -589,7 +589,7 @@ export const onboarding = defineMessages({
       },
       skip: {
         keychain: '不用鑰匙圈，繼續',
-        schedule: '跳過，之後在「備份」裡設定',
+        schedule: '跳過，之後在「設定」裡開啟',
         backup: '跳過，之後再備份',
         ai: '跳過，之後在「設定」裡設定',
       },

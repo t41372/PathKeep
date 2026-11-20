@@ -90,7 +90,7 @@ test('delete all data previews, deletes, and returns to onboarding', async ({
     largeBrowserFileVisits().length
 
   if (schedulerSupported) {
-    await page.goto('/#/browsing/backup')
+    await page.goto('/#/settings/background')
     await unlockIfLocked(page)
     await page.getByRole('radio', { name: 'Daily' }).click()
     // Turning it on shows the file first; nothing is installed until Install.

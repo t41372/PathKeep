@@ -1,6 +1,8 @@
 /**
- * Automatic backup: how often the native scheduler runs PathKeep, when it
- * runs next, and whether the scheduler is healthy. Choosing an interval,
+ * Automatic backup, in Settings › Schedule and background work: how often
+ * the native scheduler runs PathKeep, when the next backup of any kind is
+ * (Agent conversations keep their own clock, so it can be theirs), and
+ * whether the scheduler is healthy. Choosing an interval,
  * turning it off or fixing a problem opens a preview first
  * (`schedule-dialog.tsx`); "Details" shows what PathKeep verified
  * (`schedule-details-sheet.tsx`).
@@ -19,7 +21,7 @@ import {
 } from '@/lib/platform-guidance'
 import { useSnapshot } from '@/lib/queries/app'
 import {
-  nextScheduledBackup,
+  nextScheduledBackupOfAny,
   scheduleInstalled,
   useScheduleStatus,
 } from '@/lib/queries/schedule'
@@ -92,7 +94,7 @@ export function ScheduleCard() {
     : applySupported && !active
       ? 'off'
       : (preset ?? 'custom')
-  const next = nextScheduledBackup(status, now)
+  const next = nextScheduledBackupOfAny(status, now)
   const platform = normalizePlatform(status?.platform)
   const changeMode = applySupported && active ? 'update' : 'install'
 
