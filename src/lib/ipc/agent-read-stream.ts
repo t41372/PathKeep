@@ -144,7 +144,10 @@ export function openConversationSearch(
   return open<SearchFrame>('search_agent_conversations', request, onFrame)
 }
 
-/** Searches saved conversations by meaning: every close passage, closest first. */
+/**
+ * One page of a search by meaning: up to 100 passages, closest first. The
+ * page's `finished` names the cursor of the next one.
+ */
 export function openSemanticSearch(
   request: SemanticSearchRequest,
   onFrame: (frame: SemanticSearchFrame) => void,

@@ -12,6 +12,11 @@ import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
+import {
+  refusalPlaceName,
+  refusalPlacePath,
+  refusalWords,
+} from '../ai-setup/ai-refusals'
 import type { ChatTurn } from './chat-model'
 import { Markdown } from './markdown'
 import { citationPath, recordOf, uniqueCitations } from './citations'
@@ -40,6 +45,9 @@ export const AssistantTurn = memo(function AssistantTurn({
     turn.tools.length === 0 &&
     !turn.reasoning
   const failed = turn.status === 'error'
+  // The backend said why (AI or the assistant off): say where to turn it on.
+  const refused =
+    failed && turn.refusal ? refusalWords(t, turn.refusal, 'assistant') : null
   const incomplete = turn.status === 'cancelled'
 
   const copy = async () => {
@@ -78,10 +86,32 @@ export const AssistantTurn = memo(function AssistantTurn({
         >
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="font-medium">{t('ask.turn.failedTitle')}</span>
-            <span className="break-words text-muted-foreground">
-              {turn.error || t('ask.turn.interrupted')}
-            </span>
+            {refused ? (
+              <>
+                <span className="font-medium">{refused.title}</span>
+                <span className="break-words text-muted-foreground">
+                  {refused.body}
+                </span>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {refused.places.map((place) => (
+                    <Button key={place} size="xs" variant="outline" asChild>
+                      <Link to={refusalPlacePath[place]}>
+                        {t('ask.turn.openSettings', {
+                          section: t(refusalPlaceName[place]),
+                        })}
+                      </Link>
+                    </Button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <span className="font-medium">{t('ask.turn.failedTitle')}</span>
+                <span className="break-words text-muted-foreground">
+                  {turn.error || t('ask.turn.interrupted')}
+                </span>
+              </>
+            )}
           </div>
         </div>
       )}

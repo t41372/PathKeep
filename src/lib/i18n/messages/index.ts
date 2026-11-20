@@ -5,6 +5,7 @@
 import type { MessagePath, ResolvedLanguage } from '../define'
 import { agentBackup } from './agent-backup'
 import { agentChats } from './agent-chats'
+import { aiRefusals } from './ai-refusals'
 import { agentInfo } from './agent-info'
 import { agentProjects } from './agent-projects'
 import { agentReader } from './agent-reader'
@@ -48,6 +49,7 @@ const namespaces = {
   enableAgent,
   agentBackup,
   agentChats,
+  aiRefusals,
   agentReader,
   agentInfo,
   agentProjects,

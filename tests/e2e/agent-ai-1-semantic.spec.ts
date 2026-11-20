@@ -12,15 +12,20 @@
  * - A search that no record contains word for word (Records' full-text
  *   search says nothing mentions it, on screen and in the backend) finds,
  *   in semantic mode reading only what was said (yours and the agent's),
- *   the prompt in the middle of the 112-turn conversation first. Every passage on screen is the backend's, in the
- *   backend's order, the count says how many, and nothing is lit. Opening
- *   it puts the conversation and `at=<ordinal>:<source>` in the address,
- *   with no find words, and the reader shows that prompt, marked, far
- *   below the first turn.
- * - With the switch off again, the backend refuses semantic searches and
- *   says it is off, and Records says so instead of searching: what to turn
- *   on and where, with a link that goes there and a way back to full text,
- *   which still answers.
+ *   the prompt in the middle of the 112-turn conversation first, and
+ *   nothing is lit. The backend answers in pages of 100, more than one
+ *   here. Records shows the first page and says more load as you scroll;
+ *   scrolled to the end it loads page after page until the line says
+ *   that's all: more than 100 passages, as many as the backend's pages
+ *   add up to when read with their cursors, in the backend's order across
+ *   the page boundaries, none twice. Opening the first puts the
+ *   conversation and `at=<ordinal>:<source>` in the address, with no find
+ *   words, and the reader shows that prompt, marked, far below the first
+ *   turn.
+ * - With the switch off again, the backend refuses semantic searches with
+ *   `agent-conversations-access-disabled`, and Records sends the search
+ *   and shows that refusal: what to turn on and where, with a link that
+ *   goes there and a way back to full text, which still answers.
  *
  * Assumptions:
  * - The service is `support/fake-embeddings.ts`: a bag of words, so a
@@ -34,6 +39,10 @@
  *   collision fails there, by name, not as a wrong first result.
  * - The backend streams equal scores in a fixed order: two reads of the
  *   same search give the same order (checked before the screen is).
+ * - There is no minimum score, so every indexed passage of yours and the
+ *   agent's is a result: the large conversation alone has 112 prompts and
+ *   two agent texts a turn, at least 224, so the roles are not widened to
+ *   get past one page. The real total comes from the backend.
  * - AI settings and this computer's Agent switches are as builtin-model.spec
  *   left them; this spec puts both back through the backend when it ends.
  *   The index it built stays in the archive, unused while the switch is off.
@@ -137,44 +146,69 @@ function scenario() {
 const dot = (a: number[], b: number[]) =>
   a.reduce((sum, value, index) => sum + value * b[index], 0)
 
+const scrollHeight = (page: Page) =>
+  feed(page).evaluate((element) => element.scrollHeight)
+
 /**
  * Every passage the feed draws, read top to bottom by its place in the
- * list (`data-index`), scrolling a screen at a time.
+ * list (`data-index`), scrolling a screen at a time. At the bottom it waits
+ * for the next page to come in, until the status line says `end`; a row
+ * never drawn fails here, by name.
  */
-async function drawnOrder(page: Page, total: number) {
+async function drawnOrder(page: Page, end: string) {
   const seen = new Map<number, string>()
   await feed(page).evaluate((element) => {
     element.scrollTop = 0
   })
-  for (let step = 0; step < 10_000 && seen.size < total; step++) {
+  for (let step = 0; ; step++) {
+    expect(step, 'the list reaches its end').toBeLessThan(20_000)
     await page.evaluate(
       () =>
         new Promise((resolve) =>
           requestAnimationFrame(() => requestAnimationFrame(resolve)),
         ),
     )
+    // Read before the rows: a last page that lands after them would be missed.
+    const whole = (await status(page).textContent()) === end
     const rows = await feed(page)
-      .locator('[data-index]')
+      .locator('[data-passage]')
       .evaluateAll((elements) =>
         elements.map(
           (element) =>
             [
-              Number(element.getAttribute('data-index')),
-              element
-                .querySelector('[data-passage]')
-                ?.getAttribute('data-passage') ?? '',
+              Number(
+                element.closest('[data-index]')?.getAttribute('data-index'),
+              ),
+              element.getAttribute('data-passage') ?? '',
             ] as const,
         ),
       )
     for (const [index, key] of rows) seen.set(index, key)
-    const moved = await feed(page).evaluate((element) => {
+    // The height read with the scroll, so a page landing between them is
+    // not waited for again.
+    const { moved, height } = await feed(page).evaluate((element) => {
       const from = element.scrollTop
       element.scrollTop = from + element.clientHeight
-      return element.scrollTop !== from
+      return {
+        moved: element.scrollTop !== from,
+        height: element.scrollHeight,
+      }
     })
-    if (!moved && seen.size < total) break
+    if (moved) continue
+    if (whole) break
+    // At the bottom before the last page: the next one is on its way.
+    await expect
+      .poll(
+        async () =>
+          (await status(page).textContent()) === end ||
+          (await scrollHeight(page)) > height,
+        { message: 'the next page comes in at the bottom', timeout: 60_000 },
+      )
+      .toBe(true)
   }
-  return [...seen.entries()].sort(([a], [b]) => a - b).map(([, key]) => key)
+  const indexes = [...seen.keys()].sort((a, b) => a - b)
+  expect(indexes.at(-1), 'no row skipped').toBe(indexes.length - 1)
+  return indexes.map((index) => seen.get(index) ?? '')
 }
 
 test.beforeAll(async () => {
@@ -321,11 +355,21 @@ test('a search no record says word for word finds the prompt by meaning, in the 
   expect(words.conversations).toBe(0)
   const expected = await wireSemantic(await request(query, SAID))
   const again = await wireSemantic(await request(query, SAID))
-  expect(again.passages.map(passageKey)).toEqual(
-    expected.passages.map(passageKey),
-  )
+  const keys = expected.passages.map(passageKey)
+  expect(again.passages.map(passageKey)).toEqual(keys)
   expect(expected.stale).toBe(false)
   expect(expected.hits).toBe(expected.passages.length)
+  // Pages of 100, only the last one short, and more than one of them.
+  expect(expected.pageSize).toBe(100)
+  expect(expected.hits, 'more passages than a page holds').toBeGreaterThan(
+    expected.pageSize,
+  )
+  expect(
+    expected.pages.slice(0, -1),
+    `pages of ${expected.pages.join(', ')}`,
+  ).toEqual(expected.pages.slice(0, -1).map(() => expected.pageSize))
+  expect(expected.pages.at(-1)).toBeLessThanOrEqual(expected.pageSize)
+  expect(new Set(keys).size, 'no passage on two pages').toBe(keys.length)
   const [first] = expected.passages
   expect(first.id).toBe(chat.id)
   expect(first.address.conversationId, 'a record of its own').toBe(chat.id)
@@ -350,8 +394,9 @@ test('a search no record says word for word finds the prompt by meaning, in the 
   await kinds.getByRole('button', { name: 'Tool output' }).click()
   await kinds.getByRole('button', { name: 'Thinking' }).click()
   await expect.poll(() => hashParam(page, 'roles')).toBe(SAID.join(','))
+  // The first page, and the list says there is more.
   await expect(status(page)).toHaveText(
-    `${number(expected.hits)} passages close in meaning`,
+    `${number(expected.pageSize)} passages, closest first · more load as you scroll`,
     { timeout: 60_000 },
   )
   await expect(
@@ -371,10 +416,25 @@ test('a search no record says word for word finds the prompt by meaning, in the 
     contentType: 'image/png',
   })
 
-  // Every passage, in the order the backend streamed it.
-  expect(await drawnOrder(page, expected.hits)).toEqual(
-    expected.passages.map(passageKey),
+  // Scrolled to the end, page after page: every passage the backend's pages
+  // hold, in their order across the page boundaries, none twice, and the
+  // line says that's all.
+  const end = `${number(expected.hits)} passages, closest first · that’s all`
+  const order = await drawnOrder(page, end)
+  expect(order.length, 'pages after the first loaded').toBeGreaterThan(
+    expected.pageSize,
   )
+  expect(order, 'as many rows as the backend’s pages hold').toHaveLength(
+    expected.hits,
+  )
+  expect(new Set(order).size, 'no passage twice').toBe(order.length)
+  expect(order).toEqual(keys)
+  await expect(status(page)).toHaveText(end)
+  await expect(feed(page)).toHaveAttribute('aria-busy', 'false')
+  await testInfo.attach('every page loaded', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  })
 
   // Opening it: the reader at that prompt, with no words to find.
   await feed(page).evaluate((element) => {
@@ -422,7 +482,10 @@ test('with the switch off, semantic mode says what to turn on and where', async 
   ).rejects.toThrow(/agent-conversations-access-disabled/)
 
   await openHistory(page, `?q=${encodeURIComponent(query)}&mode=semantic`)
-  const blocked = page.locator('[data-semantic-block="switchOff"]')
+  // The status can't say which switch is off; the search's refusal does.
+  const blocked = page.locator(
+    '[data-semantic-block="agent-conversations-access-disabled"]',
+  )
   await expect(blocked).toContainText('Semantic search of conversations is off')
   await expect(blocked).toContainText(
     'Turn on “Build a semantic search index” in Settings › Agent conversations.',

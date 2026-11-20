@@ -2,9 +2,10 @@
  * What the "Build a semantic search index" switch has made, under it in
  * Settings › Agent conversations (`agent-history.md` §7): whether the index
  * is ready, behind, being built (with Pause, Resume and Cancel) or not
- * built, why it can't be (AI settings), and what turning the switch off
- * does: the build stops and search stops using the index, which stays on
- * this computer.
+ * built, why it can't be (the backend's typed refusals, with the settings
+ * page that fixes each), and what turning the switch off does: the build
+ * stops and search stops using the index, which stays on this computer
+ * until freed (`free-semantic-index.tsx`).
  *
  * Responsibilities: putting the backend's status into words and offering
  * the one action each state allows; a skeleton while it is read. The state
@@ -26,6 +27,7 @@ import type {
   SemanticGeneration,
   SemanticIndexStatus,
 } from '@/lib/backend-client/agent-semantic'
+import { aiRefusalCode } from '@/lib/backend-client/ai-refusals'
 import { cn } from '@/lib/cn'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n, type MessageKey } from '@/lib/i18n'
@@ -37,8 +39,18 @@ import {
   useSemanticIndexControl,
 } from '@/lib/queries/agent-semantic'
 import { BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID } from '@/lib/types'
+import {
+  refusalPlacePath,
+  refusalWords,
+  type RefusalPlace,
+} from '../../ai-setup/ai-refusals'
+import { KeptSemanticIndex } from './free-semantic-index'
 
-const AI_SETTINGS = '/settings/ai'
+/** Where a refusal is fixed, by the button that goes there; this page itself needs none. */
+const PLACE_LINK: Partial<Record<RefusalPlace, MessageKey>> = {
+  ai: 'settingsAgent.ai.index.openAi',
+  kinds: 'settingsAgent.ai.index.openKinds',
+}
 
 /** The built-in model by its name; a service by its name and the model it ran. */
 function useModelName() {
@@ -53,13 +65,28 @@ function useModelName() {
 }
 
 interface View {
-  state: MessageKey
+  state: string
   detail: string | null
   /** A second line: the last build's outcome while an older index serves. */
   note?: string | null
   actions: SemanticAction[]
-  /** Settings › AI decides it; offer the way there. */
-  toAi?: boolean
+  /** Other settings pages that decide it; offer the way there. */
+  places?: RefusalPlace[]
+}
+
+/** A typed refusal from the backend, in the words every screen uses for it. */
+function refusalView(
+  t: ReturnType<typeof useI18n>['t'],
+  code: NonNullable<ReturnType<typeof aiRefusalCode>>,
+  actions: SemanticAction[] = [],
+): View {
+  const words = refusalWords(t, code, 'semantic')
+  return {
+    state: words.title,
+    detail: words.body,
+    actions,
+    places: words.places,
+  }
 }
 
 function useView(status: SemanticIndexStatus): View {
@@ -68,32 +95,31 @@ function useView(status: SemanticIndexStatus): View {
   const modelName = useModelName()
   const { serving, job } = status
   const when = serving ? format.relative(serving.builtAt) : ''
+  // With the switch on, "not enabled" means AI or semantic search is off in
+  // Settings › AI; the status doesn't say which.
   if (!status.enabled)
     return {
-      state: 'settingsAgent.ai.index.aiOff',
+      state: t('settingsAgent.ai.index.aiOff'),
       detail: t('settingsAgent.ai.index.aiOffDetail'),
       actions: [],
-      toAi: true,
+      places: ['ai'],
     }
-  if (status.reason === 'embedding-provider-unavailable')
-    return {
-      state: 'settingsAgent.ai.index.noModel',
-      detail: t('settingsAgent.ai.index.noModelDetail'),
-      actions: [],
-      toAi: true,
-    }
+  const reason = aiRefusalCode(status.reason ?? null)
+  if (reason) return refusalView(t, reason)
   if (job && isActiveJob(job)) {
     if (job.state === 'cancelling')
       return {
-        state: 'settingsAgent.ai.index.stopping',
+        state: t('settingsAgent.ai.index.stopping'),
         detail: t('settingsAgent.ai.index.stoppingDetail'),
         actions: [],
       }
     const paused = job.state === 'paused'
     return {
-      state: paused
-        ? 'settingsAgent.ai.index.paused'
-        : 'settingsAgent.ai.index.building',
+      state: t(
+        paused
+          ? 'settingsAgent.ai.index.paused'
+          : 'settingsAgent.ai.index.building',
+      ),
       detail: paused
         ? t('settingsAgent.ai.index.pausedDetail')
         : serving
@@ -102,21 +128,28 @@ function useView(status: SemanticIndexStatus): View {
       actions: paused ? ['resume', 'cancel'] : ['pause', 'cancel'],
     }
   }
+  // A build that failed for a typed reason says which, and where to fix it.
+  const failure =
+    job?.state === 'failed' ? aiRefusalCode(job.error ?? null) : null
+  const failureWords = failure ? refusalWords(t, failure, 'semantic') : null
   const outcome =
     job?.state === 'failed'
-      ? t('settingsAgent.ai.index.failedDetail')
+      ? failureWords
+        ? `${failureWords.title}. ${failureWords.body}`
+        : t('settingsAgent.ai.index.failedDetail')
       : job?.state === 'cancelled'
         ? t('settingsAgent.ai.index.cancelled')
         : null
   if (!serving)
     return job?.state === 'failed'
       ? {
-          state: 'settingsAgent.ai.index.failed',
+          state: t('settingsAgent.ai.index.failed'),
           detail: outcome,
           actions: ['build'],
+          places: failureWords?.places,
         }
       : {
-          state: 'settingsAgent.ai.index.none',
+          state: t('settingsAgent.ai.index.none'),
           detail: t('settingsAgent.ai.index.noneDetail'),
           note: outcome,
           actions: ['build'],
@@ -128,13 +161,22 @@ function useView(status: SemanticIndexStatus): View {
   })
   if (status.stale)
     return {
-      state: 'settingsAgent.ai.index.stale',
+      state: t('settingsAgent.ai.index.stale'),
       detail: t('settingsAgent.ai.index.staleDetail', { when }),
       note:
-        job?.state === 'failed' ? t('settingsAgent.ai.index.failed') : built,
+        job?.state === 'failed'
+          ? failureWords
+            ? `${t('settingsAgent.ai.index.failed')}: ${failureWords.title}`
+            : t('settingsAgent.ai.index.failed')
+          : built,
       actions: ['build'],
+      places: failureWords?.places,
     }
-  return { state: 'settingsAgent.ai.index.ready', detail: built, actions: [] }
+  return {
+    state: t('settingsAgent.ai.index.ready'),
+    detail: built,
+    actions: [],
+  }
 }
 
 /** The tasks page's words for the same build's buttons. */
@@ -146,6 +188,38 @@ const ACTION_WORDS: Record<
   pause: { label: 'tasks.actions.pause', aria: 'tasks.actions.pauseLabel' },
   resume: { label: 'tasks.actions.resume', aria: 'tasks.actions.resumeLabel' },
   cancel: { label: 'tasks.actions.cancel', aria: 'tasks.actions.cancelLabel' },
+}
+
+/** Buttons to the other settings pages that decide it. */
+function PlaceLinks({ places }: { places: RefusalPlace[] | undefined }) {
+  const { t } = useI18n()
+  return (places ?? []).map((place) => {
+    const label = PLACE_LINK[place]
+    return label ? (
+      <Button key={place} size="sm" variant="outline" asChild>
+        <Link to={refusalPlacePath[place]}>{t(label)}</Link>
+      </Button>
+    ) : null
+  })
+}
+
+function StateLines({ view }: { view: View }) {
+  const { t } = useI18n()
+  return (
+    <div
+      role="status"
+      aria-label={t('settingsAgent.ai.index.title')}
+      className="flex flex-col gap-0.5"
+    >
+      <span className="font-medium">{view.state}</span>
+      {view.detail && (
+        <span className="text-muted-foreground">{view.detail}</span>
+      )}
+      {view.note && (
+        <span className="text-xs text-muted-foreground">{view.note}</span>
+      )}
+    </div>
+  )
 }
 
 function Status({ status }: { status: SemanticIndexStatus }) {
@@ -165,21 +239,10 @@ function Status({ status }: { status: SemanticIndexStatus }) {
     )
   const pressing = control.isPending ? control.variables?.action : undefined
   const name = t('agentTasks.names.semanticIndex')
+  const links = (view.places ?? []).some((place) => PLACE_LINK[place])
   return (
     <>
-      <div
-        role="status"
-        aria-label={t('settingsAgent.ai.index.title')}
-        className="flex flex-col gap-0.5"
-      >
-        <span className="font-medium">{t(view.state)}</span>
-        {view.detail && (
-          <span className="text-muted-foreground">{view.detail}</span>
-        )}
-        {view.note && (
-          <span className="text-xs text-muted-foreground">{view.note}</span>
-        )}
-      </div>
+      <StateLines view={view} />
       {job && (
         <div className="flex flex-col gap-1.5">
           <Progress
@@ -196,7 +259,7 @@ function Status({ status }: { status: SemanticIndexStatus }) {
           </span>
         </div>
       )}
-      {(view.actions.length > 0 || view.toAi) && (
+      {(view.actions.length > 0 || links) && (
         <div className="flex flex-wrap gap-2">
           {view.actions.map((action) => {
             const words = ACTION_WORDS[action]
@@ -216,30 +279,39 @@ function Status({ status }: { status: SemanticIndexStatus }) {
               </Button>
             )
           })}
-          {view.toAi && (
-            <Button size="sm" variant="outline" asChild>
-              <Link to={AI_SETTINGS}>{t('settingsAgent.ai.index.openAi')}</Link>
-            </Button>
-          )}
+          <PlaceLinks places={view.places} />
         </div>
       )}
     </>
   )
 }
 
-function Body({ on, saving }: { on: boolean; saving: boolean }) {
+function Body({
+  index,
+  saving,
+}: {
+  index: ReturnType<typeof useAgentSemanticIndex>
+  saving: boolean
+}) {
   const { t } = useI18n()
-  const index = useAgentSemanticIndex({ enabled: on })
-  // A read that crossed the switch's save may say it is still off: read
-  // again once the save is through, and show nothing of it meanwhile.
-  const wasSaving = useRef(saving)
-  useEffect(() => {
-    if (wasSaving.current && !saving) refetchSemanticIndex()
-    wasSaving.current = saving
-  }, [saving])
+  const refused = index.isError ? aiRefusalCode(index.error) : null
   let body: ReactNode
   if (index.data && !saving) body = <Status status={index.data} />
-  else if (index.isError && !saving)
+  else if (refused && !saving) {
+    // The read itself was refused (Agent conversations off, say): what
+    // stands in the way and where it's changed.
+    const view = refusalView(t, refused)
+    body = (
+      <>
+        <StateLines view={view} />
+        {(view.places ?? []).some((place) => PLACE_LINK[place]) && (
+          <div className="flex flex-wrap gap-2">
+            <PlaceLinks places={view.places} />
+          </div>
+        )}
+      </>
+    )
+  } else if (index.isError && !saving)
     body = (
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-destructive">
@@ -271,6 +343,17 @@ export function SemanticIndexStatus({
 }) {
   const { t } = useI18n()
   const still = !!useReducedMotion()
+  // Read with the switch off too: the index stays until freed, and says its size.
+  const index = useAgentSemanticIndex()
+  // A read that crossed the switch's save may say it is still off: read
+  // again once the save is through, and show nothing of it meanwhile.
+  const wasSaving = useRef(saving)
+  useEffect(() => {
+    if (wasSaving.current && !saving) refetchSemanticIndex()
+    wasSaving.current = saving
+  }, [saving])
+  const kept =
+    index.data && !index.data.enabled && !saving ? index.data.keptBytes : null
   return (
     <div className="flex flex-col border-t pt-3 text-[13px]">
       <AnimatePresence initial={false}>
@@ -286,11 +369,12 @@ export function SemanticIndexStatus({
             className="overflow-hidden"
           >
             <div className="flex flex-col gap-2.5 pb-3">
-              <Body on={on} saving={saving} />
+              <Body index={index} saving={saving} />
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+      <KeptSemanticIndex keptBytes={kept} />
       <p className="text-xs leading-relaxed text-muted-foreground">
         {t(
           on

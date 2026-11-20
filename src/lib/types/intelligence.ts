@@ -1174,10 +1174,13 @@ export interface RenameAgentConversationRequest {
 export interface ExportAgentConversationRequest {
   id: string
   labels: {
+    /** The chat's title when it has none; also a cited conversation's when its title can't be read. */
     untitled: string
     you: string
     assistant: string
     pagesUsed: string
+    /** The heading over the Agent conversations an answer cited, in the interface's language. */
+    conversationsUsed: string
   }
 }
 

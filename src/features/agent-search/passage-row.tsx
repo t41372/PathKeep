@@ -2,7 +2,7 @@
  * One passage in Records' semantic results: the tool and the title of the
  * conversation it is in; whose words it is (and that a subagent's), when
  * the conversation was last active, its marks; then the passage itself,
- * up to three lines. Nothing is lit: a passage close in meaning need not
+ * up to three lines. Nothing is lit: a passage found by meaning need not
  * share a word with the search. The whole row opens the passage's record
  * in the conversation that holds it (a subagent's opens on its own).
  */

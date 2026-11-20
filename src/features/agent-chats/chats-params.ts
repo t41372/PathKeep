@@ -62,7 +62,7 @@ export const GROUPS: readonly ChatGroup[] = ['day', 'project', 'none']
 
 /**
  * How a search matches: the words as written (`text`: words, a "phrase"
- * or a /regular expression/), or passages close in meaning from the
+ * or a /regular expression/), or passages ranked by meaning from the
  * semantic index (`semantic`, `mode=semantic` in the URL).
  */
 export type ChatSearchMode = 'text' | 'semantic'

@@ -141,16 +141,21 @@ export type SearchFrame =
 
 /**
  * A search by meaning: the same words-box text, kinds of text and filters,
- * answered from the semantic index with passages instead of cards. The
- * backend refuses a limit or a cursor here: every passage that is close at
- * all streams.
+ * answered from the semantic index with passages instead of cards. Each
+ * request is one page of up to `pageSize` (100) passages; the next page is
+ * the same request with the last page's `nextCursor`. There is no minimum
+ * score, so reading every page reaches every indexed passage the kinds of
+ * text and the filters allow. A limit, or a cursor inside `filters`, is
+ * refused.
  */
 export interface SemanticSearchRequest extends SearchRequest {
   mode: 'semantic'
+  /** The `nextCursor` of the page before; absent for the first page. */
+  cursor?: string
 }
 
 /**
- * One passage close in meaning to the search: up to 1,024 characters of
+ * One passage a search by meaning found: up to 1,024 characters of
  * one record's readable part, with the conversation it belongs to. It has
  * no highlight; nothing in it need match the words literally.
  */
@@ -172,20 +177,32 @@ export interface SemanticPassage {
   text: string
   /** Which passage of the record, counted from its start. */
   chunk: number
-  /** Cosine similarity to the search, above 0; the stream is highest first. */
+  /**
+   * Cosine similarity to the search; zero and below count too. Pages run
+   * highest first, then by record and chunk.
+   */
   score: number
 }
 
+/**
+ * One page's frames. `error` carries a typed AI refusal
+ * (`lib/backend-client/ai-refusals.ts`), `stale_cursor` (the index, the
+ * conversations or their marks changed: start again from the first page),
+ * `invalid-cursor`, or another failure.
+ */
 export type SemanticSearchFrame =
-  | Frame<'started', { mode: 'semantic' }>
+  | Frame<'started', { mode: 'semantic'; pageSize: number }>
   | Frame<'passages', { items: SemanticPassage[] }>
   | Frame<
       'finished',
       {
+        /** Passages on this page. */
         hits: number
         generation: string
         /** Conversations changed after the index this answered from was built. */
         stale: boolean
+        /** The next page's `cursor`; `null` when this was the last page. */
+        nextCursor: string | null
       }
     >
   | Frame<'cancelled' | 'error', { code: string; message?: string }>

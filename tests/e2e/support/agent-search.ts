@@ -1,7 +1,7 @@
 /**
- * Records search and the reader's find, for the specs: a search (by words
- * or by meaning) or a find run through the backend the way the window runs
- * one, read to its last frame over the bridge
+ * Records search and the reader's find, for the specs: a search (by words,
+ * or by meaning page after page) or a find run through the backend the way
+ * the window runs one, read to its last frame over the bridge
  * (`/previews/{streamId}/events`), to check the screen against; the
  * semantic index's status; and what find lights on the page (the CSS
  * highlights).
@@ -86,21 +86,21 @@ export interface WirePassage {
 export const passageKey = (passage: WirePassage) =>
   `${passage.address.conversationId}/${passage.address.ordinal}:${passage.address.sourceId}/${passage.chunk}`
 
-/**
- * A search by meaning to its end: every passage in the order streamed
- * (closest first) and the finished frame. `request` is the full-text one;
- * `mode: 'semantic'` is added here.
- */
-export async function wireSemantic(request: object) {
+/** The most pages `wireSemantic` reads before it calls the cursor a loop. */
+const PAGE_LIMIT = 10_000
+
+/** One page of a search by meaning: its passages and its `started` and `finished`. */
+async function wireSemanticPage(request: object, cursor: string | null) {
   const frames = await readStream('search_agent_conversations', {
     mode: 'semantic',
     ...request,
+    ...(cursor === null ? {} : { cursor }),
   })
   const started = frames.find((frame) => frame.type === 'started')
   const finished = frames.find((frame) => frame.type === 'finished')
   if (!started || !finished)
     throw new Error(
-      `The semantic search did not finish: ${frames.at(-1)?.type} ${JSON.stringify(frames.at(-1)?.payload)}`,
+      `A page of the semantic search did not finish: ${frames.at(-1)?.type} ${JSON.stringify(frames.at(-1)?.payload)}`,
     )
   const passages = frames.flatMap((frame) =>
     frame.type === 'passages'
@@ -111,8 +111,41 @@ export async function wireSemantic(request: object) {
     hits: number
     generation: string
     stale: boolean
+    nextCursor: string | null
   }
-  return { passages, ...end }
+  if (end.hits !== passages.length)
+    throw new Error(
+      `A page says ${end.hits} passages but streamed ${passages.length}`,
+    )
+  const { pageSize } = started.payload as unknown as { pageSize: number }
+  return { passages, pageSize, ...end }
+}
+
+/**
+ * A search by meaning read to its last page, as Records reads it: each page
+ * is the same request with the page before's `nextCursor`. Gives every
+ * passage in the order streamed (closest first, across pages), each page's
+ * `finished.hits`, their sum, the page size `started` named, and the last
+ * page's generation and staleness. A page whose `hits` differs from its
+ * passages, or that does not finish, throws. `request` is the full-text
+ * one; `mode: 'semantic'` and the cursor are added here.
+ */
+export async function wireSemantic(request: object) {
+  const pages = [await wireSemanticPage(request, null)]
+  for (let last = pages[0]; last.nextCursor !== null; last = pages.at(-1)!) {
+    if (pages.length === PAGE_LIMIT)
+      throw new Error(`The semantic search ran past ${PAGE_LIMIT} pages`)
+    pages.push(await wireSemanticPage(request, last.nextCursor))
+  }
+  const last = pages.at(-1)!
+  return {
+    passages: pages.flatMap((page) => page.passages),
+    pages: pages.map((page) => page.hits),
+    hits: pages.reduce((sum, page) => sum + page.hits, 0),
+    pageSize: pages[0].pageSize,
+    generation: last.generation,
+    stale: last.stale,
+  }
 }
 
 /** `get_agent_semantic_index`: whether the index may exist, what serves and what builds. */

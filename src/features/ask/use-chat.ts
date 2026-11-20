@@ -10,6 +10,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { intelligenceClient } from '@/lib/backend-client/intelligence'
 import { listenToAiChatStream } from '@/lib/ipc/ai-stream'
+import {
+  aiRefusalCode,
+  type AiRefusalCode,
+} from '@/lib/backend-client/ai-refusals'
 import { describeError } from '@/lib/errors'
 import type { AiChatStreamChunk, AiChatStreamEvent } from '@/lib/types'
 import {
@@ -94,13 +98,18 @@ export function useChat(options: ChatOptions) {
   )
 
   const finish = useCallback(
-    (run: ActiveRun, status: TurnStatus, error?: string) => {
+    (
+      run: ActiveRun,
+      status: TurnStatus,
+      error?: string,
+      refusal?: AiRefusalCode,
+    ) => {
       if (runRef.current !== run) return
       if (run.frame !== null) cancelAnimationFrame(run.frame)
       run.unsubscribe?.()
       runRef.current = null
       generationRef.current += 1
-      const finished: ChatTurn = { ...run.turn, status, error }
+      const finished: ChatTurn = { ...run.turn, status, error, refusal }
       const next = turnsRef.current.map((turn) =>
         turn.id === finished.id ? finished : turn,
       )
@@ -221,7 +230,12 @@ export function useChat(options: ChatOptions) {
             })
           ).runId
         } catch (reason) {
-          finish(run, 'error', describeError(reason))
+          finish(
+            run,
+            'error',
+            describeError(reason),
+            aiRefusalCode(reason) ?? undefined,
+          )
           return
         }
         if (runRef.current !== run) {
