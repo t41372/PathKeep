@@ -15,7 +15,10 @@
  *   backend refuses the same change on its own (`last-active-kind`), and
  *   nothing changed;
  * - Agent conversations' `On` does not turn them on: it opens the preview
- *   that does, and closing it leaves them off.
+ *   that does, and closing it leaves them off;
+ * - while Agent conversations are off, Settings lists no page of their own
+ *   under Data types, and that page's address says they are off and leads
+ *   to Manage data types.
  */
 import { expect, test, type Page } from '@playwright/test'
 import { unlockIfLocked } from './support/app'
@@ -50,7 +53,7 @@ const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 function holdsLine(hint: string, row: KindList['kinds'][number]) {
   if (row.archiveCount === undefined) return `${hint}.`
   const count = Number(row.archiveCount)
-  const unit = row.kind === 'browsing' ? 'visit' : 'source file'
+  const unit = row.kind === 'browsing' ? 'visit' : 'conversation'
   const holds = `${count.toLocaleString('en-US')} ${unit}${count === 1 ? '' : 's'}`
   return row.archiveBytes === undefined
     ? `${hint}. The archive holds ${holds}.`
@@ -191,4 +194,33 @@ test('the only kind on cannot be paused or turned off, and says why; Agent goes 
     before.kinds.map((row) => [row.kind, row.state]),
   )
   expect(after.policyToken).toBe(before.policyToken)
+})
+
+test('while Agent conversations are off, Settings has no page of their own', async ({
+  page,
+}) => {
+  const kinds = await backend<KindList>('list_data_kinds', { request: {} })
+  expect(kinds.kinds.find((row) => row.kind === 'agent-history')?.state).toBe(
+    'off',
+  )
+  await page.goto('/#/settings/kinds')
+  await unlockIfLocked(page)
+  const group = page
+    .getByRole('navigation', { name: 'Settings sections' })
+    .getByRole('group', { name: 'Data types' })
+  await expect(
+    group.getByRole('link', { name: 'Manage data types' }),
+  ).toBeVisible()
+  await expect(
+    group.getByRole('link', { name: 'Agent conversations' }),
+  ).toHaveCount(0)
+
+  await page.goto('/#/settings/agent')
+  await expect(
+    page.getByText(
+      'Agent conversations are off, so they have no settings here. Turn them on in Manage data types.',
+    ),
+  ).toBeVisible()
+  await page.getByRole('link', { name: 'Manage data types' }).last().click()
+  await expect(page).toHaveURL(/#\/settings\/kinds$/)
 })

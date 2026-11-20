@@ -12,6 +12,10 @@
  *   say the growth is an estimate and the encryption is the archive's own;
  *   with every tool ticked, "Start saving" can be pressed (this spec does
  *   not press it: the agent-backup specs save, after the change project);
+ * - the growth the dialog shows is the backend's estimate, and that is the
+ *   measured growth of each archive role (`research/agent-history/
+ *   preview-growth.md`) applied to the fixture's bytes: ordinary files and
+ *   the files a tool compressed itself apart, each role rounded up;
  * - stopping a preview while it runs leaves the dialog usable: it says what
  *   happened, and the next preview finishes with the same numbers. The
  *   stop reaches the backend with the stream's id;
@@ -49,6 +53,7 @@ import { unlockIfLocked } from './support/app'
 import {
   agentSettings,
   enableDialog,
+  formatBytes,
   expectedFolders,
   expectedTool,
   expectFolderRow,
@@ -206,6 +211,87 @@ test('the preview counts what the fixture wrote, opens nothing, and the last ste
   expect(kinds.kinds.find((row) => row.kind === 'agent-history')?.state).toBe(
     'off',
   )
+})
+
+/**
+ * Growth per source byte, in thousandths, by archive role (evidence, read
+ * model, search), as `preview-growth.md` publishes them.
+ */
+const GROWTH = {
+  Plaintext: { ordinary: [285, 4125, 431], compressed: [1288, 17674, 2286] },
+  Encrypted: { ordinary: [286, 4133, 432], compressed: [1288, 17714, 2289] },
+} as const
+
+interface GrowthReport {
+  totals: { sourceBytes: string; unknownFiles: string }
+  estimatedArchiveBytes: string
+  estimateBasis: {
+    method: string
+    ordinaryBytes: string
+    nativeCompressedBytes: string
+    evidenceBytes: string
+    readModelBytes: string
+    indexBytes: string
+  }
+  archiveMode: 'Plaintext' | 'Encrypted'
+}
+
+test('the growth estimate is the backend’s, from the measured growth of each role', async ({
+  page,
+}, testInfo) => {
+  await openEnableDialog(page)
+  await waitForPreview(page)
+
+  const finished = (await previewFrames({ purpose: 'enable' })).find(
+    (frame) => frame.type === 'finished',
+  )
+  expect(finished, 'the preview finished').toBeDefined()
+  const report = finished!.payload as unknown as GrowthReport
+  const basis = report.estimateBasis
+  expect(basis.method).toBe('measured-role-growth-v1')
+
+  // The estimate's input is every byte the walk counted, ordinary or
+  // compressed by the tool itself; with no unrecognized file in the
+  // folders, that is every byte the fixture wrote.
+  const ordinary = Number(basis.ordinaryBytes)
+  const compressed = Number(basis.nativeCompressedBytes)
+  expect(ordinary + compressed).toBe(Number(report.totals.sourceBytes))
+  if (report.totals.unknownFiles === '0')
+    expect(Number(report.totals.sourceBytes)).toBe(
+      expectedFolders().reduce((sum, folder) => sum + folder.bytes, 0),
+    )
+  expect(
+    compressed,
+    'the files the tools compressed themselves',
+  ).toBeGreaterThan(0)
+
+  const ratios = GROWTH[report.archiveMode]
+  const roles = [
+    basis.evidenceBytes,
+    basis.readModelBytes,
+    basis.indexBytes,
+  ].map(Number)
+  roles.forEach((bytes, role) =>
+    expect(bytes, ['evidence', 'read model', 'search'][role]).toBe(
+      Math.ceil(
+        (ordinary * ratios.ordinary[role] +
+          compressed * ratios.compressed[role]) /
+          1000,
+      ),
+    ),
+  )
+  const estimate = roles.reduce((sum, bytes) => sum + bytes, 0)
+  expect(Number(report.estimatedArchiveBytes)).toBe(estimate)
+
+  const dialog = enableDialog(page)
+  await expect(
+    dialog.getByText(`about ${formatBytes(estimate)}`, { exact: true }),
+  ).toBeVisible()
+  await expect(dialog.getByText('estimate', { exact: true })).toBeVisible()
+  await testInfo.attach('the estimate', {
+    body: await dialog.screenshot(),
+    contentType: 'image/png',
+  })
 })
 
 test('stopping a running preview leaves the dialog usable, and the next one finishes', async ({

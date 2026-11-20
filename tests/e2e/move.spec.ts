@@ -141,7 +141,7 @@ test('a moved archive opens only with the password chosen at export', async ({
   await unlockIfAsked(page, FILE_PASSWORD)
   const before = await openArchiveVisitTotal()
   expect(before).toBeGreaterThan(0)
-  // Export history has an "Export…" too.
+  // Scoped to its row, so no other "Export…" can be taken for it.
   await page
     .getByText('Move to another computer', { exact: true })
     .locator('xpath=../..')
@@ -193,6 +193,12 @@ test('a moved archive opens only with the password chosen at export', async ({
 
   await importing.getByLabel('File').fill(file)
   await importing.getByRole('button', { name: 'Check file' }).click()
+  // Agent conversations are on here: the check says they stay on and that
+  // the folders are chosen again.
+  await expect(importing).toContainText(/Agent conversations\s*On/)
+  await expect(importing).toContainText(
+    'Any Agent conversations in the file come along, and Agent conversations stay on here. If the file doesn’t carry which folders this computer backs up, you choose them again after opening it.',
+  )
   const replace = importing.getByRole('button', { name: 'Replace my archive' })
   await importing.getByLabel('Password of this file').fill('not the password')
   await replace.click()

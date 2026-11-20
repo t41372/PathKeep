@@ -1,35 +1,19 @@
 /**
  * Settings → Storage: where the archive lives and how much space it takes,
- * freeing space, exporting, moving to another computer, making and restoring
- * a safety copy, and deleting everything. Each action that writes opens a
+ * freeing space, moving to another computer, making and restoring a safety
+ * copy, and deleting everything. Exporting the history and the link preview
+ * images are browsing history's, in its own settings (`data-spaces.md` §8). Each action that writes opens a
  * dialog that shows what will happen before it runs.
  */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { toast } from 'sonner'
 import {
   SettingRow,
   SettingsGroup,
   SettingsSection,
 } from '@/components/app/setting-row'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Spinner } from '@/components/ui/spinner'
-import { explorerClient } from '@/lib/backend-client/explorer'
-import { describeError } from '@/lib/errors'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
-import { ExportRow } from './export-row'
 import { FreeSpaceDialog } from './free-space-dialog'
 import { MoveDialog } from './move-dialogs'
 import { RestoreDialog } from './restore-dialog'
@@ -58,8 +42,6 @@ export function StorageSection() {
           </Button>
         }
       />
-      <PreviewCacheRow />
-      <ExportRow />
 
       <SettingsGroup title={t('settingsStorage.moveGroup')} />
       <SettingRow
@@ -152,85 +134,5 @@ function LocationRow() {
         </Button>
       }
     />
-  )
-}
-
-const ogStatsKey = ['og-image-storage'] as const
-
-function PreviewCacheRow() {
-  const { t } = useI18n()
-  const format = useFormat()
-  const client = useQueryClient()
-  const [confirm, setConfirm] = useState(false)
-  const stats = useQuery({
-    queryKey: ogStatsKey,
-    queryFn: explorerClient.getOgImageStorageStats,
-  })
-  const clear = useMutation({
-    mutationFn: explorerClient.clearOgImageCache,
-    onSuccess: (report) => {
-      toast.success(
-        t('settingsStorage.previews.cleared', {
-          size: format.bytes(report.reclaimedBytes),
-        }),
-      )
-      void client.invalidateQueries({ queryKey: ogStatsKey })
-    },
-    onError: (error) =>
-      toast.error(t('settingsStorage.previews.clearFailed'), {
-        description: describeError(error, 'clear_og_image_cache'),
-      }),
-  })
-
-  const data = stats.data
-  return (
-    <SettingRow
-      title={t('settingsStorage.previews.title')}
-      description={
-        stats.isPending ? (
-          <Skeleton className="mt-0.5 h-3.5 w-40" />
-        ) : stats.isError ? (
-          t('settingsStorage.previews.statsFailed')
-        ) : (
-          t('settingsStorage.previews.description', {
-            count: data!.blobCount,
-            size: format.bytes(data!.totalBytes),
-          })
-        )
-      }
-      control={
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!data || data.totalBytes === 0 || clear.isPending}
-          onClick={() => setConfirm(true)}
-        >
-          {clear.isPending && <Spinner />}
-          {t('settingsStorage.previews.action')}
-        </Button>
-      }
-    >
-      <AlertDialog open={confirm} onOpenChange={setConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t('settingsStorage.previews.confirmTitle')}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('settingsStorage.previews.confirmBody', {
-                count: data?.blobCount ?? 0,
-                size: format.bytes(data?.totalBytes ?? 0),
-              })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => clear.mutate()}>
-              {t('settingsStorage.previews.action')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </SettingRow>
   )
 }

@@ -30,6 +30,8 @@ import { maintenance } from './maintenance'
 import { onboarding } from './onboarding'
 import { settings } from './settings'
 import { settingsAbout } from './settings-about'
+import { settingsAgent } from './settings-agent'
+import { settingsBrowsing } from './settings-browsing'
 import { settingsAi } from './settings-ai'
 import { settingsBackground } from './settings-background'
 import { settingsStorage } from './settings-storage'
@@ -69,6 +71,8 @@ const namespaces = {
   settingsBackground,
   settingsStorage,
   settingsAbout,
+  settingsAgent,
+  settingsBrowsing,
   onboarding,
   maintenance,
 }

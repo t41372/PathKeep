@@ -343,6 +343,8 @@ export async function chooseAndStart(
 export interface WireKindRow {
   kind: string
   state: string
+  /** Visits or conversations, as a decimal string; absent when the store can't be opened. */
+  archiveCount?: string
   hasBackupSource?: boolean
   sourceReviewRequired?: boolean
 }

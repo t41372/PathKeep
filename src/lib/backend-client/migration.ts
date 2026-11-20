@@ -19,6 +19,7 @@
  *   `src-tauri/src/dev_ipc_bridge/dispatch.rs`.
  */
 
+import type { KindState } from './data-kinds'
 import { call } from './shared'
 
 export interface ExportManifestFile {
@@ -49,6 +50,22 @@ export interface ImportExclusionNote {
   reason: string
 }
 
+/**
+ * What opening the file does to Agent conversations here, so the check can
+ * say it before anything changes. The count stays unknown until the
+ * password opens the file.
+ */
+export interface ImportAgentConversations {
+  /** The file has the conversations' storage (PathKeep 0.6 and later), even an empty one. */
+  carried: boolean
+  /**
+   * How they show here afterwards: `paused` (readable, nothing backed up)
+   * on a computer that never chose; otherwise this computer's own choice.
+   * `null` when the file carries none.
+   */
+  stateIfPresent: KindState | null
+}
+
 export interface ImportPreview {
   manifest: ExportManifest
   schemaUpToDate: boolean
@@ -57,6 +74,7 @@ export interface ImportPreview {
   exclusionNotes: ImportExclusionNote[]
   /** True when the live project already has an initialized archive. */
   willOverwriteExisting: boolean
+  agentConversations: ImportAgentConversations
 }
 
 export interface ApplyImportOptions {

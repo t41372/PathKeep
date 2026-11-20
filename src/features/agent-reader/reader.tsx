@@ -44,6 +44,7 @@ import { InfoPanel } from './info-panel'
 import { MoreMenu } from './more-menu'
 import { Outline } from './outline'
 import { RawView } from './raw-view'
+import { ReaderPrefsContext, useLoadedReaderPrefs } from './reader-prefs'
 import { ReaderHeader } from './reader-header'
 import { RenameDialog } from './rename-dialog'
 import { ResumeMenu } from './resume-menu'
@@ -147,6 +148,8 @@ export function Reader({
   const f = useInsightsFormat()
   const marks = useChatMarks()
   const header = useChatHeader(id)
+  // Settings › Agent conversations: folded tool calls, thinking shown.
+  const loadedPrefs = useLoadedReaderPrefs()
   const [raw, setRaw] = useState(false)
   const [info, setInfo] = useState(false)
   const [outline, setOutline] = useState(!beside)
@@ -217,7 +220,7 @@ export function Reader({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose, showFind, closeFind, findOpen])
 
-  if (!header.data) {
+  if (!header.data || !loadedPrefs.ready) {
     if (header.isError) {
       return commandErrorCode(header.error) === 'conversation_not_found' ? (
         <ReaderMessage
@@ -261,6 +264,7 @@ export function Reader({
             beside={beside}
             outline={outline}
             raw={raw}
+            leaf={leaf}
             sourcePath={details.data?.sourcePath}
             marks={marks}
             onOpenChange={setMenuOpen}
@@ -273,6 +277,7 @@ export function Reader({
             onRename={() => setRenaming(true)}
             onTrashed={onTrashed}
             onFind={showFind}
+            onStale={refreshHeader}
           />
         }
         onInfo={() => setInfo((open) => !open)}
@@ -281,72 +286,74 @@ export function Reader({
         onRaw={setRaw}
       />
       {finder.open && sheet.length === 0 && <FindBar find={finder} />}
-      <FindTargetContext.Provider value={finder.target}>
-        <div className="flex min-h-0 flex-1">
-          {raw ? (
-            <RawView
-              header={data}
-              f={f}
-              startRank={finder.rawRank}
-              onStale={refreshHeader}
-              onSee={(rank) => {
-                setLine(null)
-                setRaw(false)
-                scrollTo(rank, 'center')
-              }}
-            />
-          ) : (
-            <>
-              <Transcript
-                key={data.publication}
-                id={id}
-                publication={data.publication}
-                leaf={leaf}
-                knownTotal={data.visibleRecords}
-                subagents={cards}
+      <ReaderPrefsContext.Provider value={loadedPrefs.prefs}>
+        <FindTargetContext.Provider value={finder.target}>
+          <div className="flex min-h-0 flex-1">
+            {raw ? (
+              <RawView
+                header={data}
                 f={f}
-                control={control}
-                switchedPrompt={line?.prompt ?? null}
-                onPickVersion={(next, prompt) => {
-                  setLine(next === latestLeaf ? null : { leaf: next, prompt })
-                }}
-                onOpenChild={(child) => setSheet([child])}
-                onTopTurn={setTopTurn}
+                startRank={finder.rawRank}
                 onStale={refreshHeader}
-                scrollRequest={finder.rootScroll}
+                onSee={(rank) => {
+                  setLine(null)
+                  setRaw(false)
+                  scrollTo(rank, 'center')
+                }}
               />
-              {outline && (
-                <Outline
+            ) : (
+              <>
+                <Transcript
+                  key={data.publication}
                   id={id}
                   publication={data.publication}
                   leaf={leaf}
-                  promptCount={data.promptCount}
-                  topTurn={topTurn}
-                  onPick={(rank) => scrollTo(rank, 'start')}
+                  knownTotal={data.visibleRecords}
+                  subagents={cards}
+                  f={f}
+                  control={control}
+                  switchedPrompt={line?.prompt ?? null}
+                  onPickVersion={(next, prompt) => {
+                    setLine(next === latestLeaf ? null : { leaf: next, prompt })
+                  }}
+                  onOpenChild={(child) => setSheet([child])}
+                  onTopTurn={setTopTurn}
                   onStale={refreshHeader}
+                  scrollRequest={finder.rootScroll}
                 />
-              )}
-            </>
-          )}
-          {info && (
-            <InfoPanel header={data} f={f} onOpenProject={onOpenProject} />
-          )}
-        </div>
-        <SubagentSheet
-          stack={sheet}
-          f={f}
-          onStack={setSheet}
-          findBar={
-            finder.open ? <FindBar find={finder} className="pr-12" /> : null
-          }
-          onEscape={(event) => {
-            if (!finder.open) return
-            event.preventDefault()
-            closeFind()
-          }}
-          scrollRequest={finder.sheetScroll}
-        />
-      </FindTargetContext.Provider>
+                {outline && (
+                  <Outline
+                    id={id}
+                    publication={data.publication}
+                    leaf={leaf}
+                    promptCount={data.promptCount}
+                    topTurn={topTurn}
+                    onPick={(rank) => scrollTo(rank, 'start')}
+                    onStale={refreshHeader}
+                  />
+                )}
+              </>
+            )}
+            {info && (
+              <InfoPanel header={data} f={f} onOpenProject={onOpenProject} />
+            )}
+          </div>
+          <SubagentSheet
+            stack={sheet}
+            f={f}
+            onStack={setSheet}
+            findBar={
+              finder.open ? <FindBar find={finder} className="pr-12" /> : null
+            }
+            onEscape={(event) => {
+              if (!finder.open) return
+              event.preventDefault()
+              closeFind()
+            }}
+            scrollRequest={finder.sheetScroll}
+          />
+        </FindTargetContext.Provider>
+      </ReaderPrefsContext.Provider>
       <RenameDialog
         summary={data.summary}
         marks={marks}

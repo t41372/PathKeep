@@ -60,7 +60,7 @@ function holding(t: Translator, row: DataKindRow) {
   return t(
     row.countUnit === 'visits'
       ? 'dataKinds.manage.count.visits'
-      : 'dataKinds.manage.count.sourceFiles',
+      : 'dataKinds.manage.count.conversations',
     { count },
   )
 }

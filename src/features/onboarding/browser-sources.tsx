@@ -1,9 +1,11 @@
 /**
- * Step 2: pick the browser profiles to back up, from the ones the snapshot
- * discovered. Explains Safari's Full Disk Access and lets the user rescan
- * after granting it.
+ * Browsing history's pane in the sources step: the browser profiles the
+ * snapshot discovered, each with its history file's size. Explains Safari's
+ * Full Disk Access and lets the user check again after granting it; a
+ * profile that becomes readable then is left for the user to tick.
  *
- * Not responsible for saving the selection (the page does, on Continue).
+ * Not responsible for saving the selection (the page does, on Continue) or
+ * the pane's header and list (`source-pane.tsx`).
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ScanSearch, ShieldAlert, TriangleAlert } from 'lucide-react'
@@ -27,6 +29,8 @@ import { useSnapshot } from '@/lib/queries/app'
 import type { BrowserProfile } from '@/lib/types'
 import { listedProfiles } from './draft'
 import { InlineError } from './inline-error'
+import { PaneHeader, SourceList } from './source-pane'
+import { GROUP_AFTER, summaryText, type KindCounts } from './sources-model'
 
 function useRecheck() {
   const client = useQueryClient()
@@ -36,14 +40,22 @@ function useRecheck() {
   })
 }
 
-export function BrowsersStep({
+export function BrowserSources({
+  headingId,
+  title,
+  counts,
   selected,
   onChange,
-  showHint,
+  filter,
+  onFilter,
 }: {
+  headingId: string
+  title: string
+  counts: KindCounts
   selected: string[]
   onChange: (selected: string[]) => void
-  showHint: boolean
+  filter: string
+  onFilter: (filter: string) => void
 }) {
   const { t } = useI18n()
   const snapshot = useSnapshot()
@@ -58,11 +70,20 @@ export function BrowsersStep({
     discovery === 'full-disk-access' ||
     hasSafariAccessIssue(snapshot.browserProfiles)
   const chosen = new Set(selected)
+  const items = profiles.map((profile) => ({
+    id: profile.profileId,
+    group: profile.browserName,
+    text: `${profile.browserName} ${profile.profileName}`,
+    profile,
+  }))
 
-  function toggle(profileId: string, on: boolean) {
-    onChange(
-      on ? [...selected, profileId] : selected.filter((id) => id !== profileId),
-    )
+  function set(ids: string[], on: boolean) {
+    const next = new Set(selected)
+    for (const id of ids) {
+      if (on) next.add(id)
+      else next.delete(id)
+    }
+    onChange([...next])
   }
 
   async function openSettings() {
@@ -88,30 +109,47 @@ export function BrowsersStep({
 
   return (
     <>
-      {profiles.length > 0 ? (
-        <ul className="overflow-hidden rounded-xl border bg-card shadow-card">
-          {profiles.map((profile) => (
+      <PaneHeader
+        headingId={headingId}
+        title={title}
+        summary={summaryText(t, counts)}
+        alert={counts.readableChosen === 0}
+        filter={filter}
+        onFilter={onFilter}
+        showFilter={items.length > GROUP_AFTER}
+        ids={items.map((item) => item.id)}
+        chosen={chosen}
+        onSet={set}
+      />
+      {items.length > 0 ? (
+        <SourceList
+          label={t('onboarding.sources.browsersLabel')}
+          items={items}
+          chosen={chosen}
+          filter={filter}
+          onSet={set}
+          row={(item) => (
             <ProfileRow
-              key={profile.profileId}
-              profile={profile}
-              checked={chosen.has(profile.profileId)}
-              onCheckedChange={(on) => toggle(profile.profileId, on)}
+              key={item.id}
+              profile={item.profile}
+              checked={chosen.has(item.id)}
+              onCheckedChange={(on) => set([item.id], on)}
             />
-          ))}
-        </ul>
+          )}
+        />
+      ) : needsAccess ? (
+        <span className="flex-1" />
       ) : (
-        !needsAccess && (
-          <EmptyNotice
-            kind={discovery === 'discovery-error' ? 'error' : 'empty'}
-            action={recheckButton}
-          />
-        )
+        <EmptyNotice
+          kind={discovery === 'discovery-error' ? 'error' : 'empty'}
+          action={recheckButton}
+        />
       )}
       {needsAccess && (
-        <div className="flex animate-rise items-start gap-3 rounded-xl bg-brand-soft px-4 py-3.5">
+        <div className="flex animate-rise items-start gap-3 border-t bg-brand-soft px-5 py-3.5">
           <ShieldAlert className="mt-0.5 size-[18px] shrink-0 text-brand" />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="font-medium">
+            <span className="text-sm font-medium">
               {t('onboarding.browsers.fullDiskAccess.title')}
             </span>
             <span className="text-[13px] leading-normal text-muted-foreground">
@@ -138,11 +176,6 @@ export function BrowsersStep({
           </div>
         </div>
       )}
-      {showHint && profiles.length > 0 && (
-        <p className="text-[13px] text-muted-foreground">
-          {t('onboarding.browsers.needOne')}
-        </p>
-      )}
     </>
   )
 }
@@ -164,7 +197,7 @@ function ProfileRow({
     <li className="border-b last:border-b-0">
       <label
         htmlFor={id}
-        className="flex cursor-pointer items-center gap-3.5 px-4 py-3.5 transition-colors hover:bg-muted/60"
+        className="flex cursor-pointer items-center gap-3.5 px-5 py-3 transition-colors hover:bg-muted/60"
       >
         <Checkbox
           id={id}
@@ -209,7 +242,7 @@ function EmptyNotice({
   const { t } = useI18n()
   const Icon = kind === 'empty' ? ScanSearch : TriangleAlert
   return (
-    <div className="flex items-start gap-3 rounded-xl border bg-card px-4 py-3.5 shadow-card">
+    <div className="m-5 flex animate-rise items-start gap-3 rounded-xl border px-4 py-3.5">
       <Icon
         className={cn(
           'mt-0.5 size-4 shrink-0',

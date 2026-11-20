@@ -135,7 +135,7 @@ test('a data folder made by PathKeep 0.5.0 opens with all its data', async ({
   await dialog.getByRole('button', { name: 'Delete forever' }).click()
   await expect(
     page.getByRole('heading', {
-      name: 'Your browser is deleting your history',
+      name: 'Keep what gets deleted automatically',
     }),
   ).toBeVisible({ timeout: 60_000 })
   expect(existsSync(path.join(root(), 'config.json'))).toBe(false)
@@ -382,6 +382,9 @@ test('a file exported by PathKeep 0.5.0 opens and replaces the archive', async (
     'Files from PathKeep 0.5 and earlier also hold the safety copies of the computer they were made on. Any in this file are added to the ones here.',
   )
   await expect(importing).not.toContainText('made by an older PathKeep')
+  await expect(importing).toContainText(
+    'Files from PathKeep 0.5 and earlier have no Agent conversations.',
+  )
   await expect(importing).toContainText(
     'The safety copies already on this computer stay as they are.',
   )

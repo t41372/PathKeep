@@ -423,6 +423,7 @@ function BundleSummary({ preview }: { preview: ImportPreview }) {
   const { t } = useI18n()
   const format = useFormat()
   const manifest = preview.manifest
+  const agent = agentOutcome(preview)
   const rows: [string, string][] = [
     [
       t('settingsStorage.move.summary.made'),
@@ -446,6 +447,10 @@ function BundleSummary({ preview }: { preview: ImportPreview }) {
     [
       t('settingsStorage.move.summary.size'),
       format.bytes(preview.bytesToExtract),
+    ],
+    [
+      t('settingsStorage.move.summary.agent'),
+      t(`settingsStorage.move.summary.agentState.${agent}`),
     ],
   ]
   return (
@@ -471,6 +476,16 @@ function BundleSummary({ preview }: { preview: ImportPreview }) {
           {t('settingsStorage.move.summary.copies')}
         </p>
       )}
+      <p className="text-muted-foreground">
+        {t(`settingsStorage.move.summary.agentNote.${agent}`)}
+      </p>
     </div>
   )
+}
+
+/** What the import does to Agent conversations here, as the summary words it. */
+function agentOutcome(preview: ImportPreview) {
+  const facts = preview.agentConversations
+  if (!facts.carried || facts.stateIfPresent === null) return 'none'
+  return facts.stateIfPresent
 }

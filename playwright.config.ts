@@ -18,7 +18,10 @@
  * conversations in the archive, for every project after it) → restart …
  * → repair (saved conversations damaged on disk and repaired) → wipe
  * (delete everything) → empty (a new archive with no visits,
- * deleted again) → upgrade (an archive left by 0.3).
+ * deleted again) → onboarding-agent (onboarding with both kinds of data
+ * and a first backup of each, deleted again) → view-only (a moved archive's
+ * conversations read without backup, deleted again) → upgrade (an archive
+ * left by 0.3).
  */
 import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -269,11 +272,13 @@ export default defineConfig({
       ],
       'agent',
     ),
-    // History, the reader, search, find and Projects on the conversations
-    // the projects above backed up (Claude Code, Codex, Pi; one Codex
-    // conversation deleted from its folder). In name order; the marks spec
-    // takes off every mark it puts on, the projects spec every name, pin,
-    // section and added folder.
+    // History, the reader, search, find, Projects, the reader's export,
+    // reveal and Continue, and Settings › Agent conversations on the
+    // conversations the projects above backed up (Claude Code, Codex, Pi;
+    // one Codex conversation deleted from its folder). In name order; the
+    // marks spec takes off every mark it puts on, the projects spec every
+    // name, pin, section and added folder, the settings spec every
+    // preference it changes.
     project(
       'agent-chats',
       [
@@ -283,19 +288,23 @@ export default defineConfig({
         'agent-chats-4-search.spec.ts',
         'agent-chats-5-find.spec.ts',
         'agent-chats-6-projects.spec.ts',
+        'agent-chats-7-actions.spec.ts',
+        'agent-chats-8-settings.spec.ts',
       ],
       'agent-sources',
     ),
     // Insights of the Agent space on the same conversations. In name
     // order: the report puts back the choices it changes; the project spec
     // backs up one more Codex conversation (without usage); the zone spec
-    // ends in the zone it found.
+    // ends in the zone it found; the alerts spec leaves the keychain
+    // available and the last automatic run a success.
     project(
       'agent-insights',
       [
         'agent-insights-1-report.spec.ts',
         'agent-insights-2-project.spec.ts',
         'agent-insights-3-zone.spec.ts',
+        'agent-insights-4-alerts.spec.ts',
       ],
       'agent-chats',
     ),
@@ -357,8 +366,20 @@ export default defineConfig({
     // Sets up a new archive in the empty data folder wipe leaves behind, and
     // deletes it again.
     project('empty', ['semantic-empty-archive.spec.ts'], 'wipe'),
+    // Onboarding with Agent conversations chosen, in the empty data folder
+    // `empty` leaves: both kinds, and Agent only with the first save left
+    // to go on in the background. Each deletes everything again at the end,
+    // so their order doesn't matter.
+    project(
+      'onboarding-agent',
+      ['onboarding-agent.spec.ts', 'onboarding-agent-background.spec.ts'],
+      'empty',
+    ),
+    // A browsing-only first run that opens move.spec's file: its Agent
+    // conversations are readable here without backup; deletes it all again.
+    project('view-only', ['agent-view-only.spec.ts'], 'onboarding-agent'),
     // Needs an empty data folder.
-    project('upgrade', ['upgrade.spec.ts'], 'empty'),
+    project('upgrade', ['upgrade.spec.ts'], 'view-only'),
     // Deletes the archive upgrade.spec's file left, then opens v0.5.0's data.
     project('upgrade-v05', ['upgrade-v05.spec.ts'], 'upgrade'),
   ],

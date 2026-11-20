@@ -118,8 +118,7 @@ export const settingsBackground = defineMessages({
     },
     summaries: {
       title: 'Page summaries',
-      off: 'Off. Turn on “Page summaries” in General to fetch short summaries of pages you visited.',
-      openGeneral: 'General settings',
+      off: 'Off. Turn on “Page summaries” in the settings of Browsing history to fetch short summaries of pages you visited.',
       stored_one: '{count} page summarized.',
       stored_other: '{count} pages summarized.',
       fetch: 'Fetch now',
@@ -134,7 +133,7 @@ export const settingsBackground = defineMessages({
     },
     previews: {
       title: 'Link previews',
-      off: 'Off. Turn on “Link previews” in General to show the picture a page offers for sharing.',
+      off: 'Off. Turn on “Link previews” in the settings of Browsing history to show the picture a page offers for sharing.',
       coverage:
         '{withImage} of {eligible} pages have a preview image. {checked} checked so far.',
       coverageLoading: 'Counting pages…',
@@ -342,8 +341,7 @@ export const settingsBackground = defineMessages({
     },
     summaries: {
       title: '网页摘要',
-      off: '已关闭。在“通用”中开启“网页摘要”，即可抓取你访问过网页的简短摘要。',
-      openGeneral: '通用设置',
+      off: '已关闭。在“浏览记录”的设置中开启“网页摘要”，即可抓取你访问过网页的简短摘要。',
       stored_one: '已为 {count} 个网页生成摘要。',
       stored_other: '已为 {count} 个网页生成摘要。',
       fetch: '立即抓取',
@@ -357,7 +355,7 @@ export const settingsBackground = defineMessages({
     },
     previews: {
       title: '链接预览',
-      off: '已关闭。在“通用”中开启“链接预览”，即可显示网页提供的分享图片。',
+      off: '已关闭。在“浏览记录”的设置中开启“链接预览”，即可显示网页提供的分享图片。',
       coverage:
         '{eligible} 个网页中有 {withImage} 个有预览图。目前已检查 {checked} 个。',
       coverageLoading: '正在统计网页…',
@@ -562,8 +560,7 @@ export const settingsBackground = defineMessages({
     },
     summaries: {
       title: '網頁摘要',
-      off: '已關閉。在「一般」中開啟「網頁摘要」，即可抓取你造訪過網頁的簡短摘要。',
-      openGeneral: '一般設定',
+      off: '已關閉。在「瀏覽紀錄」的設定中開啟「網頁摘要」，即可抓取你造訪過網頁的簡短摘要。',
       stored_one: '已為 {count} 個網頁產生摘要。',
       stored_other: '已為 {count} 個網頁產生摘要。',
       fetch: '立即抓取',
@@ -577,7 +574,7 @@ export const settingsBackground = defineMessages({
     },
     previews: {
       title: '連結預覽',
-      off: '已關閉。在「一般」中開啟「連結預覽」，即可顯示網頁提供的分享圖片。',
+      off: '已關閉。在「瀏覽紀錄」的設定中開啟「連結預覽」，即可顯示網頁提供的分享圖片。',
       coverage:
         '{eligible} 個網頁中有 {withImage} 個有預覽圖。目前已檢查 {checked} 個。',
       coverageLoading: '正在統計網頁…',

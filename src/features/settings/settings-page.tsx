@@ -8,7 +8,9 @@
  */
 import {
   Activity,
+  Bot,
   Database,
+  Globe,
   Info,
   Layers,
   Lock,
@@ -22,9 +24,13 @@ import { TitleBarStrip } from '@/components/app/title-bar'
 import { useSession } from '@/app/session'
 import { cn } from '@/lib/cn'
 import { useI18n, type MessageKey } from '@/lib/i18n'
+import { useAgentKind } from '@/lib/queries/agent-backup'
+import { useKindState } from '@/lib/queries/data-kinds'
 import { AboutSection } from './about-section'
+import { AgentSection } from './agent/agent-section'
 import { AiSection } from './ai-section'
 import { BackgroundSection } from './background/background-section'
+import { BrowsingSection } from './browsing/browsing-section'
 import { GeneralSection } from './general-section'
 import { KindsSection } from './kinds/kinds-section'
 import { SecuritySection } from './security-section'
@@ -38,6 +44,8 @@ const sections = {
   storage: { icon: Database, Body: StorageSection },
   about: { icon: Info, Body: AboutSection },
   kinds: { icon: Layers, Body: KindsSection },
+  browsing: { icon: Globe, Body: BrowsingSection },
+  agent: { icon: Bot, Body: AgentSection },
 } satisfies Record<string, { icon: LucideIcon; Body: () => React.ReactNode }>
 
 type SectionId = keyof typeof sections
@@ -47,7 +55,7 @@ const groups = [
     label: 'settings.nav.groupApp',
     ids: ['general', 'security', 'ai', 'background', 'storage', 'about'],
   },
-  { label: 'settings.nav.groupKinds', ids: ['kinds'] },
+  { label: 'settings.nav.groupKinds', ids: ['kinds', 'browsing', 'agent'] },
 ] as const satisfies readonly {
   label: MessageKey
   ids: readonly SectionId[]
@@ -61,6 +69,13 @@ export default function SettingsPage() {
   const { t } = useI18n()
   const { buildInfo } = useSession()
   const params = useParams()
+  const agent = useAgentKind().row?.state
+  const browsing = useKindState('browsing')
+  // A kind's own page is listed while it is on or paused (`data-spaces.md` §8).
+  const listed = (id: SectionId) =>
+    id === 'agent'
+      ? agent !== undefined && agent !== 'off'
+      : id !== 'browsing' || browsing !== 'off'
   const current: SectionId = isSection(params.section)
     ? params.section
     : 'general'
@@ -89,7 +104,7 @@ export default function SettingsPage() {
             >
               {t(group.label)}
             </h2>
-            {group.ids.map((id) => {
+            {group.ids.filter(listed).map((id) => {
               const Icon = sections[id].icon
               return (
                 <Link

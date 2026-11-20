@@ -1,11 +1,14 @@
 /**
- * First run: a new user goes through onboarding with an encrypted archive,
- * three of the profiles PathKeep finds, the password in the keychain and no
- * schedule, then lands on Home.
+ * First run: a new user goes through onboarding keeping browsing history
+ * only (Agent conversations, found on this computer, unticked), with an
+ * encrypted archive, three of the profiles PathKeep finds, the password in
+ * the keychain and no schedule, then lands on Home.
  *
  * Proves: the first backup archives exactly the visits in the chosen
  * profiles (no profile counted twice, none dropped), the archive really is
  * encrypted with the key stored, and the browsers' own files are untouched.
+ * Agent conversations, found and so ticked at first, stay off once
+ * unticked, with none of their choices written.
  * Home, opened while the first Insights build waits, says it is working them
  * out instead of showing empty cards, and fills in once the build has run.
  */
@@ -33,15 +36,33 @@ test('onboarding sets up an encrypted archive and backs up the chosen browsers',
   await page.goto('/')
   await expect(
     page.getByRole('heading', {
-      name: 'Your browser is deleting your history',
+      name: 'Keep what gets deleted automatically',
     }),
   ).toBeVisible()
   await page.getByRole('button', { name: 'Get started' }).click()
 
+  // Browsing history only. The fixture's Agent tool folders make Agent
+  // conversations start ticked; every project after this one expects them
+  // off, so they are unticked here (onboarding-agent.spec chooses them).
+  await expect(
+    page.getByRole('heading', { name: 'What should PathKeep keep?' }),
+  ).toBeVisible()
+  const agentKind = page.getByRole('checkbox', {
+    name: 'Agent conversations',
+    exact: true,
+  })
+  await expect(agentKind).toBeChecked()
+  await agentKind.click()
+  await expect(agentKind).not.toBeChecked()
+  await expect(
+    page.getByRole('checkbox', { name: 'Browsing history', exact: true }),
+  ).toBeChecked()
+  await page.getByRole('button', { name: 'Continue' }).click()
+
   // Browsers: keep the two Chrome profiles and Firefox. The Firefox forks
   // point at the same synthetic profile, so they must stay unchecked.
   await expect(
-    page.getByRole('heading', { name: 'Which browsers should we back up?' }),
+    page.getByRole('heading', { name: 'Here’s what PathKeep found' }),
   ).toBeVisible()
   const want = [
     /Google Chrome\s*Personal/,
@@ -119,6 +140,19 @@ test('onboarding sets up an encrypted archive and backs up the chosen browsers',
     'firefox:k3x9.default-release',
   ])
   expect(await backend<boolean>('keyring_get_database_key')).toBe(true)
+  // Agent conversations stay off, and onboarding wrote none of their choices.
+  const kinds = await backend<{ kinds: { kind: string; state: string }[] }>(
+    'list_data_kinds',
+    { request: {} },
+  )
+  expect(kinds.kinds.find((row) => row.kind === 'agent-history')?.state).toBe(
+    'off',
+  )
+  const agentSettings = await backend<{ toolsChosen?: boolean }>(
+    'get_agent_settings',
+    { request: {} },
+  )
+  expect(agentSettings.toolsChosen ?? false).toBe(false)
 
   await page.getByRole('button', { name: 'Open PathKeep' }).click()
 

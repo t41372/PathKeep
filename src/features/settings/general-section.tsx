@@ -1,18 +1,19 @@
 /**
- * Settings → General: language, clock, Insights' time zone, appearance, how PathKeep sits on the desktop
- * (open at login, menu bar icon) and the two features that contact websites.
+ * Settings → General: language, clock, Insights' time zone, appearance, how
+ * PathKeep sits on the desktop (open at login, menu bar icon), and one row
+ * that says which features contact websites. Those switches belong to
+ * browsing history and live in its own settings (`data-spaces.md` §8).
  */
-import {
-  SettingRow,
-  SettingsGroup,
-  SettingsSection,
-} from '@/components/app/setting-row'
+import { Link } from 'react-router-dom'
+import { SettingRow, SettingsSection } from '@/components/app/setting-row'
+import { Button } from '@/components/ui/button'
 import {
   languageNames,
   supportedLanguages,
   useI18n,
   type ClockPreference,
 } from '@/lib/i18n'
+import { useKindState } from '@/lib/queries/data-kinds'
 import { useChooseLanguage } from '@/lib/queries/language'
 import { useTheme, type ThemePreference } from '@/lib/theme'
 import {
@@ -23,7 +24,6 @@ import {
 import type { LanguagePreference } from '@/lib/types'
 import { DesktopRows } from './desktop-rows'
 import { InsightsZoneRow } from './insights-zone-row'
-import { OnlineRows } from './online-rows'
 import { RowSelect } from './row-select'
 
 export function GeneralSection() {
@@ -36,12 +36,25 @@ export function GeneralSection() {
       <AppearanceRow />
       {windowMaterialAvailable() && <WindowMaterialRow />}
       <DesktopRows />
-      <SettingsGroup
-        title={t('settings.general.online.title')}
-        note={t('settings.general.online.note')}
-      />
-      <OnlineRows />
+      <OnlineElsewhereRow />
     </SettingsSection>
+  )
+}
+
+/** Where the Online group was: says what goes online and where to change it. */
+function OnlineElsewhereRow() {
+  const { t } = useI18n()
+  if (useKindState('browsing') === 'off') return null
+  return (
+    <SettingRow
+      title={t('settingsBrowsing.online.title')}
+      description={t('settingsBrowsing.online.elsewhere')}
+      control={
+        <Button variant="outline" size="sm" asChild>
+          <Link to="/settings/browsing">{t('settingsBrowsing.open')}</Link>
+        </Button>
+      }
+    />
   )
 }
 
