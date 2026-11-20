@@ -73,18 +73,21 @@ test('the page follows the backend’s event, and reads nothing while nothing ch
   await page.waitForTimeout(6_000)
   expect(reads(), 'list reads while nothing changed').toBe(0)
 
-  // Work started outside this window appears, runs and ends here.
+  // Work started outside this window appears, runs and ends here: an
+  // Insights build, as the app queues one. It builds what earlier specs left
+  // stale, so it can take a while. `limit` is the build's batch size; 1
+  // would write each visit on its own and take ten minutes on the Linux
+  // debug build.
   const { jobId } = await backend<{ jobId: number }>(
     'queue_core_intelligence_rebuild',
-    { request: { profileId: null, fullRebuild: false, limit: 1 } },
+    { request: { profileId: null, fullRebuild: false, limit: null } },
   )
   const row = page.locator(
     `section[data-task-group] li[data-task-id="browsing:intelligence/${jobId}"]`,
   )
   await expect(row.first()).toBeVisible({ timeout: 15_000 })
-  // It rebuilds every visit's Insights: about a minute on the Linux debug
-  // build. The page has to show it done once the backend says so (nothing
-  // else was queued or running: the page said so above).
+  // The page has to show it done once the backend says so (nothing else
+  // was queued or running: the page said so above).
   await expect
     .poll(
       async () => {
@@ -149,8 +152,8 @@ test('a browsing backup that ended short is dismissed from Needs a look, and its
   expect(listed?.commands).toContain('dismiss')
   const counted = await railAttention()
   expect(counted).toBeGreaterThan(0)
-  // The backup queued Insights work that starts the rebuild over: about a
-  // minute on the Linux debug build.
+  // The backup queued Insights work for what it added; the indicator is
+  // idle once that has run.
   await expectIdleIndicator(page, 180_000)
   await testInfo.attach('a backup that ended short, under Needs a look', {
     body: await page.screenshot({ fullPage: true }),
