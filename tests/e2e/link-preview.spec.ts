@@ -281,13 +281,18 @@ test('link previews are set in Settings › Browsing history, where History’s 
     const images = page
       .getByText('Link preview images', { exact: true })
       .locator('xpath=../..')
-    const imageCount = new RegExp(`\\b${kept} images?,`)
+    // The label and the count are separate elements with no space between
+    // them in the text: "Link preview images1 image, 94 B". Not after a
+    // digit, so 11 images can't pass for 1.
+    const imageCount = new RegExp(`(?<!\\d)${kept} images?,`)
     await expect(images).toContainText(imageCount)
     await images.getByRole('button', { name: 'Clear…' }).click()
     const asking = page.getByRole('alertdialog', {
       name: 'Delete all link preview images?',
     })
-    await expect(asking).toContainText(new RegExp(`\\b${kept} images? \\(`))
+    await expect(asking).toContainText(
+      new RegExp(`(?<!\\d)${kept} images? \\(`),
+    )
     await asking.getByRole('button', { name: 'Clear…' }).click()
     await expect.poll(storedImages).toBe(0)
     await expect(images.getByRole('button', { name: 'Clear…' })).toBeDisabled()
