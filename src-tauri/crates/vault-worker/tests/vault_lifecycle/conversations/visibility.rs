@@ -45,10 +45,16 @@ fn assert_view(session: &VaultSession, hidden: bool) {
     };
     let runs = before();
     let read = backups::overview(session, from_value(json!({"purpose":"space"})).unwrap());
+    let records = kinds::chats::list(session, Default::default());
     if hidden {
+        assert_eq!(records.unwrap_err().to_string(), "kind-off");
         assert_eq!(read.unwrap_err().to_string(), "kind-off");
     } else {
         assert_eq!(read.unwrap()["roots"], "1");
+        let records = records.unwrap();
+        let id = records["items"][0]["id"].as_str().unwrap();
+        let header = kinds::chats::header(session, from_value(json!({"id":id})).unwrap()).unwrap();
+        assert_eq!(header["summary"]["id"], id);
         assert!(
             !session
                 .vault()
@@ -63,8 +69,11 @@ fn assert_view(session: &VaultSession, hidden: bool) {
     }
     assert!(backups::start(session,from_value(json!({"scope":{"type":"kind","kind":"agent-history"},"requestId":uuid::Uuid::new_v4().to_string()})).unwrap(),Arc::new(|_,_|{})).is_err());
     assert_eq!(choose(session, "on").unwrap_err().to_string(), "enable-preview-required");
-    // Exercise the due-only path used by the existing wake. Step 3 owns
-    // multikind all-now; the current dispatcher refuses that scope.
+    // The shared wake checks each kind independently. Neither shared trigger acquires consent.
+    for scheduled in [true, false] {
+        let skipped = backups::start_shared(session, scheduled).unwrap().wait().unwrap();
+        assert_eq!(skipped["reason"], if hidden { "kind-off" } else { "kind-paused" });
+    }
     vault_worker::run_backup_now(&session.vault().unwrap(), None, true).unwrap();
     assert!(
         from_value::<backups::Start>(

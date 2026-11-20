@@ -71,3 +71,40 @@ pub(crate) fn find_in_agent_conversation_impl(
 ) -> Result<vault_worker::data_kinds::preview::Frames, CommandError> {
     super::data_kinds::surface_result(chats::find(session, request))
 }
+
+pub(crate) fn export_agent_conversation_impl<R: tauri::Runtime>(
+    app: Option<&tauri::AppHandle<R>>,
+    session: &SessionState,
+    q: chats::ConversationExport,
+) -> Result<Value, CommandError> {
+    super::data_kinds::surface_result(chats::admit_export(session, &q.id))?;
+    let ext = q.format.extension();
+    let Some(path) = super::save_path(app, &format!("conversation.{ext}"), (ext, &[ext]))? else {
+        return Ok(Value::Null);
+    };
+    super::data_kinds::surface_result(chats::export(session, q, &path))
+}
+
+pub(crate) fn get_agent_viewer_preferences_impl(
+    q: vault_worker::data_kinds::Empty,
+) -> Result<Value, CommandError> {
+    super::data_kinds::surface_result(vault_worker::data_kinds::viewer::get(q))
+}
+pub(crate) fn set_agent_viewer_preferences_impl(
+    q: vault_worker::data_kinds::viewer::Patch,
+    events: Events,
+) -> Result<Value, CommandError> {
+    super::data_kinds::surface_result(vault_worker::data_kinds::viewer::set(q, events))
+}
+
+pub(crate) fn query_agent_palette_impl(
+    session: &SessionState,
+    request: chats::Palette,
+) -> Result<Value, CommandError> {
+    super::data_kinds::surface_result(chats::palette(session, request))
+}
+
+/// Both transports ask the platform to select the same validated source file.
+pub(crate) fn reveal_file_impl(path: String) -> Result<String, CommandError> {
+    Ok(vault_platform::reveal_file(path)?)
+}

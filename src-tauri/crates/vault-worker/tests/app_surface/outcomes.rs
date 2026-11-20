@@ -262,3 +262,31 @@ mod consent;
 
 #[path = "review.rs"]
 mod review_findings;
+
+#[test]
+fn only_the_index_phase_can_wait_and_resume() {
+    let f = Fixture::new(true);
+    super::source_rules::grant(&f);
+    pi(&f.temp.path().join("chosen-pi/sessions/test.jsonl"), "pause-index", 3);
+    let (index_tx, index_rx) = std::sync::mpsc::channel();
+    let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let release = barrier.clone();
+    backups::start(&f.session,from_value(json!({"scope":{"type":"kind","kind":"agent-history"},"requestId":uuid::Uuid::new_v4().to_string()})).unwrap(),Arc::new(move|name,row|{
+        if name=="pathkeep://background-task-changed" && row["phase"]=="index"{
+            index_tx.send(row).unwrap();release.wait();
+        }else if name=="pathkeep://kind-backup-finished"{finished_tx.send(row).unwrap();}
+    })).unwrap();
+    let indexing = index_rx.recv_timeout(Duration::from_secs(15)).unwrap();
+    let paused =
+        backups::control(&f.session, control(&indexing, "pause"), Arc::new(|_, _| {})).unwrap();
+    barrier.wait();
+    let waiting =
+        backups::tasks(&f.session, from_value(json!({"group":"waiting","limit":10})).unwrap())
+            .unwrap();
+    assert_eq!(waiting["items"][0]["taskId"], indexing["taskId"]);
+    assert_eq!(paused["task"]["actions"], json!(["cancel", "resume"]));
+    assert!(finished_rx.try_recv().is_err());
+    backups::control(&f.session, control(&paused["task"], "resume"), Arc::new(|_, _| {})).unwrap();
+    assert_eq!(finished_rx.recv_timeout(Duration::from_secs(15)).unwrap()["result"], "success");
+}

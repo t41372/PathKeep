@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 pub fn start(s: &VaultSession, q: Query) -> Result<preview::Frames> {
     let (vault, config) = backups::admitted(s, false)?;
     let archive = vault.agent_history()?;
-    archive.set_project_git(config.capture_policy.read_git);
+    archive.set_project_grouping(super::viewer::grouping(&config));
     let zone = vault_core::insights_time_zone(&vault)?.shown;
     let prefs = archive.insight_preferences()?;
     let first_running = backups::first_backup(&vault, &config.capture_policy)? == "running";

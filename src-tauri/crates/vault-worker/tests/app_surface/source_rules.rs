@@ -301,3 +301,33 @@ fn move_over_agent_only_destination_requires_source_review_after_reopen() {
     assert_eq!(list["kinds"][1]["sourceReviewRequired"], true);
     assert!(kinds::settings().unwrap().policy.selection_ref.is_none());
 }
+
+#[test]
+fn agent_only_schedule_saves_the_reviewed_source_and_observes_its_own_due_clock() {
+    let f = Fixture::new(true);
+    grant(&f);
+    let mut cfg = load_config(&f.paths()).unwrap();
+    cfg.capture_policy.browsing = KindState::Off;
+    save_config(&ControlGate::acquire(&f.paths()), &cfg).unwrap();
+    let file = f.temp.path().join("chosen-pi/sessions/test.jsonl");
+    write(&file,br#"{"type":"session","id":"scheduled","version":3,"cwd":"/project","timestamp":"2026-11-10T12:00:00Z"}
+{"type":"message","id":"u","parentId":null,"message":{"role":"user","content":"captured by the schedule"}}
+"#);
+    let run = kinds::backups::start_shared(&f.session, true).unwrap().wait().unwrap();
+    assert_eq!(run["trigger"], "scheduled");
+    assert_eq!(
+        f.vault().agent_history().unwrap().chat_counts(&Default::default()).unwrap()["savedRoots"],
+        1
+    );
+    assert_eq!(
+        kinds::backups::start_shared(&f.session, true).unwrap().wait().unwrap()["reason"],
+        "not-due"
+    );
+    cfg.capture_policy.browsing = KindState::On;
+    cfg.capture_policy.agent_history = KindState::Paused;
+    save_config(&ControlGate::acquire(&f.paths()), &cfg).unwrap();
+    assert_eq!(
+        kinds::backups::start_shared(&f.session, true).unwrap().wait().unwrap()["reason"],
+        "kind-paused"
+    );
+}

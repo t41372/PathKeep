@@ -125,6 +125,10 @@ fn app_surface_policy_contract() {
         for (command, request) in [
             ("get_agent_settings", json!({"request":{}})),
             ("list_data_kinds", json!({"request":{"includeArchiveBytes":true}})),
+            ("get_agent_viewer_preferences", json!({"request":{}})),
+            ("set_agent_viewer_preferences", json!({"request":{"assistantMayRead":true}})),
+            ("query_agent_palette", json!({"request":{"text":"query"}})),
+            ("export_agent_conversation", json!({"request":{"id":"locked","format":"html"}})),
             ("retry_agent_store", json!({"request":{}})),
             ("dismiss_agent_hint", json!({"request":{"hint":"intro"}})),
             ("detect_data_sources", json!({"request":{"kinds":["browsing","agent-history"]}})),

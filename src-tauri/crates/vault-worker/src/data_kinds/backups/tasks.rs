@@ -9,14 +9,14 @@ use vault_store::params;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ListTasks {
-    group: Group,
+    pub(super) group: Group,
     kind: Option<DataKind>,
-    cursor: Option<String>,
-    limit: usize,
+    pub(super) cursor: Option<String>,
+    pub(super) limit: usize,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-enum Group {
+pub(super) enum Group {
     Running,
     Attention,
     Waiting,
@@ -67,6 +67,8 @@ pub(super) fn task_row(runtime: &Runtime, r: &Record) -> Result<Value> {
     {
         if a.token.check().is_err() {
             state = "cancelling";
+        } else if a.index_pause.paused() {
+            state = "paused";
         }
         progress = Some(a.progress.clone());
     }
@@ -85,6 +87,13 @@ pub(super) fn task_row(runtime: &Runtime, r: &Record) -> Result<Value> {
     if matches!(state, "partial" | "failed") && !r.ack {
         actions.push("dismiss");
     }
+    if phase == "index" {
+        match state {
+            "running" => actions.push("pause"),
+            "paused" => actions.extend(["cancel", "resume"]),
+            _ => {}
+        }
+    }
     let token = if r.format_notices.is_empty() {
         hash(&(id, state, phase, &actions, attention))?
     } else {
@@ -93,7 +102,7 @@ pub(super) fn task_row(runtime: &Runtime, r: &Record) -> Result<Value> {
     };
     let mut row = json!({"taskId":id,"kind":"agent-history","operation":"backup","trigger":r.trigger,"state":state,
         "phase":phase,"runRef":format!("agent-history:{}",r.public),"startedAt":r.started,"attention":attention,
-        "actions":actions,"holdsQuit":matches!(state,"running"|"cancelling"),"snapshotToken":token});
+        "actions":actions,"holdsQuit":matches!(state,"running"|"cancelling"|"paused"),"snapshotToken":token});
     if !r.format_notices.is_empty() {
         row["formatNotices"] = json!(r.format_notices);
     }
@@ -120,15 +129,7 @@ pub(super) fn task_row(runtime: &Runtime, r: &Record) -> Result<Value> {
     Ok(row)
 }
 
-/// Project native receipts into a page of actionable attempts.
-pub fn tasks(session: &VaultSession, req: ListTasks) -> Result<Value> {
-    let (vault, _) = admitted(session, false)?;
-    let n = limit(req.limit)?;
-    if matches!(req.kind, Some(DataKind::Browsing)) || matches!(req.group, Group::Waiting) {
-        return page(vec![], None);
-    }
-    let after: Option<i64> = decode(req.cursor.as_deref())?;
-    let now = Local::now();
+pub(super) fn local_day(date: chrono::NaiveDate) -> Result<(i64, i64)> {
     let midnight = |date: chrono::NaiveDate| -> Result<i64> {
         let naive = date.and_hms_opt(0, 0, 0).ok_or(Refusal::InvalidRequest)?;
         (0..=180)
@@ -138,8 +139,36 @@ pub fn tasks(session: &VaultSession, req: ListTasks) -> Result<Value> {
             .map(|v| v.timestamp_millis())
             .ok_or_else(|| Refusal::InvalidRequest.into())
     };
-    let date = now.date_naive();
-    let (from, to) = (midnight(date)?, midnight(date.succ_opt().ok_or(Refusal::InvalidRequest)?)?);
+    Ok((midnight(date)?, midnight(date.succ_opt().ok_or(Refusal::InvalidRequest)?)?))
+}
+/// Project native receipts into a page of actionable attempts.
+pub fn tasks(session: &VaultSession, req: ListTasks) -> Result<Value> {
+    if matches!(req.kind, Some(DataKind::Browsing)) {
+        return super::browsing_tasks::list(session, req);
+    }
+    let (vault, config) = admitted(session, true)?;
+    let n = limit(req.limit)?;
+    if vault.agent_visibility(&config.capture_policy)? == KindState::Off {
+        return page(vec![], None);
+    }
+    if matches!(req.group, Group::Waiting) {
+        let task = session
+            .conversations
+            .active
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|a| a.index_pause.paused())
+            .map(|a| a.intent.task.clone());
+        let mut rows = Vec::new();
+        if let Some(id) = task {
+            rows.push(task_row(&session.conversations, &record(&vault, &id)?)?);
+        }
+        check_reply(&vault, session, false)?;
+        return page(rows, None);
+    }
+    let after: Option<i64> = decode(req.cursor.as_deref())?;
+    let (from, to) = local_day(Local::now().date_naive())?;
     let predicate = match req.group {
         Group::Running => "r.status='running'",
         Group::Attention => "r.id IN (SELECT run_id FROM ah_pending_backup_attention)",
@@ -160,7 +189,10 @@ pub fn tasks(session: &VaultSession, req: ListTasks) -> Result<Value> {
     })?;
     let mut rows = Vec::new();
     for (_, id) in ids.iter().take(req.limit) {
-        rows.push(task_row(&session.conversations, &record(&vault, id)?)?);
+        let row = task_row(&session.conversations, &record(&vault, id)?)?;
+        if !matches!(req.group, Group::Running) || row["state"] != "paused" {
+            rows.push(row);
+        }
     }
     let next = (ids.len() > req.limit).then(|| ids[req.limit - 1].0.to_string());
     check_reply(&vault, session, false)?;
@@ -180,15 +212,21 @@ pub fn task_summary(session: &VaultSession, _: super::super::Empty) -> Result<Va
         })?;
     let id = session.conversations.active.lock().unwrap().as_ref().map(|a| a.intent.task.clone());
     let mut running = Vec::new();
+    let mut queued = 0;
     if let Some(id) = id {
         let r = record(&vault, &id)?;
         if r.status == "running" {
-            running.push(task_row(&session.conversations, &r)?);
+            let row = task_row(&session.conversations, &r)?;
+            if row["state"] == "paused" {
+                queued = 1;
+            } else {
+                running.push(row);
+            }
         }
     }
     check_reply(&vault, session, false)?;
     Ok(
-        json!({"runningCount":running.len(),"queuedCount":0,"attentionCount":count.to_string(),"running":running}),
+        json!({"runningCount":running.len(),"queuedCount":queued,"attentionCount":count.to_string(),"running":running}),
     )
 }
 
@@ -293,7 +331,25 @@ pub fn control(session: &VaultSession, req: Control, events: Events) -> Result<V
             check_reply(&vault, session, false)?;
             return Ok(json!({"task":replacement,"replacementTaskId":task}));
         }
-        _ => return Err(Refusal::ScopeDenied.into()),
+        Action::Pause | Action::Resume => {
+            let pause = matches!(req.action, Action::Pause);
+            let active = session.conversations.active.lock().unwrap();
+            if !active
+                .as_ref()
+                .is_some_and(|a| a.intent.task == req.task_id && a.index_pause.set(pause))
+            {
+                return Err(Refusal::ActionUnavailable.into());
+            }
+            drop(active);
+            ledger::remember(
+                &vault,
+                req.request_id,
+                fingerprint,
+                req.task_id.clone(),
+                if pause { "pause" } else { "resume" },
+                None,
+            )?;
+        }
     }
     let row = task_row(&session.conversations, &record(&vault, &req.task_id)?)?;
     check_reply(&vault, session, false)?;

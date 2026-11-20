@@ -23,6 +23,10 @@ pub struct KindRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     archive_bytes: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    storage_items: Option<Vec<StorageItem>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    only_in_path_keep_count: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     has_backup_source: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_review_required: Option<bool>,
@@ -35,6 +39,13 @@ pub struct KindRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     failure: Option<RoleFailure>,
 }
+#[derive(Debug, Serialize)]
+struct StorageItem {
+    role: String,
+    path: std::path::PathBuf,
+    bytes: String,
+}
+
 #[derive(Debug, Serialize)]
 struct RoleFailure {
     role: &'static str,
@@ -132,15 +143,15 @@ pub fn list_with(session: &VaultSession, request: ListKinds) -> Result<KindList>
             None => (Some(0), agent.then(|| "not-started".into())),
             Some(vault) if agent => {
                 session.conversations.reconcile_terminal(vault)?;
-                let files = vault.store().read(Db::AgentHistoryEvidence, |tx| {
+                let conversations = vault.store().read(Db::AgentHistoryReadModel, |tx| {
                     tx.query_one(
-                        "SELECT count(*) FROM ah_sources WHERE latest_revision_id IS NOT NULL",
+                        "SELECT count(*) FROM ah_chat_summary WHERE live=1 AND root=1",
                         (),
                         |r| Ok(r.get::<i64>(0)?),
                     )
                 })?;
                 let first = backups::first_backup(vault, &config.capture_policy)?;
-                (Some(files), Some(first))
+                (Some(conversations), Some(first))
             }
             Some(vault) => {
                 let visits =
@@ -160,6 +171,36 @@ pub fn list_with(session: &VaultSession, request: ListKinds) -> Result<KindList>
         } else {
             None
         };
+        let mut physical = None;
+        let mut breakdown = None;
+        let mut only_in_path_keep = None;
+        if (request.include_archive_bytes || request.include_storage_items)
+            && !unavailable
+            && let Some(v) = &vault
+        {
+            let items = if agent {
+                v.conversation_storage_items()?
+            } else {
+                vault_core::archive::browsing_storage_items(v)?
+            };
+            physical = Some(items.iter().map(|(_, n)| n).sum::<u64>().to_string());
+            if request.include_storage_items {
+                breakdown = Some(
+                    items
+                        .into_iter()
+                        .map(|(role, n)| StorageItem {
+                            role: format!("{role:?}"),
+                            path: v.paths().artifact_path(role),
+                            bytes: n.to_string(),
+                        })
+                        .collect(),
+                );
+                if agent {
+                    only_in_path_keep=Some(v.store().read(Db::AgentHistoryReadModel,|tx|tx.query_one(
+                        "SELECT count(*) FROM ah_chat_summary WHERE live=1 AND root=1 AND missing=1",(),|r|Ok(r.get::<i64>(0)?)))?.to_string());
+                }
+            }
+        }
         kinds.push(KindRow {
             kind,
             order: order as u8,
@@ -167,17 +208,9 @@ pub fn list_with(session: &VaultSession, request: ListKinds) -> Result<KindList>
                 Some(v) if agent && !unavailable => v.agent_visibility(&config.capture_policy)?,
                 _ => config.capture_policy.state(kind),
             },
-            archive_bytes: match &vault {
-                Some(v) if request.include_archive_bytes && !unavailable => Some(
-                    if agent {
-                        v.conversation_archive_bytes()?
-                    } else {
-                        vault_core::archive::browsing_archive_bytes(v)?
-                    }
-                    .to_string(),
-                ),
-                _ => None,
-            },
+            archive_bytes: physical,
+            storage_items: breakdown,
+            only_in_path_keep_count: only_in_path_keep,
             reader_rebuild_required: match &vault {
                 Some(v) if agent && !unavailable => {
                     Some(agent_history::Archive::has_reader_repair_work(v.store())?)
@@ -201,8 +234,11 @@ pub fn list_with(session: &VaultSession, request: ListKinds) -> Result<KindList>
             },
             failure,
             archive_count: count.map(|n| n.to_string()),
-            count_unit: if agent { "source-files" } else { "visits" },
-            has_saved_data: count.map(|n| n > 0),
+            count_unit: if agent { "conversations" } else { "visits" },
+            has_saved_data: match &vault {
+                Some(v) if agent && !unavailable => Some(v.has_saved_transcripts()?),
+                _ => count.map(|n| n > 0),
+            },
             coverage: Coverage {
                 state: if unavailable { "unavailable" } else { "complete" },
                 reasons: if unavailable { vec!["kind-unavailable"] } else { vec![] },

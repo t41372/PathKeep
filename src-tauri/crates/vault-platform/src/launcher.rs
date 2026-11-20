@@ -163,6 +163,51 @@ fn spawn_external_url_command(
     Ok(())
 }
 
+/// Select a saved source without launching the file. A vanished source can still reveal its folder.
+pub fn reveal_file(path: String) -> Result<String, String> {
+    let file = PathBuf::from(path);
+    if !file.is_absolute() {
+        return Err("Reveal requires an absolute source path".into());
+    }
+    let folder = file.parent().filter(|p| p.is_dir()).ok_or("Source folder is unavailable")?;
+    if file.is_file() {
+        #[cfg(target_os = "macos")]
+        let selected =
+            Command::new("open").arg("-R").arg(&file).status().is_ok_and(|s| s.success());
+        #[cfg(target_os = "windows")]
+        let selected = {
+            use std::os::windows::process::CommandExt;
+            Command::new("explorer.exe")
+                .raw_arg(format!("/select,\"{}\"", file.display()))
+                .spawn()
+                .is_ok()
+        };
+        #[cfg(target_os = "linux")]
+        let selected = show_items(&file);
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        let selected = false;
+        if selected {
+            return Ok(file.display().to_string());
+        }
+    }
+    spawn_file_manager_for_target(folder)?;
+    Ok(folder.display().to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn show_items(file: &Path) -> bool {
+    let Ok(uri) = url::Url::from_file_path(file) else { return false };
+    let Ok(bus) = dbus::blocking::Connection::new_session() else { return false };
+    let manager = bus.with_proxy(
+        "org.freedesktop.FileManager1",
+        "/org/freedesktop/FileManager1",
+        std::time::Duration::from_secs(3),
+    );
+    let reply: Result<(), _> =
+        manager.method_call("org.freedesktop.FileManager1", "ShowItems", (vec![uri.as_str()], ""));
+    reply.is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

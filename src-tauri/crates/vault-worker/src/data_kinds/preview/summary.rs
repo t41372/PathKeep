@@ -35,6 +35,13 @@ impl ToolInventory {
     }
 }
 
+// Thousandths of on-disk native source bytes, by evidence, read model and search.
+// Reproduce with agent-history/tests/preview_growth.rs (Linux release).
+const PLAIN: [u128; 3] = [285, 4125, 431];
+const PLAIN_ENCRYPTED: [u128; 3] = [286, 4133, 432];
+const ZSTD: [u128; 3] = [1288, 17674, 2286];
+const ZSTD_ENCRYPTED: [u128; 3] = [1288, 17714, 2289];
+
 pub(super) fn enumerate(
     permit: &Permit,
     roots: Vec<super::sources::Candidate>,
@@ -110,11 +117,16 @@ pub(super) fn enumerate(
     // Before onboarding the requested archive directory can still be absent.
     let available = target_available_bytes(&permit.paths, |volume| fs4::available_space(volume))?;
     let ordinary = totals.source_bytes - totals.compressed_bytes;
-    // Planning allowance only: preserve native bytes, allow one extra copy of
-    // input for derived rows and a page per file for database metadata.
-    let overhead = totals.files.saturating_mul(4096);
-    let derived = totals.source_bytes;
-    let estimated = totals.source_bytes.saturating_add(derived).saturating_add(overhead);
+    let (plain_ratios, compressed_ratios) = match mode {
+        ArchiveMode::Plaintext => (PLAIN, ZSTD),
+        ArchiveMode::Encrypted => (PLAIN_ENCRYPTED, ZSTD_ENCRYPTED),
+    };
+    let [evidence, reader, index] = std::array::from_fn(|i| {
+        let sum = u128::from(ordinary) * plain_ratios[i]
+            + u128::from(totals.compressed_bytes) * compressed_ratios[i];
+        u64::try_from(sum.div_ceil(1000)).unwrap_or(u64::MAX)
+    });
+    let estimated = evidence.saturating_add(reader).saturating_add(index);
     let id = Uuid::new_v4().to_string();
     permit.check()?;
     retain_ticket(id.clone(), permit, approved, LIFETIME);
@@ -128,11 +140,12 @@ pub(super) fn enumerate(
             "byTool": by_tool,
             "estimatedArchiveBytes": estimated.to_string(),
             "estimateBasis": {
-                "method": "source-plus-derived-allowance-v1",
+                "method": "measured-role-growth-v1",
                 "nativeCompressedBytes": totals.compressed_bytes.to_string(),
                 "ordinaryBytes": ordinary.to_string(),
-                "derivedAllowanceBytes": derived.to_string(),
-                "overheadAllowanceBytes": overhead.to_string()
+                "evidenceBytes": evidence.to_string(),
+                "readModelBytes": reader.to_string(),
+                "indexBytes": index.to_string()
             },
             "availableBytes": available.to_string(),
             "archiveMode": mode,

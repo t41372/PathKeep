@@ -27,7 +27,7 @@
           "readerRebuildRequired": false,
           "hasSavedData": false,
           "archiveCount": "0",
-          "countUnit": "source-files",
+          "countUnit": "conversations",
           "coverage": {
             "state": "complete",
             "reasons": []
@@ -109,7 +109,7 @@
           "readerRebuildRequired": false,
           "hasSavedData": false,
           "archiveCount": "0",
-          "countUnit": "source-files",
+          "countUnit": "conversations",
           "coverage": {
             "state": "complete",
             "reasons": []
@@ -336,13 +336,14 @@
             "reasons": []
           }
         },
-        "estimatedArchiveBytes": "4112",
+        "estimatedArchiveBytes": "40",
         "estimateBasis": {
-          "method": "source-plus-derived-allowance-v1",
+          "method": "measured-role-growth-v1",
           "nativeCompressedBytes": "0",
           "ordinaryBytes": "8",
-          "derivedAllowanceBytes": "8",
-          "overheadAllowanceBytes": "4096"
+          "evidenceBytes": "3",
+          "readModelBytes": "33",
+          "indexBytes": "4"
         },
         "availableBytes": "1048576000",
         "archiveMode": "Plaintext",
@@ -451,7 +452,7 @@
             "readerRebuildRequired": false,
             "hasSavedData": false,
             "archiveCount": "0",
-            "countUnit": "source-files",
+            "countUnit": "conversations",
             "coverage": {
               "state": "complete",
               "reasons": []
@@ -501,7 +502,7 @@
             "readerRebuildRequired": false,
             "hasSavedData": false,
             "archiveCount": "0",
-            "countUnit": "source-files",
+            "countUnit": "conversations",
             "coverage": {
               "state": "complete",
               "reasons": []

@@ -3,6 +3,8 @@
 //!
 //! Capture can succeed while interpretation is partial. Destination failures abort
 //! the operation; source limitations retain earlier evidence and produce diagnostics.
+mod index_pause;
+pub use index_pause::IndexPause;
 mod debug_delay;
 mod defaults;
 mod diagnostics;
@@ -52,6 +54,7 @@ use vault_store::CancelToken;
 
 /// Explicit budgets and cancellation keep a single enormous transcript bounded.
 pub struct BackupOptions {
+    pub index_pause: Arc<IndexPause>,
     pub max_record_bytes: usize,
     pub read_git: bool,
     /// Desktop grants bind native directory identity across discovery and file opens.
@@ -65,6 +68,7 @@ pub struct BackupOptions {
 impl Default for BackupOptions {
     fn default() -> Self {
         Self {
+            index_pause: Default::default(),
             read_git: true,
             approved_directories: None,
             max_record_bytes: 16 * 1024 * 1024,
@@ -270,8 +274,7 @@ fn execute(
     archive.ensure_projects()?;
     archive.refresh_project_rollups()?;
     archive.refresh_insight_hours(&options.cancel)?;
-    notify_phase(options, "index", None);
-    archive.synchronize_search_with_cancel(&|| options.cancel.check().is_err())?;
+    options.index_pause.synchronize(archive, options)?;
     maintenance(archive, options)?;
     // Unreferenced slices stay queued until a collection transaction succeeds.
     check_cancel(options)?;

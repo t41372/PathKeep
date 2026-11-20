@@ -192,6 +192,81 @@ fn conversation_screen_wire_opens_a_saved_pi_turn_and_reads_its_image() {
                 .await
                 .unwrap();
         assert_eq!(renamed["summary"]["project"]["label"], "Wire project");
+        let storage = dispatch_command(
+            &state,
+            "list_data_kinds",
+            json!({"request":{"includeStorageItems":true}}),
+        )
+        .await
+        .unwrap();
+        let agent = &storage["kinds"][1];
+        assert_eq!(agent["countUnit"], "conversations");
+        assert_eq!(agent["archiveCount"], "1");
+        let items = agent["storageItems"].as_array().unwrap();
+        assert_eq!(items.len(), 3);
+        let bytes = items
+            .iter()
+            .map(|item| item["bytes"].as_str().unwrap().parse::<u64>().unwrap())
+            .sum::<u64>();
+        assert_eq!(agent["archiveBytes"], bytes.to_string());
+        let viewer =
+            dispatch_command(&state, "get_agent_viewer_preferences", json!({"request":{}}))
+                .await
+                .unwrap();
+        assert_eq!(viewer["readerCollapseToolCalls"], true);
+        assert_eq!(viewer["mcpMayRead"], false);
+        let changed = dispatch_command(
+            &state,
+            "set_agent_viewer_preferences",
+            json!({"request":{"readerShowThinking":false}}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(changed["readerShowThinking"], false);
+        let reopened =
+            dispatch_command(&state, "get_agent_viewer_preferences", json!({"request":{}}))
+                .await
+                .unwrap();
+        assert_eq!(changed, reopened);
+        let palette =
+            dispatch_command(&state, "query_agent_palette", json!({"request":{"text":""}}))
+                .await
+                .unwrap();
+        assert!(palette["conversations"].as_array().unwrap().iter().any(|r| r["id"] == *id));
+        assert!(
+            palette["projects"].as_array().unwrap().iter().any(|r| r["name"] == "Wire project")
+        );
+        let saved = tempdir().unwrap();
+        let previous = std::env::var_os("PATHKEEP_TEST_SAVE_DIR");
+        unsafe {
+            std::env::set_var("PATHKEEP_TEST_SAVE_DIR", saved.path());
+        }
+        let exported = dispatch_command(
+            &state,
+            "export_agent_conversation",
+            json!({"request":{"id":id,"format":"html","locale":"zh-TW"}}),
+        )
+        .await;
+        unsafe {
+            match previous {
+                Some(p) => std::env::set_var("PATHKEEP_TEST_SAVE_DIR", p),
+                None => std::env::remove_var("PATHKEEP_TEST_SAVE_DIR"),
+            }
+        }
+        let result = exported.unwrap();
+        let html = std::fs::read_to_string(result["path"].as_str().unwrap()).unwrap();
+        assert!(
+            html.contains("Look at the image")
+                && html.contains("Answer")
+                && html.contains("data:image/png;base64,iVBORw0KGgo=")
+        );
+        assert!(
+            html.contains("<h2>你</h2>") && html.contains("<footer>") && html.contains("10 tokens")
+        );
+        let err = dispatch_command(&state, "reveal_file", json!({"path":"relative.jsonl"}))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("absolute"));
         let settings =
             dispatch_command(&state, "get_agent_insights_preferences", json!({"request":{}}))
                 .await

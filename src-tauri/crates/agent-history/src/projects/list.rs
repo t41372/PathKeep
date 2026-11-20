@@ -134,3 +134,13 @@ fn response(
     json!({"version":s.version,"viewToken":s.view,"total":s.cards.len(),"matching":matching,"items":items,"nextCursor":next,
         "arrangement":s.arrangement,"homeFolder":s.home,"tree":tree,"pendingSuggestions":s.suggestions.iter().filter(|s|s["decision"]=="pending").count()})
 }
+
+impl Archive {
+    /// The switcher matches the displayed project name in the same recency order as Projects.
+    pub fn palette_projects(&self, text: &str) -> Result<Vec<Value>> {
+        let snapshot = self.project_snapshot()?;
+        let needle = text.trim().to_lowercase();
+        Ok(snapshot.cards.iter().filter(|p|p.display_name.to_lowercase().contains(&needle)).take(5)
+            .map(|p|json!({"id":p.id,"name":p.display_name,"mainFolder":p.main_folder,"lastActivityAt":p.last_activity})).collect())
+    }
+}

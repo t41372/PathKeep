@@ -494,6 +494,10 @@
     - 擱置的 `WORK-AH-EVIDENCE-LINEAGE`：重新開始時才審。
   - 審查報告與當時的決定在交接資料夾 `merge-1118/`（`review-*.report.md`、`NOTES-lead.md`）。
 
+- [ ] **WORK-AH-READ-MODEL-SIZE** — 對話的讀取模型比來源大很多（2026-11-20 量到，只記錄）
+  - Linux release 實測（`docs/architecture/research/agent-history/preview-growth.md`）：每位元組的工具原始檔，原始證據 0.29、讀取模型 4.1、搜尋索引 0.43；工具自己用 zstd 壓過的檔，讀取模型是壓縮後大小的 17.7 倍。2 GB 的 Claude Code 紀錄大約多出 9.7 GB。
+  - 要查：讀取模型裡哪些欄位或索引佔最多、能不能壓縮或改成按需重建。正常使用就會碰到（磁碟），但不影響正確性；等 v0.6.0 功能做完、跟審查一起排。
+
 - [ ] **WORK-AH-EVIDENCE-LINEAGE** — 對話證據的身分與歷史，取代 pair seal（2026-11-20 擱置：先把整個 app 做完，這類極端情況只記錄）
   - 狀態：`track/ah-lineage` 的 b5482815（第一版，Linux 測試通過）與合併 1d740e9d；審查找出的修正做到一半，存在 `parked/ah-lineage-fixes-wip`（3b5abd4a，agent-history 1 個測試、vault-worker 未通過）。都沒有合併；candidate 照舊用 pair seal。
   - 要解的：當機落在證據寫入和讀取模型之間、Time Machine 或同步工具放回單一舊檔、別的存檔的證據檔放進來時，讀取模型可能顯示證據沒有的對話、漏掉有的，或顯示別的存檔的對話。

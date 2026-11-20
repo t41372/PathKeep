@@ -50,6 +50,30 @@ pub fn dispatch(
     session_key: Result<Option<String>, String>,
     vault: impl Fn() -> anyhow::Result<vault_core::Vault>,
 ) -> Result<Value, RpcError> {
+    dispatch_inner(request, progress, session_key, vault, None)
+}
+
+/// Desktop owner dispatch retains the live Agent backup slot during a scheduled request.
+pub fn dispatch_with_session(
+    request: Request,
+    progress: Progress,
+    session: &crate::VaultSession,
+) -> Result<Value, RpcError> {
+    dispatch_inner(
+        request,
+        progress,
+        session.get_key(),
+        || session.background_vault().map_err(anyhow::Error::msg),
+        Some(session),
+    )
+}
+fn dispatch_inner(
+    request: Request,
+    progress: Progress,
+    session_key: Result<Option<String>, String>,
+    vault: impl Fn() -> anyhow::Result<vault_core::Vault>,
+    session: Option<&crate::VaultSession>,
+) -> Result<Value, RpcError> {
     match request.method.as_str() {
         "ping" => {
             let _: Empty = params(request.params)?;
@@ -60,6 +84,7 @@ pub fn dispatch(
             if backup.due_only {
                 let report = scheduled::run_scheduled_backup_cli(
                     &progress,
+                    session,
                     &vault,
                     session_key.as_ref().ok().and_then(|key| key.as_deref()),
                 )

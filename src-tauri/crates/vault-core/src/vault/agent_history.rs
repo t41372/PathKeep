@@ -55,9 +55,15 @@ impl Vault {
     /// Installed conversation storage for the backup header, including native
     /// WAL files and the owned search index. Never follow links into another tree.
     pub fn conversation_archive_bytes(&self) -> anyhow::Result<u64> {
+        Ok(self.conversation_storage_items()?.iter().map(|(_, bytes)| bytes).sum())
+    }
+
+    /// Physical bytes grouped by role for Manage Data Types. Database totals include companions.
+    pub fn conversation_storage_items(&self) -> anyhow::Result<Vec<(ArtifactId, u64)>> {
         self.recheck_root()?;
-        let mut bytes = 0;
+        let mut items = Vec::new();
         for role in [ArtifactId::AgentHistoryEvidence, ArtifactId::AgentHistoryReadModel] {
+            let mut bytes = 0;
             let path = self.paths.artifact_path(role);
             for suffix in
                 vault_layout::CompanionFamily::Native.suffixes(vault_layout::CompanionUse::Usage)
@@ -71,7 +77,9 @@ impl Vault {
                     Err(e) => return Err(e.into()),
                 }
             }
+            items.push((role, bytes));
         }
+        let mut bytes = 0;
         let path = self.paths.artifact_path(ArtifactId::AgentHistorySearch);
         for entry in walkdir::WalkDir::new(path).follow_links(false).follow_root_links(false) {
             match entry {
@@ -88,7 +96,8 @@ impl Vault {
                 Err(e) => return Err(e.into()),
             }
         }
-        Ok(bytes)
+        items.push((ArtifactId::AgentHistorySearch, bytes));
+        Ok(items)
     }
 
     /// The saved failure is shared by every handle to this generation.

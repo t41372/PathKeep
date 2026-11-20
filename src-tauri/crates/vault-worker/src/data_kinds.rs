@@ -7,6 +7,7 @@ mod hints;
 pub mod insights;
 pub mod projects;
 mod snapshot;
+pub mod viewer;
 pub use hints::{DismissHint, HintAcknowledgement, dismiss_hint};
 pub use snapshot::{KindList, KindRow, Transition, list, list_with, retry_agent_store};
 pub mod preview;
@@ -28,6 +29,8 @@ pub struct Empty {}
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ListKinds {
     pub include_archive_bytes: bool,
+    #[serde(default)]
+    pub include_storage_items: bool,
 }
 
 /// Carry the policy fingerprint the Manage Kinds control displayed.

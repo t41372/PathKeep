@@ -39,7 +39,9 @@ pub use keyring::{
     keyring_status, provider_api_key_saved,
 };
 /// Opens URLs and filesystem paths using the host shell.
-pub use launcher::{open_external_url, open_path_in_file_manager, open_visited_file_url};
+pub use launcher::{
+    open_external_url, open_path_in_file_manager, open_visited_file_url, reveal_file,
+};
 /// The OS's preferred UI languages, for native menus drawn outside the webview.
 pub use locale::{preferred_ui_languages, system_hour_cycle, uses_12_hour_clock};
 /// "Open at login" as a LaunchAgent (macOS, and the debug sandbox everywhere).

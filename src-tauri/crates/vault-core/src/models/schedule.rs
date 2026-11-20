@@ -175,6 +175,9 @@ pub struct ScheduleStatus {
     pub last_successful_backup_at: Option<String>,
     /// Current-grid estimate; login restarts the grid and sleep may shift it.
     pub next_scheduled_backup_at: Option<String>,
+    /// First native wake at which this device can capture Agent conversations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_next_scheduled_backup_at: Option<String>,
     /// Actual native wake interval, available with the estimate for an open archive.
     pub wake_interval_seconds: Option<u64>,
     pub warnings: Vec<String>,

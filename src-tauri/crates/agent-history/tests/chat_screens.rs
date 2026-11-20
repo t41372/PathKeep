@@ -500,3 +500,107 @@ fn interrupted_work_has_a_notice_and_footer_without_an_assistant_reply() {
     assert_eq!(row["footer"]["facts"]["agentMs"], 10000);
     assert!(row["footer"]["facts"]["tokens"].is_null());
 }
+
+#[test]
+fn reader_exports_complete_visible_text_and_byte_exact_originals_including_children() {
+    use std::io::Read;
+    let t = tempfile::tempdir().unwrap();
+    let archive = Archive::create_unencrypted(&t.path().join("archive")).unwrap();
+    let root = t.path().join("claude");
+    let id = "9c2a2265-90e6-42ba-829c-538e664ff232";
+    let cwd = "/project with a 'quote'";
+    let answer = format!("<script>unsafe</script>{}END-MARKER", "A".repeat(90_000));
+    let file = native::claude_main(
+        &root,
+        id,
+        &[
+            native::claude_user(id, "u", None, cwd, "Résumé input"),
+            native::claude_reply(id, "a", "u", cwd, &answer),
+        ],
+    );
+    let child = native::claude_subagent(&root, id, "agent-kid.jsonl", "kid", cwd, "child message");
+    capture(&archive, agent_history::Harness::ClaudeCode, &root);
+    let row = all(&archive).pop().unwrap();
+    let conv = row["id"].as_str().unwrap();
+    let header = archive.chat_header(conv).unwrap();
+    let command = header["resumeCommand"].as_str().unwrap();
+    assert!(command.contains("claude --resume") && command.ends_with(id));
+    assert_eq!(header["resumeCommand"], archive.chat_info(conv).unwrap()["resumeCommand"]);
+    assert_eq!(
+        archive.palette_conversations("RÉSUMÉ", &Default::default()).unwrap()[0]["id"],
+        conv
+    );
+    for format in ["html", "markdown", "jsonl", "originals"] {
+        let q = serde_json::from_value(
+            json!({"id":conv,"format":format,"publication":header["publication"]}),
+        )
+        .unwrap();
+        let mut out = Vec::new();
+        archive.export_conversation(&q, &mut out, true, true).unwrap();
+        if format == "originals" {
+            let mut files = tar::Archive::new(out.as_slice())
+                .entries()
+                .unwrap()
+                .map(|e| {
+                    let mut bytes = Vec::new();
+                    e.unwrap().read_to_end(&mut bytes).unwrap();
+                    bytes
+                })
+                .collect::<Vec<_>>();
+            files.sort();
+            let mut expected = vec![std::fs::read(&file).unwrap(), std::fs::read(&child).unwrap()];
+            expected.sort();
+            assert_eq!(files, expected);
+            continue;
+        }
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("END-MARKER"), "{format} clipped the reply");
+        assert!(text.contains("Résumé input"));
+        if format == "html" {
+            assert!(text.contains("&lt;script&gt;"));
+            assert!(!text.contains("<script>"));
+        }
+        if format == "jsonl" {
+            assert!(text.lines().all(|l| serde_json::from_str::<Value>(l).is_ok()));
+        }
+    }
+}
+
+#[test]
+fn codex_resume_is_bound_to_a_verified_cli_release_and_a_present_source() {
+    let t = tempfile::tempdir().unwrap();
+    let a = Archive::create_unencrypted(&t.path().join("archive")).unwrap();
+    let root = t.path().join("codex home");
+    let id = "11111111-1111-4111-a111-111111111111";
+    let unknown = "22222222-2222-4222-a222-222222222222";
+    for (session, version) in [(id, "0.167.1"), (unknown, "unknown")] {
+        let mut meta = native::codex_meta(session, "/work directory");
+        meta["payload"]["cli_version"] = json!(version);
+        let file =
+            root.join(format!("sessions/2026/11/10/rollout-2026-11-10T12-00-00-{session}.jsonl"));
+        write(&file, &fixtures::jsonl(&[meta, native::codex_user(session)]));
+    }
+    capture(&a, agent_history::Harness::Codex, &root);
+    let mut known = None;
+    for row in all(&a) {
+        let conv = row["id"].as_str().unwrap();
+        let header = a.chat_header(conv).unwrap();
+        if header["nativeSessionId"] == unknown {
+            assert!(header["resumeCommand"].is_null());
+            continue;
+        }
+        assert_eq!(header["nativeSessionId"], id);
+        let command = header["resumeCommand"].as_str().unwrap();
+        assert!(command.contains("CODEX_HOME") && command.ends_with(&format!("codex resume {id}")));
+        known = Some(conv.to_owned());
+    }
+    let saved = known.unwrap();
+    std::fs::remove_file(
+        root.join(format!("sessions/2026/11/10/rollout-2026-11-10T12-00-00-{id}.jsonl")),
+    )
+    .unwrap();
+    capture(&a, agent_history::Harness::Codex, &root);
+    let header = a.chat_header(&saved).unwrap();
+    assert_eq!(header["summary"]["onlyInPathKeep"], true);
+    assert!(header["resumeCommand"].is_null());
+}

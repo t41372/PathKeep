@@ -12,6 +12,7 @@ use vault_core::{
 };
 pub(super) fn run_scheduled_backup_cli(
     progress: &vault_owner_ipc::Progress,
+    session: Option<&crate::VaultSession>,
     vault: &impl Fn() -> Result<vault_core::Vault>,
     session_key: Option<&str>,
 ) -> Result<String> {
@@ -31,15 +32,52 @@ pub(super) fn run_scheduled_backup_cli(
         }
     };
 
+    let capture = session.map(|s| crate::data_kinds::backups::start_shared(s, true));
+    let finish = move |attempt: &mut AttemptRecorder,
+                       report: vault_core::BackupReport,
+                       outcome,
+                       reason: &str|
+          -> Result<String> {
+        use ScheduledBackupAttemptOutcome::*;
+        let agent=capture.map(|r|r.and_then(|job|job.wait()).unwrap_or_else(|e|{
+            log::warn!("Scheduled conversation capture failed: {e:#}");
+            serde_json::json!({"kind":"agent-history","result":"failed","reason":"kind-unavailable"})
+        }));
+        let (outcome, reason) = match agent.as_ref().and_then(|r| r["result"].as_str()) {
+            Some("success") if matches!(outcome, Skipped | Deferred) => {
+                (Success, "backup-succeeded")
+            }
+            Some("partial" | "failed" | "interrupted") if matches!(outcome, Skipped | Deferred) => {
+                (Failed, "backup-incomplete")
+            }
+            Some("failed" | "partial" | "interrupted") => (Partial, "backup-incomplete"),
+            _ => (outcome, reason),
+        };
+        attempt.finish(
+            outcome,
+            Some(reason),
+            report.reason.as_deref(),
+            report.run.as_ref().map(|r| r.id),
+        )?;
+        let mut value = serde_json::to_value(report)?;
+        if let Some(agent) = agent {
+            value["agentHistory"] = agent;
+        }
+        Ok(serde_json::to_string(&value)?)
+    };
     if let Some(reason) =
         config.capture_policy.backup_skip_reason(vault_core::DataKind::Browsing, false)
     {
-        attempt.finish(ScheduledBackupAttemptOutcome::Skipped, Some(reason), None, None)?;
-        return Ok(serde_json::to_string(&vault_core::BackupReport {
-            due_skipped: true,
-            reason_code: Some(reason.into()),
-            ..Default::default()
-        })?);
+        return finish(
+            &mut attempt,
+            vault_core::BackupReport {
+                due_skipped: true,
+                reason_code: Some(reason.into()),
+                ..Default::default()
+            },
+            ScheduledBackupAttemptOutcome::Skipped,
+            reason,
+        );
     }
     attempt.advance(ScheduledBackupAttemptPhase::Backup)?;
     let vault = match vault() {
@@ -61,18 +99,17 @@ pub(super) fn run_scheduled_backup_cli(
     }) {
         Ok(report) => report,
         Err(error) if error.downcast_ref::<vault_core::BackupAlreadyRunning>().is_some() => {
-            attempt.finish(
+            return finish(
+                &mut attempt,
+                vault_core::BackupReport {
+                    due_skipped: true,
+                    reason_code: Some("write-lock".into()),
+                    reason: Some("A backup is already running.".into()),
+                    ..Default::default()
+                },
                 ScheduledBackupAttemptOutcome::Deferred,
-                Some("write-lock"),
-                Some("A backup is already running."),
-                None,
-            )?;
-            return Ok(serde_json::to_string(&vault_core::BackupReport {
-                due_skipped: true,
-                reason_code: Some("write-lock".into()),
-                reason: Some("A backup is already running.".into()),
-                ..Default::default()
-            })?);
+                "write-lock",
+            );
         }
         Err(error) => {
             let reason_code = classify_backup_failure(&error);
@@ -85,13 +122,7 @@ pub(super) fn run_scheduled_backup_cli(
     } else {
         classify_scheduled_report(report.due_skipped, report.reason_code.as_deref())
     };
-    attempt.finish(
-        outcome,
-        Some(reason_code),
-        report.reason.as_deref(),
-        report.run.as_ref().map(|run| run.id),
-    )?;
-    Ok(serde_json::to_string_pretty(&report)?)
+    finish(&mut attempt, report, outcome, reason_code)
 }
 
 fn classify_scheduled_report(

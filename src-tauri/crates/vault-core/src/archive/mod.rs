@@ -48,11 +48,11 @@ pub(crate) use self::history::net_guard;
 pub(crate) mod ingest;
 mod read_models;
 pub(crate) mod totals;
-pub use self::read_models::browsing_archive_bytes;
 pub(crate) use self::read_models::recent_runs_from;
+pub use self::read_models::{browsing_archive_bytes, browsing_storage_items};
 mod run_support;
 mod schedule;
-pub use schedule::{backup_due_anchor, next_scheduled_backup_at};
+pub use schedule::{backup_due_anchor, backup_due_delay, next_scheduled_backup_at};
 #[cfg(test)]
 mod schedule_estimate_tests;
 pub(crate) use run_support::write_manifest_artifact;

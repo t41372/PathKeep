@@ -112,6 +112,7 @@ pub(crate) fn publish_held(
 fn finish_snapshot_at(paths: &ProjectPaths, target: &Path) -> Result<()> {
     let mut config = crate::load_config(paths)?;
     config.capture_policy = Default::default();
+    config.agent_viewer = Default::default();
     config.dismissed_agent_hints.clear();
     crate::config::save_copy_config(paths, target, &config)?;
     let envelope = vault_layout::path(&paths.app_root, vault_layout::ArtifactId::Envelope);
@@ -211,8 +212,10 @@ pub(super) fn seal_replaced(copy: &Path) -> Result<()> {
     // Strip even a foreign installation's grant from the displaced control.
     let mut document = crate::config::decode_document(&fs::read(&paths.config_path)?)?;
     if document.config.capture_policy != Default::default()
+        || document.config.agent_viewer != Default::default()
         || !document.config.dismissed_agent_hints.is_empty()
     {
+        document.config.agent_viewer = Default::default();
         document.config.dismissed_agent_hints.clear();
         document.config.capture_policy = Default::default();
         let bytes =

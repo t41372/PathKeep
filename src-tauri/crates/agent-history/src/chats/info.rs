@@ -48,7 +48,7 @@ impl Archive {
             .map(|n| n.total() - own.tokens.map_or(0, |v| v.total()));
         let mut info = json!({"publication":h.publication,"own":own.wire(),"total":total.wire(),"subagentTokens":child_tokens,"usageCoverage":{"known":total.usage_conversations,"conversations":total.conversations},
             "models":model_rows,"primaryModel":primary,"nativeSessionId":(!native.is_empty()).then_some(native),"launchOrigin":origin,"toolVersion":version,"folder":folder,"folderObservation":observation["observation"],
-            "sourceCount":paths,"physicalRecords":h.physical_records,"visibleRecords":h.visible_records,"resumeCommand":null,"estimatedUsd":total.estimated_usd,"priceTable":super::pricing::VERSION});
+            "sourceCount":paths,"physicalRecords":h.physical_records,"visibleRecords":h.visible_records,"resumeCommand":self.resume_command(&h)?,"estimatedUsd":total.estimated_usd,"priceTable":super::pricing::VERSION});
         let key = h.publication.0.clone();
         let src = h.current_source.clone();
         let (tokens,bad)=self.store.read(DB,move|s|s.query_one("SELECT tokens,unparsed FROM ah_chat_line_stats WHERE publication=?1 AND branch=?2",params![key,src],|r|Ok((r.get::<Option<String>>(0)?,r.get::<i64>(1)?))).optional())?.unwrap_or_default();

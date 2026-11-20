@@ -46,12 +46,8 @@ impl OwnerService {
             let _ownership = &operation_lock;
             let _request = activity.begin();
             let ping = request.method == "ping";
-            let mut result = vault_worker::owner_requests::dispatch(
-                request,
-                progress,
-                session.get_key(),
-                || session.background_vault().map_err(anyhow::Error::msg),
-            )?;
+            let mut result =
+                vault_worker::owner_requests::dispatch_with_session(request, progress, &session)?;
             if ping {
                 result["background"] = background.into();
                 result["startupWindows"] = startup_windows.into();

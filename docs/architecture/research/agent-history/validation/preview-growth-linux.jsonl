@@ -1,0 +1,8 @@
+{"emptyBytes":[368640,811008,3412],"encrypted":false,"evidenceBytes":2289664,"indexBytes":3468324,"messagesPerSession":96,"nativeZstd":false,"readModelBytes":33222656,"sessions":64,"sourceBytes":8056480,"run":1}
+{"emptyBytes":[368640,811008,3550],"encrypted":true,"evidenceBytes":2297856,"indexBytes":3468884,"messagesPerSession":96,"nativeZstd":false,"readModelBytes":33271808,"sessions":64,"sourceBytes":8056480,"run":1}
+{"emptyBytes":[368640,811008,3412],"encrypted":false,"evidenceBytes":1171456,"indexBytes":2083403,"messagesPerSession":96,"nativeZstd":true,"readModelBytes":16097280,"sessions":32,"sourceBytes":909780,"run":1}
+{"emptyBytes":[368640,811008,3550],"encrypted":true,"evidenceBytes":1171456,"indexBytes":2083859,"messagesPerSession":96,"nativeZstd":true,"readModelBytes":16121856,"sessions":32,"sourceBytes":909780,"run":1}
+{"emptyBytes":[368640,811008,3412],"encrypted":false,"evidenceBytes":2289664,"indexBytes":3472208,"messagesPerSession":96,"nativeZstd":false,"readModelBytes":33243136,"sessions":64,"sourceBytes":8056480,"run":2}
+{"emptyBytes":[368640,811008,3550],"encrypted":true,"evidenceBytes":2297856,"indexBytes":3480987,"messagesPerSession":96,"nativeZstd":false,"readModelBytes":33316864,"sessions":64,"sourceBytes":8056480,"run":2}
+{"emptyBytes":[368640,811008,3412],"encrypted":false,"evidenceBytes":1171456,"indexBytes":2075195,"messagesPerSession":96,"nativeZstd":true,"readModelBytes":16060416,"sessions":32,"sourceBytes":909780,"run":2}
+{"emptyBytes":[368640,811008,3550],"encrypted":true,"evidenceBytes":1171456,"indexBytes":2080620,"messagesPerSession":96,"nativeZstd":true,"readModelBytes":16109568,"sessions":32,"sourceBytes":909780,"run":2}
