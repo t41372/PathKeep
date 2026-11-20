@@ -294,7 +294,9 @@ test('onboarding with Agent conversations: two tools of four, then a first backu
   await expect(page.locator('li[data-kind="browsing"]')).toBeVisible({
     timeout: 60_000,
   })
-  await expect(agentLine).toContainText('Agent conversations ·')
+  // The name and the "·" are separate elements spaced by the layout, so the
+  // text has no space between them.
+  await expect(agentLine).toContainText(/^Agent conversations\s*·/)
   await expect(
     agentLine.getByRole('progressbar', {
       name: 'Backup progress: Agent conversations',
