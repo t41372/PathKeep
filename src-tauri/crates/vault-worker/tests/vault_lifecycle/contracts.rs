@@ -64,17 +64,19 @@ fn encrypted_files_use_the_literal_historical_key_purpose_at_each_path() {
         Some(*key.derive(KeyPurpose::AgentHistoryEvidenceDatabase).expose_bytes()),
         Some(*key.derive(KeyPurpose::AgentHistoryReadModelDatabase).expose_bytes()),
     ];
-    // Existing copies must already have these versions. These literal reader ceilings run
-    // no schema implementation and cannot manufacture a missing fixture marker/table.
+    // Only the reader ceilings come from production. The literal paths, key purposes and
+    // marker reads independently verify which physical file was encrypted with each key.
     let mut migrations = MigrationRegistry::default();
-    migrations.register(Db::Archive, vec![Migration::rust(23, |_| Ok(()))]);
-    migrations.register(Db::SourceEvidence, vec![Migration::rust(1, |_| Ok(()))]);
-    migrations.register(Db::Intelligence, vec![Migration::rust(2, |_| Ok(()))]);
-    migrations.register(Db::Agent, vec![Migration::rust(1, |_| Ok(()))]);
-    // Not released yet, so not literals: the ceilings follow the schema while it can change.
-    for db in [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel] {
+    for &db in &config.databases {
         let ceiling = vault_core::store_schema::schema_version(db);
-        migrations.register(db, vec![Migration::rust(ceiling, |_| Ok(()))]);
+        if ceiling > 0 {
+            migrations.register(
+                db,
+                vec![Migration::rust(ceiling, |_| {
+                    panic!("a current copy should already contain every migration")
+                })],
+            );
+        }
     }
     config.migrations = migrations;
     let reader = Store::open(config).unwrap();
@@ -116,12 +118,12 @@ fn current_tree_migration_ledgers_and_data_survive_owner_reopen() {
         let fixture = Fixture::new(encrypted);
         fixture.seed();
         let before = ledgers(&fixture.vault(), &fixture.sandbox.path().join("ledger-before"));
-        // The agent-history schemas are not released yet: their ledgers follow the schema.
         let steps = |db| (1..=vault_core::store_schema::schema_version(db)).collect::<Vec<_>>();
         let expected_ledger = serde_json::json!({
-            "archive/history-vault.db":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],
-            "archive/source-evidence.db":[1], "derived/intelligence.db":[1,2],
-            "derived/agent.db":[1], "derived/scratch.db":[],
+            "archive/history-vault.db":steps(Db::Archive),
+            "archive/source-evidence.db":steps(Db::SourceEvidence),
+            "derived/intelligence.db":steps(Db::Intelligence),
+            "derived/agent.db":steps(Db::Agent), "derived/scratch.db":[],
             "archive/agent-history.db": steps(Db::AgentHistoryEvidence),
             "derived/agent-history-read-model.db": steps(Db::AgentHistoryReadModel),
         });
@@ -218,7 +220,11 @@ fn released_schema_23_gets_an_origin_only_when_installed() {
     let current = f.vault();
     let preview = vault_worker::preview_import(current.paths(), bundle.clone()).unwrap();
     assert_eq!(preview.manifest.archive_schema_version, 23);
-    assert!(preview.schema_up_to_date, "0.5.0 move files must not offer a schema update");
+    let current_version = vault_core::store_schema::schema_version(Db::Archive);
+    assert_eq!(
+        preview.schema_up_to_date,
+        current_version == preview.manifest.archive_schema_version
+    );
     let lease = f.session.begin_maintenance().unwrap();
     let password = facts["exportPassword"].as_str().unwrap();
     let (_, installed) = vault_worker::apply_import(
@@ -258,7 +264,7 @@ fn released_schema_23_gets_an_origin_only_when_installed() {
             .as_array()
             .unwrap()
             .last(),
-        Some(&json!(23))
+        Some(&json!(current_version))
     );
     let copies = vault_worker::list_recovery_snapshots().unwrap();
     let copy = copies

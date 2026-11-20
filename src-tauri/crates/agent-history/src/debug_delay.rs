@@ -1,4 +1,4 @@
-//! Debug-only pacing lets desktop tests observe and cancel real source work.
+//! Debug-only pacing lets desktop tests observe and cancel real capture and export jobs.
 use crate::{Error, Result};
 use std::time::Duration;
 use vault_store::CancelToken;

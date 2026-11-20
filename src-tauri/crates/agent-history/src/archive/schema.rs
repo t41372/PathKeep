@@ -17,10 +17,13 @@ pub(super) fn migrations() -> MigrationRegistry {
 /// For a role this crate does not own; asking for one is a bug in the caller's composition.
 pub fn schema_steps(db: Db) -> Vec<Migration> {
     match db {
-        Db::AgentHistoryEvidence => steps(
+        Db::AgentHistoryEvidence => current_steps(
             &[EVIDENCE, crate::projects::schema::EVIDENCE, crate::insights::EVIDENCE].concat(),
+            67,
+            // Project choices and Insights preferences.
+            &[(64, " ON CONFLICT(singleton) DO NOTHING"), (66, " ON CONFLICT(id) DO NOTHING")],
         ),
-        Db::AgentHistoryReadModel => steps(
+        Db::AgentHistoryReadModel => current_steps(
             &[
                 PROJECTION,
                 crate::read_model::publication::schema::TABLES,
@@ -30,9 +33,52 @@ pub fn schema_steps(db: Db) -> Vec<Migration> {
                 crate::insights::MODEL,
             ]
             .concat(),
+            189,
+            &[
+                (154, " ON CONFLICT(id) DO NOTHING"),  // chat publication clock
+                (166, " ON CONFLICT(id) DO NOTHING"),  // initial search work list
+                (167, " ON CONFLICT(key) DO NOTHING"), // search epoch
+                (175, " ON CONFLICT(key) DO NOTHING"), // project epoch
+                // A SELECT with FROM needs WHERE before SQLite can disambiguate ON.
+                (177, " WHERE true ON CONFLICT(path) DO NOTHING"), // initial project work list
+            ],
         ),
         other => panic!("agent history does not own the {other:?} store"),
     }
+}
+
+/// Keep the original ledgers, including the pair-seal version. Some sealed copies have a
+/// populated default row ahead of their ledger and lack the seal table itself. Never issue a
+/// ticket on their behalf. An empty seal table lets the owner rebuild from verified evidence.
+fn current_steps(
+    statements: &[&str],
+    version: i64,
+    pending_seeds: &[(usize, &str)],
+) -> Vec<Migration> {
+    // Append future migrations after this correction. Moving it would reuse a stored version.
+    assert_eq!(statements.len() as i64 + 1, version);
+    let mut migrations = steps(statements);
+    let mut correction = Migration::rust(version, |tx| {
+        let exists = tx.query_one(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='ah_pair_seal')",
+            (),
+            |r| Ok(r.get::<i64>(0)? != 0),
+        )?;
+        if !exists {
+            tx.execute(vault_store::PAIR_SCHEMA, ())?;
+        }
+        Ok(())
+    });
+    // The screen migrations seed singleton preferences, epochs, or keyed work lists.
+    // Ignore only the named key conflict. A bad value or a different constraint still fails.
+    for &(seed_version, conflict_clause) in pending_seeds {
+        let original = statements[seed_version - 1];
+        assert!(original.starts_with("INSERT INTO "));
+        correction = correction
+            .with_pending_seed(seed_version as i64, format!("{original}{conflict_clause}"));
+    }
+    migrations.push(correction);
+    migrations
 }
 
 fn steps(statements: &[&str]) -> Vec<Migration> {
@@ -373,6 +419,63 @@ mod compatibility {
     use crate::archive::{AgentHistoryResources, Archive};
     use std::sync::Arc;
     use vault_store::{Config, Priority, Store};
+    #[test]
+    fn opening_an_older_copy_fills_missing_defaults_and_preserves_existing_epochs() {
+        let temp = tempfile::tempdir().unwrap();
+        let evidence = Db::AgentHistoryEvidence;
+        let model = Db::AgentHistoryReadModel;
+        let mut old = Config::new(temp.path());
+        old.databases = vec![evidence, model, Db::Scratch];
+        // A real prefix of each registry. The evidence preference table exists but has no
+        // default yet. The read model already has a project epoch supplied by its producer.
+        for (role, version) in [(evidence, 65), (model, 174)] {
+            let mut prefix = schema_steps(role);
+            prefix.truncate(version);
+            old.migrations.register(role, prefix);
+        }
+        let source_store = Store::open(old).unwrap();
+        source_store
+            .write(model, Priority::Interactive, |tx| {
+                tx.execute("INSERT INTO ah_meta(key,value) VALUES('project_epoch','41')", ())?;
+                Ok(())
+            })
+            .unwrap();
+        let dest = tempfile::tempdir().unwrap();
+        let mut copy = Config::new(dest.path());
+        copy.databases = vec![evidence, model, Db::Scratch];
+        copy.migrations = migrations();
+        {
+            let paused = source_store.pause().unwrap();
+            for role in [evidence, model] {
+                let path = copy.paths.get(role).to_owned();
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                paused.copy_database(role, path, None, Default::default(), |_| {}).unwrap();
+            }
+        }
+        source_store.close().unwrap();
+        let migrated = Store::open(copy).unwrap();
+        assert_eq!(
+            migrated
+                .read(evidence, |s| s.query_one(
+                    "SELECT value FROM ah_insight_preferences WHERE id=1",
+                    (),
+                    |r| Ok(r.get::<String>(0)?)
+                ))
+                .unwrap(),
+            "{}"
+        );
+        assert_eq!(
+            migrated
+                .read(model, |s| s.query_one(
+                    "SELECT value FROM ah_meta WHERE key='project_epoch'",
+                    (),
+                    |r| Ok(r.get::<String>(0)?)
+                ))
+                .unwrap(),
+            "41"
+        );
+    }
+
     #[test]
     fn upgrading_an_edited_grant_recovers_its_enable_and_retires_a_legacy_audit_membership() {
         let temp = tempfile::tempdir().unwrap();

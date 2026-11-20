@@ -179,6 +179,13 @@ impl Archive {
                 }
             }
         }
+        // Leave the staged output cancellable after progress reaches the window, even for a
+        // single short conversation. Each export pays the test delay only once.
+        #[cfg(debug_assertions)]
+        crate::debug_delay::wait(
+            crate::debug_delay::configured("PATHKEEP_TEST_AGENT_EXPORT_DELAY_US"),
+            &job.cancel,
+        )?;
         self.screen_head(&q.id, Some(&h.publication.0))?;
         Ok(())
     }

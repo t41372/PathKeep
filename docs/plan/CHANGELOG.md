@@ -3184,3 +3184,5 @@ that held up when checked against the code.
 - Agent 畫面補齊背景任務、初次設定和匯出的後端契約。瀏覽工作的交易提交後通知視窗；「需要你看一下」可按次收起，保留執行紀錄；整個存檔的維護任務也計入側欄。設定草稿在建立存檔前可續填，來源資料夾仍要經過預覽。對話匯出可依 UUID 觀察已寫位元組並取消。[命令與事件](../architecture/desktop-command-surface.md#tasks-first-run-choices-and-export-control)
 
 - Agent 語意搜尋每頁最多 100 段，依相似度與穩定的段落順序繼續取回，零分與負分也能翻到。關閉索引後可預覽並確認釋放已發布的檔案。建置期間退出會詢問，搜尋拒絕原因可區分權限、模型與服務。Ask 的 Markdown 匯出將引用的對話標題與網頁分列。[桌面契約](../architecture/desktop-command-surface.md#agent-conversation-ai-access)
+
+- 對話存檔的升級保留已存在的偏好與索引工作，舊安全副本仍能從已驗證的證據重建。新手引導選取 Agent 工具只存偏好，第一次保存接受來源後才開啟 Agent 備份。測試版可用 `PATHKEEP_TEST_AGENT_EXPORT_DELAY_US` 驗證匯出停止與暫存檔清理。[命令契約](../architecture/desktop-command-surface.md#tasks-first-run-choices-and-export-control)

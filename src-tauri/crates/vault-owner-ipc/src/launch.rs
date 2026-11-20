@@ -108,6 +108,8 @@ fn launch_overrides(mut get: impl FnMut(&str) -> Option<OsString>) -> Vec<(OsStr
         #[cfg(debug_assertions)]
         "PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US",
         "PATHKEEP_TEST_AGENT_INDEX_DELAY_US",
+        #[cfg(debug_assertions)]
+        "PATHKEEP_TEST_AGENT_EXPORT_DELAY_US",
         "CHB_TEST_KEYRING_DIR",
         "PATHKEEP_PLATFORM_TEST_KEYRING_DIR",
         "PATHKEEP_PLATFORM_TEST_KEYRING_SERVICE",
@@ -173,6 +175,8 @@ mod root_handoff_tests {
             #[cfg(debug_assertions)]
             "PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US",
             "PATHKEEP_TEST_AGENT_INDEX_DELAY_US",
+            #[cfg(debug_assertions)]
+            "PATHKEEP_TEST_AGENT_EXPORT_DELAY_US",
             "PATHKEEP_PLATFORM_TEST_KEYRING_SERVICE",
             "PATHKEEP_PLATFORM_TEST_SCHEDULE_LABEL",
             "PATHKEEP_PLATFORM_TEST_LAUNCH_AGENTS_DIR",

@@ -8,6 +8,7 @@ pub mod adapters;
 pub mod archive;
 pub mod capture;
 pub mod chats;
+mod debug_delay;
 pub mod error;
 pub mod export;
 pub mod insights;

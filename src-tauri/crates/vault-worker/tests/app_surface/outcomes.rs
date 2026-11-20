@@ -9,7 +9,7 @@ use std::{
 };
 use vault_worker::data_kinds::backups;
 
-fn review(f: &Fixture, root: &Path, tool: &str) -> Value {
+pub(super) fn review(f: &Fixture, root: &Path, tool: &str) -> Value {
     let mut frames = preview::start(
         &f.session,
         from_value(json!({"purpose":"enable","pickedFolder":{"tool":tool,"path":root}})).unwrap(),
@@ -24,11 +24,11 @@ fn review(f: &Fixture, root: &Path, tool: &str) -> Value {
         }
     })
 }
-fn enable_request(p: &Value) -> backups::Enable {
+pub(super) fn enable_request(p: &Value) -> backups::Enable {
     from_value(json!({"previewId":p["previewId"],"selectedRootIds":[p["rows"][0]["rootId"]],"readGit":false,
         "expectedPolicyToken":kinds::settings().unwrap().policy_token,"requestId":uuid::Uuid::new_v4().to_string()})).unwrap()
 }
-fn finished(
+pub(super) fn finished(
     f: &Fixture,
     submit: impl FnOnce(backups::Events) -> anyhow::Result<Value>,
 ) -> (Value, Value) {
@@ -66,7 +66,7 @@ fn count(f: &Fixture) -> Value {
 fn control(task: &Value, action: &str) -> backups::Control {
     from_value(json!({"taskId":task["taskId"],"expectedToken":task["snapshotToken"],"action":action,"requestId":uuid::Uuid::new_v4().to_string()})).unwrap()
 }
-fn pi(path: &Path, id: &str, version: u64) {
+pub(super) fn pi(path: &Path, id: &str, version: u64) {
     write(path,format!("{{\"type\":\"session\",\"id\":\"{id}\",\"version\":{version},\"cwd\":\"/synthetic\"}}\n").as_bytes())
 }
 #[test]

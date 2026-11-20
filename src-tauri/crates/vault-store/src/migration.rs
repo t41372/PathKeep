@@ -27,6 +27,7 @@ pub struct BackfillProgress {
 pub struct Migration {
     pub(crate) version: i64,
     apply: Step,
+    pending_seeds: Vec<(i64, String)>,
     backfill: Option<(Pending, Backfill)>,
     observer: Option<Observer>,
 }
@@ -42,7 +43,21 @@ impl Migration {
         version: i64,
         apply: impl Fn(&Session<'_>) -> Result<()> + Send + Sync + 'static,
     ) -> Self {
-        Self { version, apply: Arc::new(apply), backfill: None, observer: None }
+        Self {
+            version,
+            apply: Arc::new(apply),
+            pending_seeds: Vec::new(),
+            backfill: None,
+            observer: None,
+        }
+    }
+    /// An appended correction can preserve an existing keyed row when an older seed is still
+    /// pending. The corrected seed runs at its original position, before any dependent steps.
+    /// A database whose ledger already includes that seed never runs it again.
+    pub fn with_pending_seed(mut self, version: i64, insert_if_missing: String) -> Self {
+        assert!(version > 0 && version < self.version);
+        self.pending_seeds.push((version, insert_if_missing));
+        self
     }
     /// Large data moves commit bounded batches before readers or later migrations can start.
     /// The callback must retain its own durable completion marker and resume cursor.
@@ -156,6 +171,13 @@ pub(crate) fn apply(
             observer(db);
         }
     };
+    let pending_seeds: HashMap<_, _> = plan
+        .steps
+        .iter()
+        .filter(|step| step.version > found)
+        .flat_map(|step| &step.pending_seeds)
+        .map(|(version, sql)| (*version, sql.as_str()))
+        .collect();
     for step in &plan.steps {
         if step.version > found {
             tell(&mut told);
@@ -167,7 +189,11 @@ pub(crate) fn apply(
                 if crate::opening::conversation_role(db) && crate::pair::ticket(tx)?.is_some() {
                     tx.execute("DELETE FROM ah_pair_seal", ())?;
                 }
-                (step.apply)(tx)?;
+                if let Some(sql) = pending_seeds.get(&step.version) {
+                    tx.execute(sql, ())?;
+                } else {
+                    (step.apply)(tx)?;
+                }
                 tx.runtime.block_on(
                     tx.conn.execute(
                         "INSERT INTO __pk_migrations(version) VALUES (?1)",

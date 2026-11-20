@@ -630,15 +630,19 @@ where
     {
         let control = vault_core::ControlGate::acquire(&paths);
         let latest = load_config(&paths)?;
+        let mut browsing_chosen = true;
         next_config.capture_policy = if !latest.initialized
             && let Some(draft) = latest.onboarding_choices.clone()
         {
+            browsing_chosen = draft.kinds.contains(&vault_core::DataKind::Browsing);
             draft.capture_policy().map_err(|_| crate::data_kinds::Refusal::LastActive)?
         } else {
             latest.capture_policy.clone()
         };
         next_config.onboarding_choices = None;
-        if next_config.capture_policy.browsing == vault_core::KindState::On {
+        if !browsing_chosen {
+            next_config.selected_profile_ids.clear();
+        } else if next_config.capture_policy.browsing == vault_core::KindState::On {
             check_profile_removal(&latest, &next_config)?;
         }
         next_config.dismissed_agent_hints = latest.dismissed_agent_hints;

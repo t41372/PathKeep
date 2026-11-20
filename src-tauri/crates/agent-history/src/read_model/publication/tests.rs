@@ -696,19 +696,8 @@ fn upgrade_recovers_the_parent_from_the_elected_child_descriptor() {
         cfg.databases = vec![DB, Db::Scratch];
         let mut migrations = crate::archive::schema_steps(DB);
         if old {
-            let first_new = schema::TABLES
-                .iter()
-                .position(|sql| sql.starts_with("ALTER TABLE ah_reader_head ADD COLUMN parent "))
-                .unwrap();
-            migrations.truncate(
-                migrations.len()
-                    - crate::projects::schema::MODEL.len()
-                    - crate::insights::MODEL.len()
-                    - crate::chats::schema::TABLES.len()
-                    - 1
-                    - schema::TABLES.len()
-                    + first_new,
-            );
+            // Version 62 precedes the migration that adds the elected parent to the head.
+            migrations.truncate(62);
         }
         cfg.migrations = MigrationRegistry::default();
         cfg.migrations.register(DB, migrations);

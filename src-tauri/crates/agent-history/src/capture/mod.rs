@@ -4,8 +4,8 @@
 //! Capture can succeed while interpretation is partial. Destination failures abort
 //! the operation; source limitations retain earlier evidence and produce diagnostics.
 mod index_pause;
+use crate::debug_delay;
 pub use index_pause::IndexPause;
-mod debug_delay;
 mod defaults;
 mod diagnostics;
 use diagnostics::RootOutcome;

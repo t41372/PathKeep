@@ -30,23 +30,84 @@ fn onboarding_draft_survives_reload_and_is_consumed_without_granting_a_root() {
     assert!(!f.paths().archive_db.exists());
     let snapshot = vault_worker::app_snapshot(None).unwrap();
     assert_eq!(to_value(&snapshot.config.onboarding_choices).unwrap(), chosen);
-    let snapshot = vault_worker::initialize_archive_database_with_progress(
-        &f.session,
-        &snapshot.config,
-        None,
-        |_| {},
-    )
-    .unwrap();
+    let mut request = snapshot.config;
+    request.selected_profile_ids = vec!["chrome:Default".into()];
+    let snapshot =
+        vault_worker::initialize_archive_database_with_progress(&f.session, &request, None, |_| {})
+            .unwrap();
     let cfg = snapshot.config;
     assert!(cfg.initialized && cfg.onboarding_choices.is_none());
-    assert_eq!(cfg.capture_policy.browsing, KindState::Off);
-    assert_eq!(cfg.capture_policy.agent_history, KindState::On);
+    assert_eq!(cfg.capture_policy.browsing, KindState::On);
+    assert!(cfg.selected_profile_ids.is_empty());
+    assert_eq!(cfg.capture_policy.agent_history, KindState::Off);
+    let rows = to_value(kinds::list(&f.session).unwrap()).unwrap();
+    assert_eq!(rows["kinds"][1]["state"], "off");
+    assert_eq!(
+        kinds::backups::overview(&f.session, from_value(json!({"purpose":"backup"})).unwrap())
+            .unwrap_err()
+            .to_string(),
+        "kind-off"
+    );
     assert!(!cfg.capture_policy.read_git && cfg.capture_policy.selection_ref.is_none());
     assert_eq!(to_value(&cfg.capture_policy.enabled_tools).unwrap(), json!(["pi"]));
     assert_eq!(
         kinds::save_onboarding_choices(from_value(chosen).unwrap()).unwrap_err().to_string(),
         "archive-already-initialized"
     );
+    let root = f.temp.path().join("chosen-pi");
+    outcomes::pi(&root.join("sessions/test.jsonl"), "selected", 3);
+    let ticket = outcomes::review(&f, &root, "pi");
+    assert_eq!(kinds::settings().unwrap().policy.agent_history, KindState::Off);
+    outcomes::finished(&f, |events| {
+        kinds::backups::enable(&f.session, outcomes::enable_request(&ticket), events)
+    });
+    let enabled = kinds::settings().unwrap();
+    assert_eq!(enabled.policy.agent_history, KindState::On);
+    assert!(enabled.policy.selection_ref.is_some());
+    let facts =
+        kinds::backups::overview(&f.session, from_value(json!({"purpose":"backup"})).unwrap())
+            .unwrap();
+    assert_eq!(facts["sources"].as_array().unwrap().len(), 1);
+    // Agent-only onboarding now performs the normal last-on-protected transition.
+    kinds::set_state(
+        &f.session,
+        kinds::SetState {
+            kind: DataKind::Browsing,
+            state: KindState::Off,
+            expected_policy_token: enabled.policy_token,
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(kinds::settings().unwrap().policy.browsing, KindState::Off);
+}
+
+#[test]
+fn setup_with_browsing_keeps_profiles_and_only_applies_requested_agent_tools() {
+    for agent in [false, true] {
+        let f = Fixture::new(false);
+        let kinds = if agent { json!(["browsing", "agent-history"]) } else { json!(["browsing"]) };
+        kinds::save_onboarding_choices(
+            from_value(json!({"kinds":kinds,"agentTools":["pi"],"readGit":false})).unwrap(),
+        )
+        .unwrap();
+        let mut request = load_config(&f.paths()).unwrap();
+        request.selected_profile_ids = vec!["chrome:Default".into()];
+        let cfg = vault_worker::initialize_archive_database_with_progress(
+            &f.session,
+            &request,
+            None,
+            |_| {},
+        )
+        .unwrap()
+        .config;
+        assert_eq!(cfg.selected_profile_ids, ["chrome:Default"]);
+        assert_eq!(cfg.capture_policy.browsing, KindState::On);
+        assert_eq!(cfg.capture_policy.agent_history, KindState::Off);
+        assert_eq!(cfg.capture_policy.tools_chosen(), agent);
+        assert_eq!(cfg.capture_policy.enabled_tools.contains(&vault_core::AgentTool::Pi), agent);
+        assert!(cfg.capture_policy.selection_ref.is_none());
+    }
 }
 
 fn task_page(f: &Fixture, kind: &str, group: &str) -> Value {
@@ -264,6 +325,79 @@ fn progress_can_cancel_a_streamed_export_and_preserves_the_previous_destination(
     assert!(bytes.windows(2).all(|pair| pair[0] <= pair[1]));
 }
 
+// These owner fixtures hold the process environment lock for their full lifetime.
+#[cfg(debug_assertions)]
+struct DebugDelay(&'static str, Option<std::ffi::OsString>);
+
+#[cfg(debug_assertions)]
+impl DebugDelay {
+    fn set(name: &'static str, micros: u64) -> Self {
+        let previous = std::env::var_os(name);
+        unsafe {
+            std::env::set_var(name, micros.to_string());
+        }
+        Self(name, previous)
+    }
+}
+#[cfg(debug_assertions)]
+impl Drop for DebugDelay {
+    fn drop(&mut self) {
+        unsafe {
+            match &self.1 {
+                Some(v) => std::env::set_var(self.0, v),
+                None => std::env::remove_var(self.0),
+            }
+        }
+    }
+}
+
+#[test]
+#[cfg(debug_assertions)]
+fn debug_pacing_allows_stop_after_a_small_exports_progress_event() {
+    let f = Fixture::new(true);
+    let root = f.temp.path().join("pi");
+    outcomes::pi(&root.join("sessions/short.jsonl"), "short", 3);
+    let archive = f.vault().agent_history().unwrap();
+    archive
+        .backup(
+            &[agent_history::SourceRoot { harness: agent_history::Harness::Pi, root }],
+            &Default::default(),
+        )
+        .unwrap();
+    let id = archive.chat_list(&Default::default()).unwrap()["items"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let token = uuid::Uuid::new_v4();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let job = kinds::exports::Job::begin(
+        &f.session,
+        &id,
+        Some(token),
+        Arc::new(move |_, value| {
+            if value["bytesWritten"] != "0" && value.get("totalBytes").is_none() {
+                tx.send(()).unwrap();
+            }
+        }),
+    )
+    .unwrap();
+    let dest = f.temp.path().join("short.md");
+    let _delay = DebugDelay::set("PATHKEEP_TEST_AGENT_EXPORT_DELAY_US", 2_000_000);
+    let request = from_value(json!({"id":id,"format":"markdown"})).unwrap();
+    std::thread::scope(|threads| {
+        let session = &f.session;
+        let path = &dest;
+        let write = threads.spawn(move || job.write(session, request, path));
+        rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        // The window handles an event asynchronously, after the writer's callback has returned.
+        std::thread::sleep(Duration::from_millis(100));
+        let reply = kinds::exports::cancel(from_value(json!({"exportId":token})).unwrap()).unwrap();
+        assert_eq!(reply["cancelled"], true);
+        assert_eq!(write.join().unwrap().unwrap_err().to_string(), "cancelled");
+    });
+    assert!(!dest.exists());
+}
+
 #[test]
 #[cfg(debug_assertions)]
 fn debug_index_pacing_holds_the_real_index_phase() {
@@ -278,10 +412,7 @@ fn debug_index_pacing_holds_the_real_index_phase() {
     .unwrap();
     let times = Arc::new(Mutex::new(Vec::new()));
     let observed = times.clone();
-    let prev = std::env::var_os("PATHKEEP_TEST_AGENT_INDEX_DELAY_US");
-    unsafe {
-        std::env::set_var("PATHKEEP_TEST_AGENT_INDEX_DELAY_US", "250000");
-    }
+    let _delay = DebugDelay::set("PATHKEEP_TEST_AGENT_INDEX_DELAY_US", 250000);
     let run = f.vault().agent_history().unwrap().backup(
         &[agent_history::SourceRoot { harness: agent_history::Harness::Pi, root: source }],
         &agent_history::capture::BackupOptions {
@@ -293,12 +424,6 @@ fn debug_index_pacing_holds_the_real_index_phase() {
             ..Default::default()
         },
     );
-    unsafe {
-        match prev {
-            Some(v) => std::env::set_var("PATHKEEP_TEST_AGENT_INDEX_DELAY_US", v),
-            None => std::env::remove_var("PATHKEEP_TEST_AGENT_INDEX_DELAY_US"),
-        }
-    }
     run.unwrap();
     let times = times.lock().unwrap();
     assert_eq!(times[0].0, "index");

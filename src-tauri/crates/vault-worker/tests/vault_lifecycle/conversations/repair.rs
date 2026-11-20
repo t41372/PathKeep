@@ -393,6 +393,13 @@ fn encrypted_copy_requires_its_own_password_and_keeps_the_live_key() {
 fn legacy_sealed_copy_rebuilds_from_verified_evidence() {
     let f = Fixture::new(false);
     let corpus = Corpus::seed(&f);
+    f.vault()
+        .agent_history()
+        .unwrap()
+        .update_insight_preferences(
+            serde_json::from_value(serde_json::json!({"showCost":false})).unwrap(),
+        )
+        .unwrap();
     let good = f
         .vault()
         .paths()
@@ -405,7 +412,11 @@ fn legacy_sealed_copy_rebuilds_from_verified_evidence() {
         let role = vault_layout::database_path(db);
         let path = good.join(role);
         let conn = rusqlite::Connection::open(&path).unwrap();
-        conn.execute_batch("DROP TABLE ah_pair_seal; DELETE FROM __pk_migrations WHERE version=(SELECT max(version) FROM __pk_migrations)").unwrap();
+        // Reproduce the reported copy exactly: the evidence preference already exists,
+        // but its seed (66) is pending. Keep this boundary fixed as the registry grows.
+        let last_recorded = if db == Db::AgentHistoryEvidence { 65 } else { 187 };
+        conn.execute_batch("DROP TABLE ah_pair_seal").unwrap();
+        conn.execute("DELETE FROM __pk_migrations WHERE version > ?1", [last_recorded]).unwrap();
         drop(conn);
         let digest = vault_core::utils::sha256_hex(&fs::read(path).unwrap());
         proofs.as_array_mut().unwrap().iter_mut().find(|p| p["path"] == role).unwrap()["sha256"] =
@@ -419,6 +430,7 @@ fn legacy_sealed_copy_rebuilds_from_verified_evidence() {
     let installed =
         repair_conversations(&vault, Some(&good), None, &plan.token, Default::default()).unwrap();
     corpus.check_rebuilt(&installed.vault, None);
+    assert!(!installed.vault.agent_history().unwrap().insight_preferences().unwrap().show_cost);
 }
 
 #[test]

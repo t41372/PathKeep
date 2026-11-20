@@ -815,7 +815,9 @@ fn onboarding_choices_are_a_window_contract_before_setup() {
             .await
             .unwrap();
         assert!(init["config"].get("onboardingChoices").is_none());
-        assert_eq!(init["config"]["capturePolicy"]["agentHistory"], "on");
+        assert_eq!(init["config"]["capturePolicy"]["agentHistory"], "off");
+        assert_eq!(init["config"]["capturePolicy"]["browsing"], "on");
+        assert!(init["config"]["capturePolicy"]["selectionRef"].is_null());
         assert_eq!(init["config"]["capturePolicy"]["enabledTools"], json!(["codex", "pi"]));
         let err = dispatch_command(&state, "save_onboarding_choices", json!({"request":draft}))
             .await

@@ -45,13 +45,12 @@ pub struct OnboardingChoices {
 impl OnboardingChoices {
     pub fn capture_policy(self) -> Result<CapturePolicy, LastActiveKind> {
         let agent = self.kinds.contains(&DataKind::AgentHistory);
-        let policy = CapturePolicy {
-            browsing: if self.kinds.contains(&DataKind::Browsing) {
-                KindState::On
-            } else {
-                KindState::Off
-            },
-            agent_history: if agent { KindState::On } else { KindState::Off },
+        if self.kinds.is_empty() {
+            return Err(LastActiveKind);
+        }
+        // Browsing is the initial active kind. Agent-only setup turns browsing off after
+        // the reviewed first save starts. Until then it has no selected browser profiles.
+        Ok(CapturePolicy {
             explicitly_off: !agent,
             // The tools are a choice only when Agent conversations are chosen. The draft keeps
             // them for a resumed setup either way, but a setup without Agent leaves no tool choice
@@ -60,9 +59,7 @@ impl OnboardingChoices {
             enabled_tools: if agent { self.agent_tools } else { BTreeSet::new() },
             read_git: self.read_git,
             ..Default::default()
-        };
-        policy.validate()?;
-        Ok(policy)
+        })
     }
 }
 
