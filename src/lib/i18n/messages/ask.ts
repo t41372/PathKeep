@@ -30,10 +30,20 @@ export const ask = defineMessages({
     },
     empty: {
       title: 'Ask about the path you’ve walked',
-      bodyLocal:
-        'The assistant only reads your local archive. With a local model, nothing leaves this computer.',
-      bodyRemote:
-        'The assistant only reads your local archive. {provider} is an online service, so the snippets it needs are sent there when you ask.',
+      readsArchive: 'The assistant reads your archive.',
+      readsBrowsing:
+        'The assistant reads the browsing history in your archive.',
+      readsBoth:
+        'The assistant reads the browsing history and the Agent conversations in your archive.',
+      readsAgent:
+        'The assistant reads the Agent conversations in your archive.',
+      readsNothing:
+        'The assistant has nothing to read: browsing history is off, and it isn’t allowed to read Agent conversations.',
+      agentNotAllowed:
+        'It doesn’t read your Agent conversations unless you allow it in Settings › Agent conversations.',
+      privacyLocal: 'With a local model, nothing leaves this computer.',
+      privacyRemote:
+        '{provider} is an online service, so the parts it needs are sent there when you ask.',
       examplesLabel: 'Try asking',
       example1: 'What did I spend the most time on this week?',
       example2: 'Find the article I read about Rust last month',
@@ -152,10 +162,16 @@ export const ask = defineMessages({
     },
     empty: {
       title: '问问你走过的路',
-      bodyLocal:
-        '助理只读取本机存档。使用本地模型时，任何内容都不会离开这台电脑。',
-      bodyRemote:
-        '助理只读取本机存档。{provider} 是在线服务，你提问时会把所需的片段发送过去。',
+      readsArchive: '助理读取你的存档。',
+      readsBrowsing: '助理读取存档里的浏览记录。',
+      readsBoth: '助理读取存档里的浏览记录和 Agent 对话。',
+      readsAgent: '助理读取存档里的 Agent 对话。',
+      readsNothing:
+        '助理没有可读的内容：浏览记录关着，也没有允许它读 Agent 对话。',
+      agentNotAllowed:
+        '除非你在“设置 › Agent 对话”里允许，它不读你的 Agent 对话。',
+      privacyLocal: '使用本地模型时，任何内容都不会离开这台电脑。',
+      privacyRemote: '{provider} 是在线服务，你提问时会把所需的部分发送过去。',
       examplesLabel: '可以这样问',
       example1: '这周我花最多时间在什么上？',
       example2: '找回上个月我读过的那篇 Rust 文章',
@@ -270,10 +286,16 @@ export const ask = defineMessages({
     },
     empty: {
       title: '問問你走過的路',
-      bodyLocal:
-        '助理只讀取本機存檔。使用本機模型時，任何內容都不會離開這台電腦。',
-      bodyRemote:
-        '助理只讀取本機存檔。{provider} 是線上服務，你提問時會把所需的片段傳送過去。',
+      readsArchive: '助理讀取你的存檔。',
+      readsBrowsing: '助理讀取存檔裡的瀏覽紀錄。',
+      readsBoth: '助理讀取存檔裡的瀏覽紀錄和 Agent 對話。',
+      readsAgent: '助理讀取存檔裡的 Agent 對話。',
+      readsNothing:
+        '助理沒有可讀的內容：瀏覽紀錄關著，也沒有允許它讀 Agent 對話。',
+      agentNotAllowed:
+        '除非你在「設定 › Agent 對話」裡允許，它不讀你的 Agent 對話。',
+      privacyLocal: '使用本機模型時，任何內容都不會離開這台電腦。',
+      privacyRemote: '{provider} 是線上服務，你提問時會把所需的部分傳送過去。',
       examplesLabel: '可以這樣問',
       example1: '這週我花最多時間在什麼上？',
       example2: '找回上個月我讀過的那篇 Rust 文章',

@@ -367,6 +367,13 @@ export type PreviewFrame = FrameBase &
 /** The event sent after the stored choices changed (not for a change that changed nothing). */
 export const DATA_KINDS_CHANGED_EVENT = 'pathkeep://data-kinds-changed'
 
+/** Setup's choices as `save_onboarding_choices` keeps them. */
+export interface OnboardingChoices {
+  kinds: DataKindId[]
+  agentTools: AgentToolId[]
+  readGit: boolean
+}
+
 export interface DataKindsChanged {
   policyToken: string
   changedKinds: DataKindId[]
@@ -395,6 +402,7 @@ export const DATA_KINDS_ERROR_CODES = [
   'operation-finishing',
   'record-unavailable',
   'invalid-cursor',
+  'archive-already-initialized',
 ] as const
 export type DataKindsErrorCode = (typeof DATA_KINDS_ERROR_CODES)[number]
 
@@ -469,6 +477,13 @@ export const dataKindsClient = {
   /** Only checks which folders exist; opens and lists nothing inside them. */
   detectSources: (kinds: DataKindId[]) =>
     call<DetectedSources>('detect_data_sources', { request: { kinds } }),
+  /**
+   * Keeps setup's choices on this computer before the archive exists, so an
+   * interrupted setup resumes with them; creating the archive applies the
+   * last one saved. Refused with `archive-already-initialized` after that.
+   */
+  saveOnboardingChoices: (choices: OnboardingChoices) =>
+    call<OnboardingChoices>('save_onboarding_choices', { request: choices }),
   /** Starts a preview; frames go to `onFrame` until it ends or is closed. */
   previewAgentSources: openAgentPreview,
   /** Answers the same for a preview that already ended. */

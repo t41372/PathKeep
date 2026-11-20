@@ -13,6 +13,9 @@
  * waiting for it and finishes its other stages. When the answer to turning
  * the kind on is lost while the save it started goes on, setup takes that
  * save instead of turning the kind on again.
+ * Creating the archive saves the final kinds and Agent tools first
+ * (`save_onboarding_choices`): the backend applies the last ones saved as
+ * the new archive's states, so they must be the ones shown.
  * Not responsible for: rendering, or deciding the choices (see `draft.ts`).
  *
  * Nothing here runs before the user starts it, so going back and changing a
@@ -32,7 +35,12 @@ import {
 import { useStartSaving } from '@/features/enable-agent/use-start-saving'
 import type { ArchiveRunDetail } from '@/lib/backend-client/agent-backup'
 import { archiveClient } from '@/lib/backend-client/archive'
-import type { AgentToolId, DataKindId } from '@/lib/backend-client/data-kinds'
+import {
+  dataKindsClient,
+  dataKindsErrorCode,
+  type AgentToolId,
+  type DataKindId,
+} from '@/lib/backend-client/data-kinds'
 import { scheduleClient } from '@/lib/backend-client/schedule'
 import { securityClient } from '@/lib/backend-client/security'
 import { describeError } from '@/lib/errors'
@@ -46,7 +54,7 @@ import {
 } from '@/lib/types'
 import { waitForNextPaint } from '@/lib/wait-for-next-paint'
 import { agentStartFailure } from './agent-words'
-import type { Draft } from './draft'
+import { choicesToSave, type Draft } from './draft'
 import {
   adoptFirstSave,
   turnBrowsingOff,
@@ -318,6 +326,16 @@ export function useFinishSetup(
     async (stage: Stage) => {
       switch (stage) {
         case 'archive': {
+          // Creating the archive applies the last choices saved: these.
+          await dataKindsClient
+            .saveOnboardingChoices(
+              choicesToSave(choices.kinds, choices.agentTools),
+            )
+            .catch((error: unknown) => {
+              // A retry after an answer that never came: it exists already.
+              if (dataKindsErrorCode(error) !== 'archive-already-initialized')
+                throw error
+            })
           const config = currentSnapshot(client).config
           const snapshot = await archiveClient.initializeArchive(
             {
@@ -370,6 +388,7 @@ export function useFinishSetup(
       }
     },
     [
+      choices.agentTools,
       choices.kinds,
       client,
       draft,

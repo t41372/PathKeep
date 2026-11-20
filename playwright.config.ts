@@ -382,12 +382,17 @@ export default defineConfig({
     // deletes it again.
     project('empty', ['semantic-empty-archive.spec.ts'], 'wipe'),
     // Onboarding with Agent conversations chosen, in the empty data folder
-    // `empty` leaves: both kinds, and Agent only with the first save left
-    // to go on in the background. Each deletes everything again at the end,
-    // so their order doesn't matter.
+    // `empty` leaves: both kinds, Agent only with the first save left to go
+    // on in the background, and a setup quit half way and resumed with its
+    // choices. Each deletes everything again at the end, so their order
+    // doesn't matter.
     project(
       'onboarding-agent',
-      ['onboarding-agent.spec.ts', 'onboarding-agent-background.spec.ts'],
+      [
+        'onboarding-agent.spec.ts',
+        'onboarding-agent-background.spec.ts',
+        'onboarding-agent-resume.spec.ts',
+      ],
       'empty',
     ),
     // A browsing-only first run that opens move.spec's file: its Agent

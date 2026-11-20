@@ -495,6 +495,8 @@ export type ChatExportFormat = 'markdown' | 'html' | 'jsonl' | 'originals'
 
 export interface ChatExportRequest {
   id: string
+  /** A fresh UUID from the window: its progress events and its Stop name this export. */
+  exportId: string
   format: ChatExportFormat
   /** The publication the reader shows; a newer one ends the export. */
   publication?: string
@@ -506,18 +508,41 @@ export interface ChatExportRequest {
 
 /** Where the file went and its size (a decimal string). */
 export interface ChatExportResult {
+  exportId: string
   path: string
   bytes: string
 }
 
+/**
+ * Sent while an export writes: the bytes written so far (decimal strings),
+ * zero at first; the last one, once the file is in place, also carries
+ * `totalBytes`. Nobody knows the size before it is written.
+ */
+export interface ChatExportProgress {
+  exportId: string
+  bytesWritten: string
+  totalBytes?: string
+}
+
+export const AGENT_EXPORT_PROGRESS_EVENT = 'pathkeep://agent-export-progress'
+
 export const agentChatsClient = {
   /**
-   * Opens the system's save dialog, then writes the whole file there.
-   * `null`: the person cancelled the dialog. There is no progress and no
-   * way to stop it once the place is chosen.
+   * Opens the system's save dialog, then writes the whole file there,
+   * sending `AGENT_EXPORT_PROGRESS_EVENT` as it goes. `null`: the person
+   * cancelled the dialog. Rejects with `cancelled` once `cancelExport`
+   * was taken: no file was written and one already there is untouched.
    */
   exportConversation: (request: ChatExportRequest) =>
     call<ChatExportResult | null>('export_agent_conversation', { request }),
+  /**
+   * Stops an export. `cancelled: false`: too late (the file is being put in
+   * place) or no such export runs; it then ends as it would have.
+   */
+  cancelExport: (exportId: string) =>
+    call<{ exportId: string; cancelled: boolean }>('cancel_agent_export', {
+      request: { exportId },
+    }),
   list: (request: ChatListQuery) =>
     call<ChatListPage>('list_agent_conversations', { request }),
   counts: (request: ChatListQuery) =>
