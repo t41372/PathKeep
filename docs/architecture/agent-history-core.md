@@ -129,10 +129,11 @@ generation visible until a replacement is ready. Bounded transactions and
 streaming record parsing avoid whole-corpus materialization. Any resource limit
 has an explicit diagnostic; there is no silent truncation for indexing.
 
-Keyword search uses an agent-specific encrypted Tantivy schema, not browser URL
-fields. Canonical publication and index progress are tracked separately so a
-crash cannot silently return incomplete search results. Search synchronization
-is an explicit write operation; ordinary reads never trigger hidden rebuilding.
+Conversation search keeps one committed Tantivy searcher available throughout a backup. The writer limits queued document bytes and commits complete replacements. The serving epoch in R selects the matching source projections and root summaries. Existing readers keep their epoch through delivery. The CLI retains its bounded top-results contract and strict currency check.
+
+Records search pages root cards by activity, uses positional postings for selected roles and titles, and verifies matches in the producing record. A frequent single-word query obtains exact counts from term frequencies and reads records for the card previews. Regex scans page through complete readable parts. Reader find reads its current conversation publication and includes descendant titles, calls, results and reasoning. Both deliver bounded batches with cancellation. The screen command contract defines occurrence counts, Markdown text coordinates and frame shapes. [Desktop command surface](desktop-command-surface.md#records-search-and-reader-find)
+
+The Linux release fixture seeds 120,000 root summaries and 120 normalized records per root before timing. It times a complete index build, consumes both search streams to their exact totals, then backs up a native Pi file and times the incremental sync at the backup's index phase. First-result time ends at the first nonempty card batch. Run `AH_SEARCH_ROOTS=120000 cargo test --locked --release -p agent-history --test screen_search_scale -- --ignored --nocapture` from `src-tauri`. [Measurements](research/agent-history/validation/conversation-search-linux.jsonl)
 
 ## Validation order
 

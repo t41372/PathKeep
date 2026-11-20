@@ -130,7 +130,7 @@ fn reparse(
         projection::Preparation::Unreadable => {
             super::unreadable::publish(archive, source, artifact, &raw.source_id, raw.id, options)?;
             if !rebuild {
-                archive.synchronize_search()?;
+                archive.synchronize_search_with_cancel(&|| options.cancel.check().is_err())?;
             }
             return Ok(());
         }
@@ -177,7 +177,7 @@ fn reparse(
         return Ok(());
     }
     archive.append_lineage_issues(&mut report.issues)?;
-    archive.synchronize_search()?;
+    archive.synchronize_search_with_cancel(&|| options.cancel.check().is_err())?;
     super::maintenance(archive, options)?;
     Ok(())
 }

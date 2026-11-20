@@ -102,11 +102,12 @@ impl Archive {
         if !(1..=256).contains(&limit) {
             return Err(Error::InvalidInput("projection cleanup limit must be 1..=256".into()));
         }
+        let Ok(_unused) = self.search_reads.try_write() else { return Ok(0) };
         self.store
             .write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
                 let pair = tx
                     .query_one(
-                        "SELECT session_id, projection_id FROM ah_projection_retired LIMIT 1",
+                        "SELECT session_id, projection_id FROM ah_projection_retired r WHERE NOT EXISTS (SELECT 1 FROM ah_search_source i WHERE i.projection=r.projection_id) LIMIT 1",
                         (),
                         |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?)),
                     )

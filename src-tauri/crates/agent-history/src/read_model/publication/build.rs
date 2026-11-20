@@ -356,6 +356,9 @@ impl Archive {
                 return Err(Error::ReaderRebuildRequired);
             }
         }
+        // A repair can replace a summary without changing a native projection. Publish its
+        // queued title and card before collecting the superseded presentation.
+        self.synchronize_search_with_cancel(&|| job.cancel.check().is_err())?;
         self.collect_reader_garbage(&job.cancel)?;
         Ok(count)
     }

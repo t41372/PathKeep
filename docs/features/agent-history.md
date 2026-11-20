@@ -757,6 +757,8 @@ PathKeep 只在確定時自動歸類；只是「可能」的，做成建議讓�
 - 在 Agent 對話的備份頁關掉「備份時也讀專案資料夾的 .git」時，專案只照路徑歸類：每個資料夾自己一個專案，加上零散資料夾。
 - 讀 `.git` 讀什麼、不讀什麼見 [agent-history-product-design.md](../architecture/agent-history-product-design.md) §2。
 
+已儲存的專案名、釘選、分組與建議答覆會隨存檔搬移。紀錄頁的專案選單也包括只有封存對話的專案；對話沒有工作目錄時，專案維持未知。桌面命令及欄位見 [Projects contract](../architecture/desktop-command-surface.md#agent-projects)。
+
 #### 5.10 一個專案 `#/agent/projects/:id`
 
 - **主要的事**：看這個專案的對話。
@@ -987,7 +989,9 @@ Parser 更新後可用 `reparse --source-id ID --execute` 從已保存的 native
 
 Session list 可以以 harness、**exact recorded project path** 篩選，按建立或更新時間排序；不同 harness 記錄相同 path 時可以一起查。它沒有 project alias、pin、路徑合併或 repo/worktree 語意判斷。Session／event 游標約束 publication，投影更換後舊游標需重新開始；raw revision list 則以 source 與 revision ID 向較舊資料分頁，新增 capture 不破壞已開始的歷史遍歷。
 
-搜尋是區分 exact harness／project filter 的 lexical AND term search；不區分字母大小寫，CJK 以單字元 token 處理。沒有自然語言推理、語意相似、模糊／regex／phrase query。查詢回傳 top-k（上限 100）與 matching event 總數，**不提供搜尋結果逐頁翻完**；不要把保留的 `next_cursor: null` 當成分頁功能。索引落後時回錯，不以空結果掩蓋；`sync-search` 同步衍生資料，損壞索引另用明確的 `sync-search --rebuild` 重建。
+CLI 的 `search` 是區分 exact harness／project filter 的 lexical AND term search；不區分字母大小寫，CJK 以單字元 token 處理。沒有自然語言推理、語意相似、模糊／regex／phrase query。查詢回傳 top-k（上限 100）與 matching event 總數，**不提供搜尋結果逐頁翻完**；不要把保留的 `next_cursor: null` 當成分頁功能。索引落後時回錯，不以空結果掩蓋；`sync-search` 同步衍生資料，損壞索引另用明確的 `sync-search --rebuild` 重建。
+
+桌面的紀錄搜尋依 §3.4 分批傳回全部符合的對話，備份期間讀上一次完成的索引。閱讀器依 §4.6 搜尋本段對話和 subagent；兩種讀取都可以取消。請求、訊息格式及 UTF-8 高亮範圍見 [desktop-command-surface.md](../architecture/desktop-command-surface.md#records-search-and-reader-find)。
 
 匯出有 raw revision、normalized JSONL、Markdown。Normalized 格式仍含 native payload、ordinal、parent evidence；它保留事件順序，可能包含互斥分支、mirror records 與 metadata，不能當已去重、可直接 resume 的 native conversation。沒有 HTML／PDF、跨 harness native import 或帳號遷移。Raw export 的「完整」僅指該 captured revision 的 bytes，不是整個帳號歷史或附件全齊。
 

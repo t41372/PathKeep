@@ -114,6 +114,7 @@ impl Archive {
         &self,
         path: &str,
         exists: bool,
+        checked_git: bool,
         git: Option<crate::capture::git::GitObservation>,
     ) -> Result<()> {
         let path = path.to_owned();
@@ -129,6 +130,13 @@ impl Archive {
                     |r| Ok((r.get::<i64>(0)? != 0, r.get::<Option<String>>(1)?)),
                 )
                 .optional()?;
+            // A backup with git disabled can update existence. An unchanged directory's
+            // last observed repository is still the last time we actually looked.
+            if !checked_git
+                && previous.as_ref().is_some_and(|(was_present, _)| *was_present == exists)
+            {
+                return Ok(());
+            }
             if previous != Some((exists, git.clone())) {
                 tx.execute(
                     "

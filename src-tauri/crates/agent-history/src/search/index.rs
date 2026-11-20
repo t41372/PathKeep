@@ -140,3 +140,16 @@ pub(super) fn checked<T>(
         _ => Error::Io(std::io::Error::other(error)),
     })
 }
+
+/// Only a recognizable previous search schema schedules a format upgrade at visibility.
+pub(super) fn previous_schema(archive: &Archive) -> Result<bool> {
+    let (storage, directory) = directory(archive)?;
+    let index = checked(Index::open(storage), &directory)?;
+    let meta = checked(index.load_metas(), &directory)?;
+    Ok(meta
+        .payload
+        .and_then(|payload| serde_json::from_str::<Commit>(&payload).ok())
+        .is_some_and(|commit| commit.version == 2 && commit.watermark >= 0)
+        && index.schema().get_field("text").is_ok()
+        && index.schema().get_field("card_id").is_err())
+}

@@ -66,16 +66,19 @@ pub struct ListQuery {
 }
 
 const JOIN: &str = " FROM ah_chat_summary s LEFT JOIN ah_user_state u ON u.conversation_id=s.id ";
-const FIELDS:&str="s.id,s.harness,s.folder,coalesce(u.title,s.title),CASE WHEN u.title IS NULL THEN s.title_source ELSE 'user' END,
+const FIELDS:&str="s.id,s.harness,(SELECT json_object('id',p.project,'label',p.label,'kind',p.kind) FROM ah_project_folder p WHERE p.path=s.folder),coalesce(u.title,s.title),CASE WHEN u.title IS NULL THEN s.title_source ELSE 'user' END,
     s.started,s.last_activity,coalesce(u.starred,0),coalesce(u.put_away,0),u.trashed_at,s.missing,s.children,
     s.messages,s.turns,s.agent_ms,
     s.tokens_total,s.bytes,s.saved,s.publication";
-pub(super) fn project(folder: Option<&str>) -> Value {
-    folder.map(|path|json!({"id":path,"label":path.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().filter(|s|!s.is_empty()).unwrap_or(path),"kind":"folder"})).unwrap_or(Value::Null)
+pub(crate) fn project_chip(r: &vault_store::Row, column: usize) -> vault_store::Result<Value> {
+    r.get::<Option<String>>(column)?
+        .map(|raw| serde_json::from_str(&raw).map_err(operation))
+        .transpose()
+        .map(|p| p.unwrap_or(Value::Null))
 }
 fn row(r: &vault_store::Row) -> vault_store::Result<Value> {
     Ok(
-        json!({"id":r.get::<String>(0)?,"harness":r.get::<String>(1)?,"project":project(r.get::<Option<String>>(2)?.as_deref()),"title":r.get::<Option<String>>(3)?,
+        json!({"id":r.get::<String>(0)?,"harness":r.get::<String>(1)?,"project":project_chip(r,2)?,"title":r.get::<Option<String>>(3)?,
         "titleSource":r.get::<String>(4)?,"startedAt":r.get::<Option<i64>>(5)?,"lastActivityAt":r.get::<Option<i64>>(6)?,"starred":r.get::<i64>(7)?!=0,
         "archived":r.get::<i64>(8)?!=0,"trashed":r.get::<Option<i64>>(9)?.is_some(),"onlyInPathKeep":r.get::<i64>(10)?!=0,"childCount":r.get::<i64>(11)?,
         "messages":r.get::<i64>(12)?,"turns":r.get::<i64>(13)?,"agentMs":r.get::<Option<i64>>(14)?,"tokensTotal":r.get::<Option<i64>>(15)?,
@@ -84,6 +87,10 @@ fn row(r: &vault_store::Row) -> vault_store::Result<Value> {
 }
 pub(super) fn summary(tx: &Session<'_>, id: &str) -> vault_store::Result<Option<Value>> {
     tx.query_one(&format!("SELECT {FIELDS}{JOIN} WHERE s.id=?1 AND s.live=1"), [id], row).optional()
+}
+pub(crate) fn recent_days(zone_name: Option<String>) -> Result<(i64, i64)> {
+    let q = ListQuery { time_zone: zone_name, range: Some("30d".into()), ..Default::default() };
+    Ok(interval(&q, zone(&q)?)?.expect("bounded range"))
 }
 fn zone(q: &ListQuery) -> Result<Tz> {
     q.time_zone
@@ -125,13 +132,21 @@ fn interval(q: &ListQuery, tz: Tz) -> Result<Option<(i64, i64)>> {
         )?,
     )))
 }
-struct Filter {
-    sql: String,
-    args: Vec<Sql>,
+pub(crate) struct Filter {
+    pub(crate) sql: String,
+    pub(crate) args: Vec<Sql>,
 }
 impl Filter {
+    pub(crate) fn search(q: &ListQuery, epoch: i64) -> Result<Self> {
+        Ok(Self::build(q, interval(q, zone(q)?)?, Some(epoch)))
+    }
     fn new(q: &ListQuery, bounds: Option<(i64, i64)>) -> Self {
-        let mut sql = String::from("s.live=1 AND s.root=1");
+        Self::build(q, bounds, None)
+    }
+    fn build(q: &ListQuery, bounds: Option<(i64, i64)>, search_epoch: Option<i64>) -> Self {
+        let include_archived = search_epoch.is_some();
+        let mut sql =
+            String::from(if include_archived { "s.root=1" } else { "s.live=1 AND s.root=1" });
         let mut args = vec![];
         if !q.harnesses.is_empty() {
             sql.push_str(&format!(
@@ -141,8 +156,8 @@ impl Filter {
             args.extend(q.harnesses.iter().map(|h| Sql::Text(h.to_string())));
         }
         if let Some(p) = &q.project_id {
-            sql.push_str(" AND s.folder=?");
-            args.push(Sql::Text(p.clone()));
+            sql.push_str(" AND s.project_id=coalesce((SELECT project FROM ah_project_folder WHERE path=?),?)");
+            args.extend([Sql::Text(p.clone()), Sql::Text(p.clone())]);
         }
         if q.flags.contains(&Flag::Trash) {
             sql.push_str(" AND u.trashed_at IS NOT NULL");
@@ -153,6 +168,8 @@ impl Filter {
             sql.push_str(" AND u.trashed_at IS NULL");
             sql.push_str(if q.flags.contains(&Flag::Archived) {
                 " AND u.put_away=1"
+            } else if include_archived {
+                ""
             } else {
                 " AND coalesce(u.put_away,0)=0"
             });
@@ -171,11 +188,19 @@ impl Filter {
         if let Some((lo, hi)) = bounds {
             // Each hour is shorter than the requested whole local days. Its
             // first/last observations answer the two boundary buckets exactly.
-            sql.push_str(" AND ((s.started>=? AND s.started<?) OR (s.last_activity>=? AND s.last_activity<?) OR EXISTS(
+            let children = match search_epoch {
+                None => {
+                    "ah_chat_summary child ON child.parent=members.id AND child.live=1".to_owned()
+                }
+                Some(epoch) => format!(
+                    "ah_search_card child ON child.parent=members.id AND child.born<={epoch} AND (child.retired IS NULL OR child.retired>{epoch})"
+                ),
+            };
+            sql.push_str(&format!(" AND ((s.started>=? AND s.started<?) OR (s.last_activity>=? AND s.last_activity<?) OR EXISTS(
               WITH RECURSIVE members(id,pub) AS (SELECT s.id,s.publication UNION ALL
-                SELECT child.id,child.publication FROM members JOIN ah_chat_summary child ON child.parent=members.id AND child.live=1)
+                SELECT child.id,child.publication FROM members JOIN {children})
               SELECT 1 FROM members WHERE EXISTS(SELECT 1 FROM ah_chat_activity a WHERE a.publication=members.pub AND a.hour BETWEEN ? AND ? AND a.last_ms>=? AND a.first_ms<?)
-              OR EXISTS(SELECT 1 FROM ah_chat_turn t WHERE t.publication=members.pub AND t.source NOT LIKE 'leaf/%' AND t.started<? AND t.ended>?)))");
+              OR EXISTS(SELECT 1 FROM ah_chat_turn t WHERE t.publication=members.pub AND t.source NOT LIKE 'leaf/%' AND t.started<? AND t.ended>?)))"));
             args.extend(
                 [
                     lo,
@@ -207,7 +232,7 @@ pub(crate) struct DayCounts {
     version: (i64, i64),
     values: std::collections::HashMap<(String, Option<NaiveDate>), i64>,
 }
-pub(super) fn view(tx: &Session<'_>) -> vault_store::Result<(i64, i64)> {
+pub(crate) fn view(tx: &Session<'_>) -> vault_store::Result<(i64, i64)> {
     tx.query_one("SELECT c.publication,m.generation FROM ah_chat_clock c JOIN ah_state_generation m ON m.id=1 WHERE c.id=1",(),|r|Ok((r.get(0)?,r.get(1)?)))
 }
 impl Archive {
@@ -219,6 +244,7 @@ impl Archive {
     pub fn chat_list(&self, q: &ListQuery) -> Result<Value> {
         let _guard = self.jobs.enter(None)?;
         self.ensure_state_visible()?;
+        self.ensure_projects()?;
         let tz = zone(q)?;
         let bounds = interval(q, tz)?;
         let limit = q.limit.unwrap_or(50);
@@ -263,14 +289,14 @@ impl Archive {
                 let mut args=f.args.clone();
                 let having=if let Some(k)=key{args.push(Sql::Text(k));" HAVING max(s.KEY)<?".replace("KEY",column)}else{String::new()};
                 args.push(Sql::Integer(limit as i64+1));
-                let mut groups=tx.query(&format!("SELECT s.folder,count(*),max(s.{column}){JOIN} WHERE {} GROUP BY s.folder {having} ORDER BY max(s.{column}) DESC LIMIT ?",f.sql),args,|r|Ok((r.get::<Option<String>>(0)?,r.get::<i64>(1)?,r.get::<String>(2)?)))?;
+                let mut groups=tx.query(&format!("SELECT s.project_id,count(*),max(s.{column}),(SELECT json_object('id',p.project,'label',p.label,'kind',p.kind) FROM ah_project_folder p WHERE p.path=s.folder){JOIN} WHERE {} GROUP BY s.project_id {having} ORDER BY max(s.{column}) DESC LIMIT ?",f.sql),args,|r|Ok((r.get::<Option<String>>(0)?,r.get::<i64>(1)?,r.get::<String>(2)?,project_chip(r,3)?)))?;
                 let more=groups.len()>limit;groups.truncate(limit);
                 let next=more.then(||encode(groups.last().unwrap().2.clone()));
                 let mut out=vec![];
-                for (folder,count,_) in groups{
+                for (folder,count,_,chip) in groups{
                     let mut args=f.args.clone();args.push(folder.clone().map(Sql::Text).unwrap_or(Sql::Null));
-                    let items=tx.query(&format!("SELECT {FIELDS}{JOIN} WHERE {} AND s.folder IS ? ORDER BY s.{column} DESC LIMIT 3",f.sql),args,row)?;
-                    out.push(json!({"project":project(folder.as_deref()),"count":count,"remaining":count-items.len() as i64,"items":items}));
+                    let items=tx.query(&format!("SELECT {FIELDS}{JOIN} WHERE {} AND s.project_id IS ? ORDER BY s.{column} DESC LIMIT 3",f.sql),args,row)?;
+                    out.push(json!({"project":chip,"count":count,"remaining":count-items.len() as i64,"items":items}));
                 }
                 return Ok(json!({"groups":out,"items":[],"nextCursor":next,"viewToken":view_token}))
             }
@@ -308,6 +334,7 @@ impl Archive {
     pub fn chat_counts(&self, q: &ListQuery) -> Result<Value> {
         let _guard = self.jobs.enter(None)?;
         self.ensure_state_visible()?;
+        self.ensure_projects()?;
         let f = Filter::new(q, interval(q, zone(q)?)?);
         Ok(self.store.read(DB,move|tx|{
             let (matching,children)=tx.query_one(&format!("SELECT count(*),coalesce(sum(s.children),0){JOIN} WHERE {}",f.sql),f.args,|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?)))?;

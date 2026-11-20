@@ -578,7 +578,7 @@ Times are UTC Unix **milliseconds**. Durations are milliseconds, sizes and offse
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `id, publication, harness`                | Stable conversation identity, selected reader publication and native tool ID. Child conversations open by ID through the same reader.                                                                                                        |
 | `title, titleSource`                      | User override, tool title, or first nonempty human prompt excerpt, in that order. Sources are `user`, `tool`, `firstPrompt`, `unknown`. An untitled conversation returns `null`.                                                             |
-| `project`                                 | `{id,label,kind:"folder"}` for a recorded working folder; `null` for unknown. The ID is the full recorded folder, so equal basenames remain distinguishable. Project merging and user-defined names belong to the projects work block.       |
+| `project`                                 | `{id,label,kind}` identifies the resolved project. Kind is `repo`, `folder` or `scratch`. An unknown cwd gives `null`. Use the Projects command for the main path and picker rows.                                                           |
 | `startedAt,lastActivityAt,lastSavedAt`    | First activity, last activity and most recent capture of the conversation’s retained files. Native activity time can be unknown.                                                                                                             |
 | `messages,turns,childCount`               | Human prompts, original turns, and resolved descendants. A child’s task instruction and a user-role tool result do not add human messages to the parent.                                                                                     |
 | `agentMs,tokensTotal,sourceBytes`         | Sum of this conversation’s known turn durations, sum of the four measured token categories including attributed child usage, and logical bytes in this conversation’s retained source files. Parent time already covers parallel child work. |
@@ -587,7 +587,7 @@ Times are UTC Unix **milliseconds**. Durations are milliseconds, sizes and offse
 
 Pass `cursor:nextCursor` for the next page. The cursor binds the filters, time zone, effective dates, sort and group. Publishing another conversation preserves the seek boundary. A row whose sort key moves can change position. The default limit is 50, maximum 200. A null continuation is the end.
 
-- `projectId` is an exact folder key; `harnesses` uses any selected tool. Each flag in `flags` must hold: `starred`, `onlyInPathKeep`, `hasPr`, `hasSubagents`, `hasEdits`, `noUsage`, `archived`, `trash`. The ordinary list hides archived and trashed roots. Trash alone includes both put-away states.
+- `projectId` selects every folder assigned to the issued project ID (an existing full-folder filter also resolves through the folder directory); `harnesses` uses any selected tool. Each flag in `flags` must hold: `starred`, `onlyInPathKeep`, `hasPr`, `hasSubagents`, `hasEdits`, `noUsage`, `archived`, `trash`. The ordinary list hides archived and trashed roots. Trash alone includes both put-away states.
 - `range` accepts `all` (default), `today`, `7d`, `30d`, `90d`, `1y` (365 days). Alternatively pass `day:"YYYY-MM-DD"`. Both use whole days in the named IANA `timeZone`, defaulting on desktop to the zone of the published insights. Activity includes observed instants and overlapping work intervals. A gap between two turns does not fill the intervening days.
 - `sort` accepts `lastActivity` (default), `started`, `agentTime`, `tokens`, `turns`. Descending ties use descending conversation ID. Unknown sorts last.
 - `group:"day"` (default) adds a local `day` to each item and returns `{day,count}` for each day on the page. The count covers the whole filtered day. A null day collects undated rows. Start-time sort groups by start. Metric sorts use the ungrouped layout. `none` returns ordinary rows. `project` pages **groups** by their highest-ranked member and returns `{project,count,items,remaining}` with up to three previews. The top-level items array is empty in that mode.
@@ -616,3 +616,154 @@ Fact counts include `calls,failedCalls,addedLines,removedLines,editedFileCount,u
 All commands use the ordinary desktop error envelope. A malformed request wrapper returns `invalid-request`. Invalid limits, time zones, ranges or mismatched list cursors return `invalid_input`. Admission can return `lock-required`, `archive-uninitialized`, `kind-off`, `kind-unavailable`, or `archive-replaced`. List/count failure is distinct from an empty result. A missing header, info or edit target returns `conversation_not_found`. Reader calls can return `reader_rebuild_required`, `stale_cursor`, `not_found` (branch, anchor or retained bytes), `limit_exceeded`, `cancelled` or an archive/storage error. On `stale_cursor`, refresh the header before using a reader continuation. Pass a fresh optional UUID `requestId` to window, branch or byte reads and cancel it through `cancel_agent_read` with `{"request":{"requestIdOrStreamId":"…"}}`. An already active ID returns `archive-busy`.
 
 **Native metadata values.** `parentStatus` is `none`, `resolved` or `unresolved`. Source `base` is null or `{source_id,own_end,prefix_digest}` for a proven inherited prefix; `own_end` is its exclusive physical ordinal in the base. Boundary kinds are `compaction`, `context_edit` and `unresolved_parent`. Raw framing coverage is `Object`, `Blank`, `Oversized`, `InvalidUtf8`, `Malformed`, `Incomplete` or `NonObject`. Roles and event kinds retain the adapter’s vocabulary. Use the typed parts for rendering. A response’s `at` is its timestamp and `durationMs` its recorded response duration, which can differ from the whole turn’s duration.
+
+### Records search and reader find
+
+| Command                      | Example request                                                                                                                            | Scope                                                                                                                                                                           |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search_agent_conversations` | `{"request":{"query":"\"amber needle\"","roles":["user","agent","thinking","tool"],"filters":{"harnesses":["claude-code"],"range":"7d"}}}` | All eligible saved roots in descending last-activity order, including their subagents. Forks retain their own cards.                                                            |
+| `find_in_agent_conversation` | `{"request":{"id":"<conversationId>","query":"/needl[eE]/"}}`                                                                              | All readable records in the conversation and its descendants, including collapsed parts and subagent titles. Uses the reader publication even while global indexing is pending. |
+
+Both return `{"streamId":"<uuid>","viewToken":"<uuid>"}`. On Tauri supply `onEvent` alongside `request`. On the dev bridge subscribe once to `GET /previews/{streamId}/events`. The receipt and frames are private to the requesting view. On a new query or dismissal use `cancel_agent_read` with `{"request":{"requestIdOrStreamId":"<streamId>"}}` and discard that stream. Closing the receiver releases its producer.
+
+Unquoted words must all occur in a single native record across the enabled parts, in any order. Quotation marks require consecutive tokens in order within one part, including repetitions. Slashes delimit a case-insensitive Rust regular expression over a readable string. Word and phrase searches use the same Unicode word and CJK tokenization as indexing. The maximum expression length is 4,096 UTF-8 bytes. Each matching word occurrence, phrase start or regex match counts once. Titles participate separately. A title that repeats the first prompt can therefore contribute one title hit and one message hit.
+
+`roles` defaults to all four values and requires at least one. Tool includes inputs and outputs. Assistant strings are readable CommonMark text. Titles always participate in Records search, including a rename made since the last backup. `filters` accepts the list's `harnesses`, `projectId`, `range` or `day`, `timeZone` and conjunctive `flags`. The default includes archived roots and excludes trashed trees. The trash flag searches trashed roots. Results have a fixed activity order and stream through completion.
+
+Each frame has the following envelope. Sequence is a decimal string beginning at zero.
+
+```json
+{
+  "streamId": "<uuid>",
+  "sequence": "0",
+  "type": "progress",
+  "payload": { "scanned": 0, "total": null, "conversations": 0, "hits": 0 }
+}
+```
+
+| Type                 | Payload and client action                                                                                                                                                                                                                                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `started`            | `{"total":131,"indexLag":1,"indexedThrough":721,"filtered":false}`. Total is the number of eligible roots in the selected search epoch. Lag counts distinct pending conversations at admission. Find has one tree, zero index lag and a null index watermark.                                                       |
+| `groups`             | `{"items":[card,…]}`. Upsert each card by its root ID in arrival order. A later copy of the card supplies its new cumulative count and preview.                                                                                                                                                                     |
+| `matches`            | `{"items":[match,…],"hits":42}`. Append the ordered occurrences for find. The first occurrence is 1. `path` contains descendant conversation IDs from the searched conversation down to the origin. Open those subagents in order, then expand the named fold.                                                      |
+| `progress`           | `{"scanned":51,"total":131,"conversations":19,"hits":27}`. Scanned counts completed root visits. The index can rule out additional roots without visiting their bodies. Total is null until the pool is known.                                                                                                      |
+| `finished`           | `{"searchedCount":131,"hits":47,"conversations":32,"filtered":true,"indexLag":0,"complete":true}`. Hits and matching roots are exact for the searched scope. Filtered means a scope filter or role selection narrowed the request. Complete describes normalization coverage. A finished stream can have zero hits. |
+| `cancelled`, `error` | `{"code":"cancelled"}` or another stable error code. Discard provisional results. A mark or visibility change during delivery returns `stale_cursor`.                                                                                                                                                               |
+
+A Records card carries `id`, effective `title` (nullable), `harness`, nullable list `project`, nullable epoch-millisecond `lastActivityAt`, `onlyInPathKeep`, `archived`, cumulative `hits`, `titleHit` and `snippets`. The preview contains at most three occurrences. A title-only match has an empty preview. The stream retains every matching card regardless of the preview size.
+
+A snippet and a find occurrence use the following coordinates.
+
+```json
+{
+  "role": "agent",
+  "text": "甲🙂 NEEDLE",
+  "highlight": [8, 14],
+  "range": [8, 14],
+  "part": 0,
+  "occurrence": 1,
+  "address": {
+    "conversationId": "<id>",
+    "publication": "<publication>",
+    "sourceId": "<source>",
+    "ordinal": 23,
+    "nativeId": "msg-1"
+  },
+  "subagentId": null,
+  "path": [],
+  "fold": null
+}
+```
+
+`range` is a half-open UTF-8 byte range in the complete readable part, or in the title for a title match. `highlight` is a half-open UTF-8 byte range in the supplied snippet after whitespace collapse and clipping. Convert bytes to the view's string coordinates before highlighting. `part` and physical `ordinal` are zero-based. Native IDs are optional. Open the originating conversation using the supplied publication and a record anchor with the source and ordinal. If the reader returns `stale_cursor`, refresh its header and resolve the native ID or repeat find against its current publication. Use the source ID as `branch` for an earlier source. For a Pi match outside the selected leaf, the matching ordinal can serve as `leaf` to open the branch through that record. The physical view can show records whose parentage is unresolved. `fold` is `tool`, `thinking`, `subagent` or null. A descendant title returned by find has `role:"title"`, `address:null`, `part:null` and the subagent path. Tool, thinking and transcript text are never sent on the global event bus.
+
+Both commands use the conversation read admission and transport errors listed above. A malformed expression or empty role set yields `invalid_input`, a rejected regex yields `invalid_regex`, and an unavailable search index yields `index_behind`. Storage and I/O failures can also end a stream. Find can return `conversation_not_found` or `reader_rebuild_required` when the requested publication is unavailable.
+
+## Agent Projects
+
+Use `list_agent_projects` for the Records picker and the three Projects views. The pool includes put-away conversations. Trashing a root removes it and its descendants from project totals. A project with no remaining visible roots drops out of the list. A conversation without a recorded cwd stays in Records with `project:null`.
+
+| Command                          | Example request                                                                                                                | Result                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `list_agent_projects`            | `{"request":{}}`                                                                                                               | Complete all-time project cards, activity ordered, plus the pinned arrangement and pending suggestion count.             |
+| `list_agent_projects`            | `{"request":{"otherOnly":true,"limit":15,"text":"api","harnesses":["pi","codex"],"status":"recent","timeZone":"Asia/Taipei"}}` | First 15 matching unpinned cards. Follow `nextCursor` in the same scope.                                                 |
+| `list_agent_projects`            | `{"request":{"folderTree":true}}`                                                                                              | Adds compressed parent-folder groups and their totals across the full matching pool.                                     |
+| `list_agent_projects`            | `{"request":{"candidateFor":"p-target","text":"work"}}`                                                                        | Eligible independent projects for the add-folder dialog.                                                                 |
+| `get_agent_project`              | `{"request":{"id":"p-api"}}`                                                                                                   | `{status:"ok",project,folders,version,viewToken}`, `{status:"addedInto",into,version}` or `{status:"notFound",version}`. |
+| `list_agent_project_suggestions` | `{"request":{"intoProjectId":"p-api"}}`                                                                                        | `{version,items}` for the settings sheet. Omit the target for the archive-wide review sheet.                             |
+| `edit_agent_project`             | `{"request":{"version":2,"action":{"kind":"rename","id":"p-api","name":"Client API"}}}`                                        | `{"version":3,"createdId":null,"viewToken":"19:0"}`. A section creation returns its issued ID in `createdId`.            |
+
+Projects list envelope and example card:
+
+```json
+{
+  "version": 2,
+  "viewToken": "18:0:2",
+  "total": 601,
+  "matching": 1,
+  "items": [
+    {
+      "id": "p-api",
+      "displayName": "API",
+      "defaultName": "api",
+      "kind": "repo",
+      "mainFolder": "/work/api",
+      "parentFolder": "/work",
+      "folderPaths": ["/work/api", "/worktrees/topic"],
+      "mainExists": true,
+      "folderCount": 2,
+      "gone": false,
+      "nameIsShared": false,
+      "remotes": ["https://example.org/team/api"],
+      "harnesses": ["codex", "pi"],
+      "conversationCount": 8,
+      "subagentCount": 2,
+      "summedAgentMs": 720000,
+      "tokensTotal": 2000,
+      "tokensKnownConversations": 6,
+      "firstActivity": 1794355200000,
+      "lastActivity": 1794355800000,
+      "latestConversationTitle": "Review the API",
+      "hasAddedFolders": false
+    }
+  ],
+  "nextCursor": null,
+  "arrangement": [],
+  "pendingSuggestions": 0,
+  "homeFolder": "/home/tim",
+  "tree": null
+}
+```
+
+- `version` identifies the last canonical project edit. Use it for writes and the Undo toast. On project reads, `viewToken` includes conversation publication, mark and project generations. An edit returns the Records view token for the conversation-change event. Treat IDs and cursors as opaque. `total` counts visible projects and `matching` counts projects after the request filters.
+- `text` matches the display name, every member path and saved remote, case-insensitively. Harness selection matches any selected tool. Status is `all`, `recent` (today and the preceding 29 local calendar days), or `gone`. `timeZone` defaults to the desktop insights zone. Omit `limit` for the complete scope or request 1–500 cards. Cursors seek by last activity and ID. Use the complete summary set for locale-aware name order and the count, time and token column sorts.
+- `kind:"scratch"` identifies the loose-folder bucket. Its main and parent paths are null. Render its localized name when `displayName` is empty. For ordinary projects, `nameIsShared` calls for the full main path as the locator. Use the parent path otherwise. Use `mainExists` to enable the existing `open_path_in_file_manager` command for `mainFolder`.
+- `gone` means every member has a saved missing observation. Presence is nullable when the archive has no observation for a location. Times are Unix milliseconds. `summedAgentMs` sums known root turn durations in milliseconds. `tokensTotal` sums attributed usage across visible roots and their visible children. Both are nullable. `tokensKnownConversations` counts roots with any known usage in that tree. The denominator for partial coverage is `conversationCount`. Latest title uses the effective title of the most recently active visible root.
+- Each detail folder has `path,role,reason,ruleOwner,exists,branch,remotes,harnesses,conversationCount,originalProjectId,autoProjectId,addedFromProject`. Roles are `main,worktree,subfolder,temp,userAdded`. Reasons are `repository,folder,commonGitDirectory,insideRepository,home,temporary,userAssigned,userDetached`. `ruleOwner` is `pathkeep` or `user`. A user addition carries the former project's ID, current display name and default name. Missing facts use null and collections use empty arrays.
+- `arrangement` is a flat, ordered sequence of `{kind,id,parent,name,collapsed,projectCount,conversationCount,lastActivity}`. Parent is the enclosing section ID or null for top level. Preserve sibling order. Section statistics include visible projects at every depth. Absorbed projects retain their saved positions. The initial arrangement is empty.
+- `tree` contains `topLevelProjects` and `groups`. Each group has `id,parent,kind,projectIds,projectCount,conversationCount,lastActivity`. IDs for ordinary groups are paths. The loose-folder group has kind `scratch`. Parent chains containing only one subgroup are folded. Groups directly below home appear at top level. Folder-view collapse is window state.
+- Suggestions carry `id,kind,fromFolder,fromProjectId,intoProjectId,intoDisplayName,fromConversationCount,fromFolderGone,evidence,decision`. Kinds are `sameRemote` with a remote URL, `moved` with old/new paths, and `toolWorktree` with a tool, matching folder name and optional branch. Only never-answered suggestions count in the banner. The sheet orders pending, later and handled answers. Handled entries retain the evidence for the decision. Once a source is absorbed its recorded count describes the decision; the destination card carries the current totals.
+
+For the fixed-project workbench, pass the ID as `projectId` to Records list/count and as `filters.projectId` to conversation search. These read the same assignments used for project totals. The ordinary Records visibility filters still apply. Backup-running and first-save states come from `get_agent_overview` and existing task progress events.
+
+### Project edits
+
+Every action is inside `{"request":{"version":2,"action":…}}`.
+
+| Action JSON                                                    | Effect                                                                                                                                                                                            |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{"kind":"rename","id":"p-api","name":""}`                     | Clears the override. Supplying the default name also clears it.                                                                                                                                   |
+| `{"kind":"join","from":"p-old","into":"p-api"}`                | Assigns the source project's member paths to the destination. Candidate selection excludes the destination, loose folders, absorbed projects and projects already containing manual additions.    |
+| `{"kind":"detach","id":"p-api","path":"/worktrees/topic"}`     | Gives this non-main path its own persistent project assignment.                                                                                                                                   |
+| `{"kind":"answer","id":"pair-id","decision":"added"}`          | Accepts a suggestion and applies its assignments together. Other decisions are `later`, `declined` and `pending`. Returning an accepted suggestion to pending restores its previous folder rules. |
+| `{"kind":"createSection","parent":null,"name":"Work"}`         | Creates a top-level section first. A nested section goes last and opens its parent. Supply the localized initial name.                                                                            |
+| `{"kind":"renameSection","id":"s-work","name":"Current work"}` | Updates a section's display name.                                                                                                                                                                 |
+| `{"kind":"collapse","id":"s-work","collapsed":true}`           | Sets one section. Omit the ID to set all sections.                                                                                                                                                |
+| `{"kind":"move","id":"p-api","parent":"s-work","index":0}`     | Pins or moves a project or section. Index is zero-based among visible destination siblings after removal. Omitting it appends. A null parent selects top level.                                   |
+| `{"kind":"unpin","id":"p-api"}`                                | Returns a project to Other.                                                                                                                                                                       |
+| `{"kind":"deleteSection","id":"s-work"}`                       | Deletes the section and its sub-sections, releasing their project pins.                                                                                                                           |
+| `{"kind":"undo"}`                                              | Restores the choices immediately before the edit named by the request version.                                                                                                                    |
+
+A successful edit emits `pathkeep://agent-projects-changed` with `{version}` and `pathkeep://agent-conversations-changed` with `{id:null,viewToken}`. Refetch project rows on backup completion and when the git-grouping setting changes. Commands use the ordinary retained-conversation admission errors. Invalid cursors, cycles and ineligible folder operations return `invalid_input`. Missing edit targets return `not_found`; a superseded edit version returns `stale_cursor`. Read failures use the archive error envelope.
+
+The Linux scale fixture uses 120,000 published root summaries, including 60,000 in one project across eight working folders. It checks the complete catalogue, the project header, all 50 first-page IDs and the full day count. From `src-tauri` run `cargo test --locked --release -p agent-history --test projects_scale -- --ignored --nocapture`. The output separates one-time membership and rollup preparation from the first read after reopen and 30 warm reads. [Linux measurements and query plans](research/agent-history/validation/projects-linux.jsonl)

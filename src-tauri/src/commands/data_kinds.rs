@@ -87,10 +87,16 @@ pub(crate) async fn preview_agent_sources(
     on_event: Channel<Value>,
 ) -> Result<preview::Started, CommandError> {
     let session = state.inner().clone();
-    let mut frames = run_blocking_command("preview_agent_sources", move || {
+    let frames = run_blocking_command("preview_agent_sources", move || {
         worker_bridge::preview_agent_sources_impl(&session, request.0)
     })
     .await?;
+    Ok(forward_frames(frames, on_event))
+}
+pub(super) fn forward_frames(
+    mut frames: preview::Frames,
+    on_event: Channel<Value>,
+) -> preview::Started {
     let receipt = frames.started.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(frame) = frames.next_frame().await {
@@ -99,7 +105,7 @@ pub(crate) async fn preview_agent_sources(
             }
         }
     });
-    Ok(receipt)
+    receipt
 }
 #[tauri::command]
 pub(crate) async fn cancel_agent_read(

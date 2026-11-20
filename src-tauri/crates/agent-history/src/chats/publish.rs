@@ -298,14 +298,23 @@ pub(crate) fn stage_summary(
     own.conversations = 1;
     own.usage_conversations = i64::from(own.tokens.is_some());
     let totals = serde_json::to_string(&own).map_err(operation)?;
-    tx.execute("INSERT INTO ah_chat_summary(publication,id,root,parent,harness,folder,title,title_source,started,last_activity,missing,bytes,saved,own,totals,recent_key,start_key,agent_key,tokens_key,turns_key,detail,messages,turns,agent_ms,tokens_total,has_edits,has_pr)
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)",
+    if let Some(path) = folder.as_deref().filter(|p| !p.is_empty()) {
+        tx.execute("INSERT OR IGNORE INTO ah_project_paths VALUES(?1)", [path])?;
+    }
+    tx.execute("INSERT INTO ah_chat_summary(publication,id,root,parent,harness,folder,title,title_source,started,last_activity,missing,bytes,saved,own,totals,recent_key,start_key,agent_key,tokens_key,turns_key,detail,messages,turns,agent_ms,tokens_total,has_edits,has_pr,project_id)
+        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,(SELECT project FROM ah_project_folder WHERE path=?6))",
         params![publication,id,i64::from(root),elected.parent_id.as_deref(),harness,folder,title,title_source,started,last,i64::from(missing),bytes,saved,totals,order_key(last,id),order_key(started,id),order_key(own.agent_ms,id),order_key(own.tokens.map(Tokens::total),id),order_key(Some(own.turns),id),detail.to_string(),own.messages,own.turns,own.agent_ms,own.tokens.map(Tokens::total),i64::from(!own.edited_files.is_empty()),i64::from(!own.pull_requests.is_empty())])?;
     Ok(())
 }
 
 pub(crate) fn switch_summaries(tx: &Session<'_>) -> Result<()> {
+    tx.execute(
+        "INSERT OR IGNORE INTO ah_search_dirty SELECT conversation FROM ah_reader_build",
+        (),
+    )?;
     tx.execute("UPDATE ah_chat_clock SET publication=publication+1 WHERE id=1 AND EXISTS(SELECT 1 FROM ah_reader_build)",())?;
+    tx.execute("INSERT OR IGNORE INTO ah_project_dirty SELECT s.folder FROM ah_reader_build b JOIN ah_chat_summary s ON s.id=b.conversation
+        WHERE s.folder IS NOT NULL AND (s.live=1 OR s.publication=b.publication)",())?;
     let parents=tx.query("SELECT DISTINCT s.parent FROM ah_reader_build b JOIN ah_chat_summary s ON s.id=b.conversation WHERE s.parent IS NOT NULL AND (s.live=1 OR s.publication=b.publication)",(),|r|Ok(r.get::<String>(0)?))?;
     tx.execute("UPDATE ah_chat_summary SET live=0 WHERE live=1 AND id IN (SELECT conversation FROM ah_reader_build)",())?;
     tx.execute("UPDATE ah_chat_summary SET live=1 WHERE publication IN (SELECT publication FROM ah_reader_build)",())?;
@@ -327,6 +336,7 @@ pub(crate) fn switch_summaries(tx: &Session<'_>) -> Result<()> {
         }
     }
     for id in affected {
+        crate::projects::rollups::dirty_conversation(tx, &id)?;
         let mut total = Totals::default();
         let mut children = 0;
         tx.for_each("WITH RECURSIVE tree(id) AS (SELECT ?1 UNION SELECT c.id FROM tree t JOIN ah_chat_summary c ON c.parent=t.id AND c.live=1)

@@ -100,25 +100,26 @@ impl Archive {
         Ok(h)
     }
     pub fn chat_header(&self, id: &str) -> Result<Value> {
+        self.ensure_projects()?;
         self.ensure_state_visible()?;
         let h = self.reader_header(id)?;
         let key = id.to_owned();
         let pub_id = h.publication.0.clone();
         let src = h.current_source.clone();
         let parent = h.parent_id.clone();
-        let (summary,unparsed,prompt_count,parent_summary,view,native)=self.store.read(DB,move|s|{
+        let (summary,unparsed,prompt_count,parent_summary,view,(native,cwd))=self.store.read(DB,move|s|{
             let summary=summary(s,&key)?;
             let bad=s.query_one("SELECT unparsed FROM ah_chat_line_stats WHERE publication=?1 AND branch=?2",params![pub_id.as_str(),src.as_str()],|r|Ok(r.get::<i64>(0)?)).optional()?.unwrap_or(0);
             let prompts=s.query_one("SELECT coalesce(max(rank)+1,0) FROM ah_chat_prompt WHERE publication=?1 AND branch=?2",params![pub_id,src.as_str()],|r|Ok(r.get::<i64>(0)?))?;
             let parent=parent.map(|id|super::list::summary(s,&id)).transpose()?.flatten();
-            let native=s.query_one("SELECT native_id FROM ah_sessions WHERE id=?1",[src],|r|Ok(r.get::<String>(0)?))?;
+            let native=s.query_one("SELECT native_id,project_path FROM ah_sessions WHERE id=?1",[src],|r|Ok((r.get::<String>(0)?,r.get::<Option<String>>(1)?)))?;
             Ok((summary,bad,prompts,parent,super::list::view(s)?,native))
         })?;
         let summary = summary.ok_or(Error::ConversationNotFound)?;
         if summary["publication"] != h.publication.0 {
             return Err(Error::StaleCursor);
         }
-        let folder = self.screen_folder(summary.pointer("/project/id").and_then(Value::as_str))?;
+        let folder = self.screen_folder(cwd.as_deref())?;
         let visible = h.visible_records.saturating_sub(self.screen_mirrors(&h, &h.current_source)?)
             + self.extra_count(&h, &h.current_source)?;
         Ok(

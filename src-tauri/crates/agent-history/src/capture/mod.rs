@@ -158,6 +158,7 @@ impl Archive {
         options: &BackupOptions,
         issues: Vec<Diagnostic>,
     ) -> Result<BackupReport> {
+        self.set_project_git(options.read_git);
         let mut capture_outcome = CaptureOutcome::default();
         // The owner rejected these selected directories before discovery could start.
         for issue in &issues {
@@ -266,6 +267,8 @@ fn execute(
         let issues = std::mem::replace(&mut report.issues, earlier);
         record_diagnostics(archive, source, &root, None, report, issues)?;
     }
+    archive.ensure_projects()?;
+    archive.refresh_project_rollups()?;
     notify_phase(options, "index", None);
     archive.synchronize_search_with_cancel(&|| options.cancel.check().is_err())?;
     maintenance(archive, options)?;

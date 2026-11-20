@@ -29,13 +29,14 @@ pub enum Edit {
     Restore { id: String },
     Rename { id: String, title: String },
 }
-fn admitted(
+pub(super) fn admitted(
     session: &VaultSession,
     read: impl FnOnce(&Archive, &vault_core::Vault) -> Result<Value>,
 ) -> Result<Value> {
     delivery::read(|| {
-        let (vault, _) = backups::admitted(session, false)?;
+        let (vault, config) = backups::admitted(session, false)?;
         let archive = vault.agent_history()?;
+        archive.set_project_git(config.capture_policy.read_git);
         let value = read(&archive, &vault)?;
         backups::check_reply(&vault, session, false)?;
         Ok(value)
@@ -170,4 +171,34 @@ pub fn edit(s: &VaultSession, q: Edit, events: backups::Events) -> Result<Value>
         serde_json::json!({"id":id,"viewToken":result["viewToken"]}),
     );
     Ok(result)
+}
+
+pub use agent_history::search::ScreenQuery;
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FindRequest {
+    pub id: String,
+    pub query: String,
+}
+pub fn search(s: &VaultSession, mut q: ScreenQuery) -> Result<super::preview::Frames> {
+    let (vault, config) = backups::admitted(s, false)?;
+    vault.agent_history()?.set_project_git(config.capture_policy.read_git);
+    if q.filters.time_zone.is_none() {
+        q.filters.time_zone = Some(vault_core::insights_time_zone(&vault)?.shown);
+    }
+    let frames = super::preview::search_stream(s, vault.agent_history()?, None, q)?;
+    backups::check_reply(&vault, s, false)?;
+    Ok(frames)
+}
+pub fn find(s: &VaultSession, q: FindRequest) -> Result<super::preview::Frames> {
+    let (vault, config) = backups::admitted(s, false)?;
+    vault.agent_history()?.set_project_git(config.capture_policy.read_git);
+    let frames = super::preview::search_stream(
+        s,
+        vault.agent_history()?,
+        Some(q.id),
+        ScreenQuery::all(q.query),
+    )?;
+    backups::check_reply(&vault, s, false)?;
+    Ok(frames)
 }

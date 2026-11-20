@@ -17,13 +17,14 @@ pub(super) fn migrations() -> MigrationRegistry {
 /// For a role this crate does not own; asking for one is a bug in the caller's composition.
 pub fn schema_steps(db: Db) -> Vec<Migration> {
     match db {
-        Db::AgentHistoryEvidence => steps(EVIDENCE),
+        Db::AgentHistoryEvidence => steps(&[EVIDENCE, crate::projects::schema::EVIDENCE].concat()),
         Db::AgentHistoryReadModel => steps(
             &[
                 PROJECTION,
                 crate::read_model::publication::schema::TABLES,
                 &[vault_store::PAIR_SCHEMA],
                 crate::chats::schema::TABLES,
+                crate::projects::schema::MODEL,
             ]
             .concat(),
         ),

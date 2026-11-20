@@ -4,6 +4,7 @@ pub mod backups;
 pub mod chats;
 pub mod delivery;
 mod hints;
+pub mod projects;
 mod snapshot;
 pub use hints::{DismissHint, HintAcknowledgement, dismiss_hint};
 pub use snapshot::{KindList, KindRow, Transition, list, list_with, retry_agent_store};

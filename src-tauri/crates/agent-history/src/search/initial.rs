@@ -75,7 +75,11 @@ impl Archive {
         })?;
         if !missing && !resume && !pending {
             match super::index::open(self) {
-                Ok(index) if index.watermark < self.projection_generation()? => {}
+                Ok(index)
+                    if index.watermark < self.projection_generation()?
+                        || self.search_cards_dirty()? => {}
+                Err(crate::Error::IndexBehind)
+                    if super::index::previous_schema(self).unwrap_or(false) => {}
                 _ => return Ok(()),
             }
         }

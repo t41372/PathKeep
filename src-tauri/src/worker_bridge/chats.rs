@@ -57,3 +57,17 @@ pub(crate) fn edit_agent_conversation_impl(
 ) -> Result<Value, CommandError> {
     super::data_kinds::surface_result(chats::edit(session, request, events))
 }
+
+pub(crate) fn search_agent_conversations_impl(
+    session: &SessionState,
+    request: chats::ScreenQuery,
+) -> Result<vault_worker::data_kinds::preview::Frames, CommandError> {
+    super::data_kinds::surface_result(chats::search(session, request))
+}
+
+pub(crate) fn find_in_agent_conversation_impl(
+    session: &SessionState,
+    request: chats::FindRequest,
+) -> Result<vault_worker::data_kinds::preview::Frames, CommandError> {
+    super::data_kinds::surface_result(chats::find(session, request))
+}

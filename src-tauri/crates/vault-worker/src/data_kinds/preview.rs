@@ -40,6 +40,7 @@ const CAPACITY: usize = 32;
 #[derive(Clone)]
 struct Permit {
     inbox: Weak<Inbox>,
+    search_view: Option<(Weak<agent_history::Archive>, i64)>,
     paths: ProjectPaths,
     session: VaultSession,
     generation: Option<Weak<Store>>,
@@ -82,6 +83,12 @@ impl Permit {
         };
         if current.initialized != self.initialized || !same_store {
             return Err(Refusal::Replaced.into());
+        }
+        if let Some((owner, marks)) = &self.search_view {
+            let owner = owner.upgrade().ok_or(Refusal::Replaced)?;
+            if owner.search_marks_generation()? != *marks {
+                return Err(agent_history::Error::StaleCursor.into());
+            }
         }
         Ok(())
     }
@@ -357,6 +364,7 @@ fn terminal_error(id: &str, seq: u64, reason: Option<&anyhow::Error>) -> Value {
                 .downcast_ref::<vault_core::admission::Refusal>()
                 .map(|error| error.reason.code())
         })
+        .or_else(|| reason?.downcast_ref::<agent_history::Error>().map(|e| e.code()))
         .unwrap_or("root-unreadable");
     let frame_type = if code == "cancelled" { "cancelled" } else { "error" };
     json!({
@@ -373,6 +381,60 @@ pub fn start(session: &VaultSession, request: PreviewRequest) -> Result<Frames> 
     let config = admitted_config(&paths)?;
     let enable_choices = matches!(request.purpose, Purpose::Enable);
     let roots = sources::resolve(request, &paths.app_root, session, &config)?;
+    let mode = config.archive_mode.clone();
+    private_stream(
+        session,
+        config,
+        enable_choices,
+        None,
+        "agent-source-preview",
+        move |permit, send| enumerate(permit, roots, mode, send),
+    )
+}
+
+/// Search and preview use the same bounded channel, receipts and lifetime checks.
+pub(super) fn search_stream(
+    session: &VaultSession,
+    archive: Arc<agent_history::Archive>,
+    scope: Option<String>,
+    q: agent_history::search::ScreenQuery,
+) -> Result<Frames> {
+    q.validate()?;
+    let config = admitted_config(&vault_core::project_paths()?)?;
+    let view = (Arc::downgrade(&archive), archive.search_marks_generation()?);
+    private_stream(
+        session,
+        config,
+        false,
+        Some(view),
+        "agent-conversation-search",
+        move |permit, send| {
+            let mut failure = None;
+            let result =
+                archive.stream_conversations(scope.as_deref(), &q, &permit.cancel, |ty, p| {
+                    send(ty, p).map_err(|err| {
+                        failure = Some(err);
+                        agent_history::Error::Cancelled
+                    })
+                });
+            if let Some(err) = failure {
+                return Err(err);
+            }
+            Ok(result?)
+        },
+    )
+}
+
+type Emit<'a> = dyn FnMut(&str, Value) -> Result<()> + 'a;
+fn private_stream(
+    session: &VaultSession,
+    config: vault_core::AppConfig,
+    enable_choices: bool,
+    search_view: Option<(Weak<agent_history::Archive>, i64)>,
+    name: &str,
+    produce: impl FnOnce(&Permit, &mut Emit<'_>) -> Result<()> + Send + 'static,
+) -> Result<Frames> {
+    let paths = vault_core::project_paths()?;
     let _gate = vault_core::ControlGate::acquire(&paths);
     if admitted_config(&paths)?.capture_policy != config.capture_policy {
         return Err(Refusal::PolicyChanged.into());
@@ -381,6 +443,7 @@ pub fn start(session: &VaultSession, request: PreviewRequest) -> Result<Frames> 
     let receiver = Arc::new(Inbox { receiver: Mutex::new(receiver), room: Default::default() });
     let permit = Permit {
         inbox: Arc::downgrade(&receiver),
+        search_view,
         owner_permit: super::delivery::Permit::at(&paths.app_root),
         paths,
         session: session.clone(),
@@ -410,9 +473,9 @@ pub fn start(session: &VaultSession, request: PreviewRequest) -> Result<Frames> 
         ended: false,
         next: 0,
     };
-    std::thread::Builder::new().name("agent-source-preview".into()).spawn(move || {
+    std::thread::Builder::new().name(name.into()).spawn(move || {
         let mut seq = 0;
-        let result = enumerate(&permit, roots, config.archive_mode, |ty, payload| {
+        let result = produce(&permit, &mut |ty, payload| {
             let mut frame =
                 json!({"streamId":id,"sequence":seq.to_string(),"type":ty,"payload":payload});
             loop {
@@ -444,6 +507,7 @@ fn idle_ticket_releases_pinned_directory_at_expiry() {
     let paths = vault_core::project_paths_with_root(temp.path());
     let permit = Permit {
         inbox: Weak::new(),
+        search_view: None,
         session: VaultSession::default(),
         generation: None,
         owner_permit: super::delivery::Permit::at(temp.path()),

@@ -147,6 +147,21 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "list_agent_sources" => {
             worker_bridge::list_agent_sources_impl(&state.session, surface_request(payload)?)
         }
+        "list_agent_projects" => {
+            worker_bridge::list_agent_projects_impl(&state.session, surface_request(payload)?)
+        }
+        "get_agent_project" => {
+            worker_bridge::get_agent_project_impl(&state.session, surface_request(payload)?)
+        }
+        "list_agent_project_suggestions" => worker_bridge::list_agent_project_suggestions_impl(
+            &state.session,
+            surface_request(payload)?,
+        ),
+        "edit_agent_project" => worker_bridge::edit_agent_project_impl(
+            &state.session,
+            surface_request(payload)?,
+            backup_events(state),
+        ),
         "list_agent_conversations" => {
             worker_bridge::list_agent_conversations_impl(&state.session, surface_request(payload)?)
         }
@@ -239,6 +254,20 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             )?)
         }
         "detect_data_sources" => worker_bridge::detect_data_sources_impl(surface_request(payload)?),
+        "search_agent_conversations" => {
+            let frames = worker_bridge::search_agent_conversations_impl(
+                &state.session,
+                surface_request(payload)?,
+            )?;
+            json_value!(super::preview::register(state, frames))
+        }
+        "find_in_agent_conversation" => {
+            let frames = worker_bridge::find_in_agent_conversation_impl(
+                &state.session,
+                surface_request(payload)?,
+            )?;
+            json_value!(super::preview::register(state, frames))
+        }
         "preview_agent_sources" => {
             let frames = worker_bridge::preview_agent_sources_impl(
                 &state.session,

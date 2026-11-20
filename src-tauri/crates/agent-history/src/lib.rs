@@ -11,6 +11,7 @@ pub mod chats;
 pub mod error;
 pub mod export;
 pub mod model;
+pub mod projects;
 pub mod query;
 pub mod read_model;
 pub mod search;

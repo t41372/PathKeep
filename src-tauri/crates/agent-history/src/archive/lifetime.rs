@@ -75,6 +75,9 @@ impl Jobs {
         let Some((archive, lease)) = work else { return };
         let started =
             std::thread::Builder::new().name("conversation-reader-gc".into()).spawn(move || {
+                if let Err(error) = archive.collect_search_selectors() {
+                    eprintln!("Conversation search cleanup: {error}");
+                }
                 let result = archive
                     .resume_reader_finalization()
                     .and_then(|()| archive.collect_reader_garbage(&CancelToken::new()));

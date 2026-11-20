@@ -149,6 +149,8 @@ impl Archive {
                 Ok(())
             })?;
         }
+        self.ensure_projects()?;
+        self.refresh_project_rollups()?;
         self.synchronize_search()?;
         Ok(())
     }

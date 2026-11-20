@@ -80,6 +80,59 @@ fn conversation_screen_wire_opens_a_saved_pi_turn_and_reads_its_image() {
             call("get_agent_conversation_counts", json!({})).await.unwrap()["spaceRoots"],
             1
         );
+        for (command, request, expected, frame_type) in [
+            (
+                "search_agent_conversations",
+                json!({"query":"Answer","roles":["agent"]}),
+                1,
+                "groups",
+            ),
+            ("find_in_agent_conversation", json!({"id":id,"query":"/im.ge/"}), 1, "matches"),
+        ] {
+            let receipt =
+                dispatch_command(&state, command, json!({"request":request})).await.unwrap();
+            let stream = receipt["streamId"].as_str().unwrap();
+            let mut frames = crate::dev_ipc_bridge::preview::subscribe(&state, stream).unwrap();
+            let mut seen = false;
+            while let Some(frame) = frames.next_frame().await {
+                assert_eq!(frame["streamId"], stream);
+                if frame["type"] == frame_type {
+                    seen = true;
+                }
+                if frame["type"] == "finished" {
+                    assert_eq!(frame["payload"]["hits"], expected);
+                    break;
+                }
+                assert_ne!(frame["type"], "error", "{frame}");
+            }
+            assert!(seen);
+        }
+        let bad = dispatch_command(
+            &state,
+            "search_agent_conversations",
+            json!({"request":{"query":"/[/"}}),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(bad.code.as_deref(), Some("invalid_regex"));
+        let receipt = dispatch_command(
+            &state,
+            "find_in_agent_conversation",
+            json!({"request":{"id":id,"query":"/.*/"}}),
+        )
+        .await
+        .unwrap();
+        let stream = receipt["streamId"].as_str().unwrap();
+        let mut frames = crate::dev_ipc_bridge::preview::subscribe(&state, stream).unwrap();
+        dispatch_command(
+            &state,
+            "cancel_agent_read",
+            json!({"request":{"requestIdOrStreamId":stream}}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(frames.next_frame().await.unwrap()["type"], "cancelled");
+        assert!(frames.next_frame().await.is_none());
         let h = call("get_agent_conversation", json!({"id":id})).await.unwrap();
         let source = &h["currentSource"];
         let publication = &h["publication"];
@@ -116,11 +169,35 @@ fn conversation_screen_wire_opens_a_saved_pi_turn_and_reads_its_image() {
         let error =
             call("read_agent_conversation_window", json!({"id":id,"limit":201})).await.unwrap_err();
         assert_eq!(error.code.as_deref(), Some("invalid_input"));
+        let project_id = &page["items"][0]["project"]["id"];
+        let projects =
+            dispatch_command(&state, "list_agent_projects", json!({"request":{}})).await.unwrap();
+        assert_eq!(projects["items"][0]["id"], *project_id);
+        let detail =
+            dispatch_command(&state, "get_agent_project", json!({"request":{"id":project_id}}))
+                .await
+                .unwrap();
+        assert_eq!(detail["folders"][0]["path"], "/src/project");
+        let review = dispatch_command(
+            &state,
+            "list_agent_project_suggestions",
+            json!({"request":{"intoProjectId":project_id}}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(review["items"], json!([]));
+        dispatch_command(&state,"edit_agent_project",json!({"request":{"version":projects["version"],"action":{"kind":"rename","id":project_id,"name":"Wire project"}}})).await.unwrap();
+        let renamed =
+            dispatch_command(&state, "get_agent_conversation", json!({"request":{"id":id}}))
+                .await
+                .unwrap();
+        assert_eq!(renamed["summary"]["project"]["label"], "Wire project");
         let mut examples = examples.into_inner();
         normalize(
             &mut examples,
             "",
             &[
+                (page["items"][0]["project"]["id"].as_str().unwrap(), "project-1"),
                 (id.as_str().unwrap(), "chat-1"),
                 (source.as_str().unwrap(), "source-1"),
                 (publication.as_str().unwrap(), "publication-1"),

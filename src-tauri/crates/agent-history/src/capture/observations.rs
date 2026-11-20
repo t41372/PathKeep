@@ -37,7 +37,7 @@ pub(super) fn folders(
             if let Some(issue) = issue {
                 common::push_diagnostic(&mut report.issues, issue);
             }
-            archive.observe_folder(&path, exists, facts)?;
+            archive.observe_folder(&path, exists, options.read_git, facts)?;
             after = path;
         }
     }

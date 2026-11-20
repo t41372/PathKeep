@@ -109,3 +109,31 @@ pub(crate) async fn edit_agent_conversation(
     })
     .await
 }
+
+#[tauri::command]
+pub(crate) async fn search_agent_conversations(
+    state: State<'_, SessionState>,
+    request: Request<chats::ScreenQuery>,
+    on_event: tauri::ipc::Channel<Value>,
+) -> Result<vault_worker::data_kinds::preview::Started, CommandError> {
+    let session = state.inner().clone();
+    let frames = run_blocking_command("search_agent_conversations", move || {
+        worker_bridge::search_agent_conversations_impl(&session, request.0)
+    })
+    .await?;
+    Ok(super::data_kinds::forward_frames(frames, on_event))
+}
+
+#[tauri::command]
+pub(crate) async fn find_in_agent_conversation(
+    state: State<'_, SessionState>,
+    request: Request<chats::FindRequest>,
+    on_event: tauri::ipc::Channel<Value>,
+) -> Result<vault_worker::data_kinds::preview::Started, CommandError> {
+    let session = state.inner().clone();
+    let frames = run_blocking_command("find_in_agent_conversation", move || {
+        worker_bridge::find_in_agent_conversation_impl(&session, request.0)
+    })
+    .await?;
+    Ok(super::data_kinds::forward_frames(frames, on_event))
+}

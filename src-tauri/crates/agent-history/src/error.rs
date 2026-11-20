@@ -22,6 +22,8 @@ pub enum Error {
     ConversationNotFound,
     #[error("the conversation reader requires an offline rebuild")]
     ReaderRebuildRequired,
+    #[error("invalid search regular expression")]
+    InvalidRegex,
     #[error("invalid input: {0}")]
     InvalidInput(String),
     #[error("archive integrity check failed: {0}")]
@@ -60,6 +62,7 @@ impl Error {
             Self::Store(_) => "storage_error",
             Self::Envelope(vault_crypto::EnvelopeError::WrongPassword) => "wrong_password",
             Self::Envelope(_) => "invalid_envelope",
+            Self::InvalidRegex => "invalid_regex",
             Self::InvalidInput(_) => "invalid_input",
             Self::Integrity(_) => "integrity_error",
             Self::NotFound(_) => "not_found",

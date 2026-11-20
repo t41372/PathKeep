@@ -7,7 +7,7 @@ use tantivy::schema::{
 };
 use tantivy::{Index, TantivyDocument};
 
-pub(super) const VERSION: u32 = 2;
+pub(super) const VERSION: u32 = 3;
 
 pub(super) struct Fields {
     pub event_id: Field,
@@ -16,6 +16,10 @@ pub(super) struct Fields {
     pub harness: Field,
     pub project: Field,
     pub text: Field,
+    pub readable: [Field; 4],
+    pub title: Field,
+    pub card_id: Field,
+    pub ordinal: Field,
 }
 
 pub(super) fn schema() -> (Schema, Fields) {
@@ -27,10 +31,15 @@ pub(super) fn schema() -> (Schema, Fields) {
     );
     let fields = Fields {
         event_id: builder.add_u64_field("event_id", INDEXED | STORED),
-        projection_id: builder.add_u64_field("projection_id", STORED),
+        projection_id: builder.add_u64_field("projection_id", STORED | tantivy::schema::FAST),
         session_id: builder.add_text_field("session_id", STRING),
         harness: builder.add_text_field("harness", STRING),
         project: builder.add_text_field("project", STRING),
+        ordinal: builder.add_u64_field("ordinal", tantivy::schema::FAST),
+        title: builder.add_text_field("title", text_options.clone()),
+        card_id: builder.add_text_field("card_id", STRING | STORED),
+        readable: ["user", "agent", "tool", "thinking"]
+            .map(|name| builder.add_text_field(name, text_options.clone())),
         text: builder.add_text_field("text", text_options),
     };
     (builder.build(), fields)
@@ -48,10 +57,14 @@ pub(super) struct EventDocument {
     pub harness: String,
     pub project: String,
     pub text: String,
+    pub native_id: Option<String>,
+    pub parts: Vec<super::expression::Part>,
 }
 
 #[derive(Clone)]
 pub(super) struct EventSource {
+    pub format: Option<i64>,
+    pub publication: Option<String>,
     pub session_id: String,
     pub projection_id: i64,
     pub harness: String,
@@ -60,7 +73,11 @@ pub(super) struct EventSource {
 
 impl EventDocument {
     pub fn byte_len(&self) -> usize {
-        self.session_id.len() + self.harness.len() + self.project.len() + self.text.len()
+        self.session_id.len()
+            + self.harness.len()
+            + self.project.len()
+            + self.text.len()
+            + self.parts.iter().map(|p| p.text.len()).sum::<usize>()
     }
 }
 
@@ -74,11 +91,15 @@ pub(super) fn exact_term(value: &str) -> String {
 impl Fields {
     pub fn document(&self, event: EventDocument) -> TantivyDocument {
         let mut document = TantivyDocument::default();
+        document.add_u64(self.ordinal, event.ordinal as u64);
         document.add_u64(self.event_id, event.event_id as u64);
         document.add_u64(self.projection_id, event.projection_id as u64);
         document.add_text(self.session_id, exact_term(&event.session_id));
         document.add_text(self.harness, exact_term(&event.harness));
         document.add_text(self.project, exact_term(&event.project));
+        for part in event.parts {
+            document.add_text(self.readable[part.role as usize], part.text);
+        }
         document.add_text(self.text, event.text);
         document
     }

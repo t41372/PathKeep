@@ -3,16 +3,16 @@
 //! A commit acknowledges only a checked canonical generation; interruption leaves the
 //! prior commit or an explicitly incomplete new index, never a false current watermark.
 
+use super::queue::{Queue, Queued};
 use super::{SearchSyncReport, index, schema};
 use crate::{Archive, Error, Result};
-use tantivy::{IndexWriter, TantivyDocument, Term};
+use tantivy::{IndexWriter, Term};
 use vault_crypto::EncryptedDirectory;
 use vault_store::{Db, params};
 
 const WRITER_MEMORY_BYTES: usize = 32 * 1024 * 1024;
 const PAGE_BYTES: usize = 4 * 1024 * 1024;
 const PAGE_RECORDS: i64 = 128;
-const QUEUED_OPERATIONS: usize = 4096;
 
 impl Archive {
     /// Explicitly brings searchable events to the current canonical generation.
@@ -28,8 +28,7 @@ impl Archive {
         self.synchronize_search_inner(true, &|| false)
     }
 
-    /// Lets a background owner cancel between bounded SQL/index batches. Partial
-    /// drain commits retain the old watermark until the entire replay completes.
+    /// Cancellation before the final commit leaves the last complete searcher in service.
     pub fn synchronize_search_with_cancel(
         &self,
         cancel: &dyn Fn() -> bool,
@@ -52,22 +51,25 @@ impl Archive {
             return Err(Error::Cancelled);
         }
         let target = self.projection_generation()?;
-        let (opened, rebuilt) = if force_rebuild {
-            (index::recreate(self)?, true)
-        } else {
-            match index::open(self) {
-                Ok(opened) if opened.watermark <= target => (opened, false),
-                Ok(_) | Err(Error::IndexBehind) => (index::recreate(self)?, true),
-                Err(error) => return Err(error),
+        let (opened, rebuilt) = match index::open(self) {
+            Ok(index) => {
+                let reset = force_rebuild || index.watermark > target;
+                (index, reset)
             }
+            Err(Error::IndexBehind) => (index::recreate(self)?, true),
+            Err(err) => return Err(err),
         };
-        if !rebuilt && opened.watermark == target {
+        if !rebuilt && opened.watermark == target && !self.search_cards_dirty()? {
+            self.collect_search_selectors()?;
             return Ok(SearchSyncReport { indexed_events: 0, watermark: target, rebuilt });
         }
-        let mut writer: IndexWriter<TantivyDocument> = index::checked(
+        let mut writer: IndexWriter<Queued> = index::checked(
             opened.index.writer_with_num_threads(1, WRITER_MEMORY_BYTES),
             &opened.directory,
         )?;
+        if rebuilt {
+            index::checked(writer.delete_all_documents(), &opened.directory)?;
+        }
         let result =
             self.index_changes(&opened, &mut writer, target, rebuilt, cancel).and_then(|count| {
                 if cancel() {
@@ -76,29 +78,64 @@ impl Archive {
                 if self.projection_generation()? != target {
                     return Err(Error::IndexBehind);
                 }
+                self.index_titles(&opened, &writer, rebuilt, cancel)?;
+                let _switch = self.search_switch.lock().unwrap();
                 commit(&mut writer, &opened.directory, target)?;
+                self.publish_search_sources(opened.watermark, target, rebuilt)?;
                 Ok(count)
             });
-        // Uncommitted changes are discarded on writer drop. Join even on cancellation:
-        // a merge can still own directory handles from an earlier partial commit.
+        // Wait for background segment merges before releasing the archive lease.
         let joined = index::checked(writer.wait_merging_threads(), &opened.directory);
         let indexed_events = result?;
         joined?;
+        self.collect_search_selectors()?;
         Ok(SearchSyncReport { indexed_events, watermark: target, rebuilt })
     }
 
+    fn index_titles(
+        &self,
+        opened: &index::Opened,
+        writer: &IndexWriter<Queued>,
+        all: bool,
+        cancel: &dyn Fn() -> bool,
+    ) -> Result<()> {
+        let queue = std::sync::Arc::new(Queue::default());
+        let mut after = String::new();
+        loop {
+            if cancel() {
+                return Err(Error::Cancelled);
+            }
+            let rows = self.store.read(Db::AgentHistoryReadModel, move |s| {
+                let sql = if all { "SELECT id,title FROM ah_chat_summary WHERE live=1 AND id>?1 ORDER BY id LIMIT 256" } else { "SELECT d.id,s.title FROM ah_search_dirty d LEFT JOIN ah_chat_summary s ON s.id=d.id AND s.live=1 WHERE d.id>?1 ORDER BY d.id LIMIT 256" };
+                s.query(sql, [after], |r| Ok((r.get::<String>(0)?, r.get::<Option<String>>(1)?)))
+            })?;
+            let Some((last, _)) = rows.last() else { return Ok(()) };
+            after = last.clone();
+            for (id, title) in rows {
+                if !all {
+                    writer.delete_term(Term::from_field_text(opened.fields.card_id, &id));
+                }
+                if let Some(title) = title {
+                    let bytes = id.len() + title.len();
+                    let mut doc = tantivy::TantivyDocument::default();
+                    doc.add_text(opened.fields.card_id, id);
+                    doc.add_text(opened.fields.title, title);
+                    index::checked(writer.add_document(queue.wrap(doc, bytes)), &opened.directory)?;
+                }
+            }
+        }
+    }
     fn index_changes(
         &self,
         opened: &index::Opened,
-        writer: &mut IndexWriter<TantivyDocument>,
+        writer: &mut IndexWriter<Queued>,
         target: i64,
         rebuilt: bool,
         cancel: &dyn Fn() -> bool,
     ) -> Result<u64> {
         let mut last_session = String::new();
         let mut count = 0;
-        let mut queued_bytes = 0;
-        let mut queued_records = 0;
+        let queue = std::sync::Arc::new(Queue::default());
         loop {
             if cancel() {
                 return Err(Error::Cancelled);
@@ -126,16 +163,11 @@ impl Archive {
                 break;
             }
             for session in sessions {
-                writer.delete_term(Term::from_field_text(
-                    opened.fields.session_id,
-                    &schema::exact_term(&session),
-                ));
-                queued_bytes += session.len();
-                queued_records += 1;
-                if queued_bytes >= PAGE_BYTES || queued_records >= QUEUED_OPERATIONS {
-                    commit(writer, &opened.directory, opened.watermark)?;
-                    queued_bytes = 0;
-                    queued_records = 0;
+                if !rebuilt {
+                    writer.delete_term(Term::from_field_text(
+                        opened.fields.session_id,
+                        &schema::exact_term(&session),
+                    ));
                 }
                 let Some(source) = self.index_source(&session)? else {
                     // A tombstone still deletes the prior indexed conversation.
@@ -153,26 +185,15 @@ impl Archive {
                     }
                     for event in page {
                         after_ordinal = event.ordinal;
-                        if event.text.is_empty() {
+                        if event.text.is_empty() && event.parts.is_empty() {
                             continue;
                         }
-                        queued_bytes += event.byte_len();
-                        queued_records += 1;
+                        let bytes = event.byte_len();
                         index::checked(
-                            writer.add_document(opened.fields.document(event)),
+                            writer.add_document(queue.wrap(opened.fields.document(event), bytes)),
                             &opened.directory,
                         )?;
                         count += 1;
-                        if queued_bytes >= PAGE_BYTES || queued_records >= QUEUED_OPERATIONS {
-                            // Tantivy's operation queue is sized in documents, not
-                            // bytes, and sits outside its writer memory budget. A
-                            // bounded drain prevents thousands of large messages
-                            // queuing at once. Keep the old watermark: this partial
-                            // index is unavailable until the full replay ends.
-                            commit(writer, &opened.directory, opened.watermark)?;
-                            queued_bytes = 0;
-                            queued_records = 0;
-                        }
                     }
                 }
                 last_session = session;
@@ -188,7 +209,7 @@ impl Archive {
         let session = session.to_owned();
         let rows = self.store.read(Db::AgentHistoryReadModel, move |database| {
             database.query(
-                "SELECT id, projection_id, harness, coalesce(project_path, '' ) FROM
+                "SELECT id, projection_id, harness, coalesce(project_path, '' ), CASE WHEN harness='deepseek' THEN (SELECT json_extract(payload,'$.version') FROM ah_events WHERE session_id=ah_sessions.id AND projection_id=ah_sessions.projection_id AND ordinal=0) END,(SELECT publication FROM ah_chat_summary c WHERE c.id=ah_sessions.conversation_id AND c.live=1) FROM
                     ah_sessions WHERE id=?1 AND (current_only=0 OR conversation_current=1) LIMIT 1",
                 [session],
                 |row| {
@@ -197,6 +218,8 @@ impl Archive {
                         projection_id: row.get(1)?,
                         harness: row.get(2)?,
                         project: row.get(3)?,
+                        format: row.get(4)?,
+                        publication: row.get(5)?,
                     })
                 },
             )
@@ -204,53 +227,93 @@ impl Archive {
         Ok(rows.into_iter().next())
     }
 
-    fn index_event_page(
+    pub(super) fn index_event_page(
         &self,
         source: &schema::EventSource,
         after_ordinal: i64,
     ) -> Result<Vec<schema::EventDocument>> {
-        let source = source.clone();
-        Ok(self.store.read(Db::AgentHistoryReadModel, move |database| {
-            // Bind the publication once per source. Turso 0.8.3 adds an ORDER BY
-            // sorter when these equalities come through the sessions JOIN, even
-            // while selecting the right event index. A direct bounded seek avoids
-            // sorting the remaining conversation on every page. The publication
-            // watermark is checked before the final search commit.
-            let mut statement = database.prepare(
-                "SELECT id, ordinal, text FROM ah_events WHERE session_id=?1 AND
-                    projection_id=?2 AND ordinal>?3 ORDER BY ordinal LIMIT ?4",
-            )?;
+        self.search_record_page(source, after_ordinal, &[])
+    }
+    pub(super) fn search_record_page(
+        &self,
+        source: &schema::EventSource,
+        after_ordinal: i64,
+        ordinals: &[i64],
+    ) -> Result<Vec<schema::EventDocument>> {
+        let restrict = if ordinals.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " AND ordinal IN ({})",
+                ordinals.iter().map(ToString::to_string).collect::<Vec<_>>().join(",")
+            )
+        };
+        let bound = source.clone();
+        let raw = self.store.read(Db::AgentHistoryReadModel, move |database| {
+            let mut statement = database.prepare(&format!(
+                "SELECT id,ordinal,text,native_id,kind,role,payload,
+                CASE WHEN ?5 IS NOT NULL THEN EXISTS(SELECT 1 FROM ah_chat_mirror m WHERE m.publication=?5 AND m.source=?1 AND m.ordinal=e.ordinal) ELSE 0 END
+                FROM ah_events e WHERE session_id=?1 AND projection_id=?2 AND ordinal>?3 {restrict} ORDER BY ordinal LIMIT ?4"
+            ))?;
+            let publication = if bound.harness == "codex" { bound.publication } else { None };
             let mut rows = statement.query(params![
-                source.session_id.clone(),
-                source.projection_id,
+                bound.session_id,
+                bound.projection_id,
                 after_ordinal,
                 PAGE_RECORDS,
+                publication
             ])?;
             let mut page = Vec::new();
             let mut bytes = 0;
             while let Some(row) = rows.next()? {
-                let event = schema::EventDocument {
-                    event_id: row.get(0)?,
-                    projection_id: source.projection_id,
-                    ordinal: row.get(1)?,
-                    session_id: source.session_id.clone(),
-                    harness: source.harness.clone(),
-                    project: source.project.clone(),
-                    text: row.get(2)?,
+                let text: String = row.get(2)?;
+                let payload: String = row.get(6)?;
+                bytes += text.len() + payload.len();
+                let native = crate::NativeEvent {
+                    references: vec![],
+                    ordinal: row.get::<i64>(1)? as u64,
+                    native_id: row.get(3)?,
+                    parent_id: None,
+                    kind: row.get(4)?,
+                    role: row.get(5)?,
+                    timestamp: None,
+                    text,
+                    payload: serde_json::Value::Null,
                 };
-                bytes += event.byte_len();
-                page.push(event);
+                page.push((row.get::<i64>(0)?, native, payload, row.get::<i64>(7)? != 0));
                 if bytes >= PAGE_BYTES {
                     break;
                 }
             }
             Ok(page)
-        })?)
+        })?;
+        let harness = source.harness.parse()?;
+        raw.into_iter()
+            .map(|(event_id, mut native, payload, mirror)| {
+                let parts = if mirror {
+                    vec![]
+                } else {
+                    native.payload = serde_json::from_str(&payload)?;
+                    super::expression::readable(&native, harness, source.format)
+                };
+                Ok(schema::EventDocument {
+                    parts,
+                    event_id,
+                    ordinal: native.ordinal as i64,
+                    native_id: native.native_id,
+                    projection_id: source.projection_id,
+                    session_id: source.session_id.clone(),
+                    harness: source.harness.clone(),
+                    project: source.project.clone(),
+                    text: native.text,
+                })
+            })
+            .collect()
     }
 }
 
 fn commit(
-    writer: &mut IndexWriter<TantivyDocument>,
+    writer: &mut IndexWriter<Queued>,
     directory: &Option<EncryptedDirectory>,
     watermark: i64,
 ) -> Result<()> {

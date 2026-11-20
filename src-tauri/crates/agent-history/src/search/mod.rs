@@ -1,8 +1,14 @@
-//! Responsibilities: expose bounded full-text queries and explicit index synchronization.
-//! Not responsible for: native parsing, archive publication, UI search syntax or models.
-//! Search never repairs derived state. A canonical/index watermark mismatch is an
-//! explicit error so callers cannot mistake an incomplete result for no matches.
+//! Conversation index publication, strict CLI top results and cancellable screen streams.
+//! Native interpretation belongs to the adapters. Search reads only archived content.
 
+mod candidates;
+mod catalog;
+mod delivery;
+mod expression;
+mod publication;
+mod queue;
+mod stream;
+pub use stream::{Role, ScreenQuery};
 mod index;
 mod initial;
 pub(crate) use initial::InitialSearch;

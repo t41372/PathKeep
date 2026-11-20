@@ -97,7 +97,7 @@ impl Archive {
         let (epoch, attempt, after) = (pass.epoch, pass.version_attempt.clone(), pass.version_row);
         Ok(self.store.read(DB, move |tx| {
             let publication = tx.query_one(
-                "SELECT epoch FROM ah_reader_retired WHERE epoch>?1 AND epoch<=?2 ORDER BY epoch LIMIT 1",
+                "SELECT epoch FROM ah_reader_retired WHERE epoch>?1 AND epoch<=?2 AND NOT EXISTS(SELECT 1 FROM ah_search_card WHERE publication=ah_reader_retired.publication) ORDER BY epoch LIMIT 1",
                 params![epoch, cutoff], |r| Ok(r.get(0)?),
             ).optional()?;
             if let Some(epoch) = publication {
@@ -117,7 +117,7 @@ impl Archive {
 
 fn prune_publication(tx: &Session<'_>, epoch: i64, limit: i64) -> vault_store::Result<u64> {
     let Some(owner) = tx
-        .query_one("SELECT publication FROM ah_reader_retired WHERE epoch=?1", [epoch], |r| {
+        .query_one("SELECT publication FROM ah_reader_retired WHERE epoch=?1 AND NOT EXISTS(SELECT 1 FROM ah_search_card WHERE publication=ah_reader_retired.publication)", [epoch], |r| {
             Ok(r.get_value(0)?)
         })
         .optional()?
@@ -149,7 +149,7 @@ fn prune_publication(tx: &Session<'_>, epoch: i64, limit: i64) -> vault_store::R
         changed += delete_batch(tx, table, "publication", &owner, limit)?;
     }
     if changed == 0 {
-        changed = tx.execute("DELETE FROM ah_reader_retired WHERE epoch=?1", [epoch])?
+        changed = tx.execute("DELETE FROM ah_reader_retired WHERE epoch=?1 AND NOT EXISTS(SELECT 1 FROM ah_search_card WHERE publication=ah_reader_retired.publication)", [epoch])?
     }
     Ok(changed)
 }

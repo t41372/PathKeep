@@ -4,7 +4,7 @@ mod attachments;
 pub use attachments::AttachmentQuery;
 pub(crate) mod facts;
 mod info;
-mod list;
+pub(crate) mod list;
 mod mirrors;
 mod operations;
 mod pricing;

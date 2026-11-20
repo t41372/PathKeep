@@ -20,7 +20,7 @@ pub struct RecordPart {
     pub text: String,
 }
 
-pub(super) fn render(context: &RecordContext, event: &NativeEvent) -> Vec<RecordPart> {
+pub(crate) fn render(context: &RecordContext, event: &NativeEvent) -> Vec<RecordPart> {
     use crate::adapters::{claude, codex, deepseek, pi, session_json};
     match context {
         RecordContext::Claude => claude::parts(event),

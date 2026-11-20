@@ -58,8 +58,8 @@ fn event_index_pages_seek_the_published_projection_without_a_sorter() {
             true,
         )
         .unwrap();
-    archive.store.capture_query_plans(Db::AgentHistoryReadModel, true).unwrap();
     let source = archive.index_source("source-a").unwrap().unwrap();
+    archive.store.capture_query_plans(Db::AgentHistoryReadModel, true).unwrap();
     let page = archive.index_event_page(&source, 127).unwrap();
     assert_eq!(page.len(), 128);
     assert_eq!(page[0].ordinal, 128);

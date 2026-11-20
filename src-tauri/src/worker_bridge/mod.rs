@@ -13,6 +13,8 @@ use crate::command_error::CommandError;
 #[cfg(test)]
 use crate::command_error::{ACTION_HINT_UNLOCK, ERROR_CODE_LOCK_REQUIRED, RETRY_HINT_AFTER_ACTION};
 
+mod projects;
+pub(crate) use projects::*;
 mod chats;
 pub(crate) use chats::*;
 mod data_kinds;

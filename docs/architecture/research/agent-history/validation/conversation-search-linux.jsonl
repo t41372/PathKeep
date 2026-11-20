@@ -1,0 +1,4 @@
+{"elapsedMs":125787,"operation":"indexBuild","records":14400000,"roots":120000}
+{"conversations":120000,"endMs":14444.17987,"firstResultMs":9.478986,"hits":3600000,"operation":"search","query":"commonword","searched":120000}
+{"conversations":1,"endMs":141.56366500000001,"firstResultMs":6.0508560000000005,"hits":1,"operation":"search","query":"singularneedle","searched":120000}
+{"backupMs":314.583828,"indexUpdateMs":150.34465,"indexedEvents":2,"operation":"oneNewRoot"}
