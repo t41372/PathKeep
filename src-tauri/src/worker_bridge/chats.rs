@@ -75,14 +75,21 @@ pub(crate) fn find_in_agent_conversation_impl(
 pub(crate) fn export_agent_conversation_impl<R: tauri::Runtime>(
     app: Option<&tauri::AppHandle<R>>,
     session: &SessionState,
-    q: chats::ConversationExport,
+    q: vault_worker::data_kinds::exports::Request,
+    events: Events,
 ) -> Result<Value, CommandError> {
-    super::data_kinds::surface_result(chats::admit_export(session, &q.id))?;
+    let job = super::data_kinds::surface_result(vault_worker::data_kinds::exports::Job::begin(
+        session,
+        &q.conversation.id,
+        q.export_id,
+        events,
+    ))?;
+    let q = q.conversation;
     let ext = q.format.extension();
-    let Some(path) = super::save_path(app, &format!("conversation.{ext}"), (ext, &[ext]))? else {
-        return Ok(Value::Null);
-    };
-    super::data_kinds::surface_result(chats::export(session, q, &path))
+    let path = super::save_path(app, &format!("conversation.{ext}"), (ext, &[ext]))?;
+    super::data_kinds::surface_result(job.check())?;
+    let Some(path) = path else { return Ok(Value::Null) };
+    super::data_kinds::surface_result(job.write(session, q, &path))
 }
 
 pub(crate) fn get_agent_viewer_preferences_impl(
@@ -122,4 +129,10 @@ pub(crate) fn control_agent_semantic_index_impl(
     events: Events,
 ) -> Result<Value, CommandError> {
     super::data_kinds::surface_result(vault_worker::data_kinds::semantic::control(s, q, events))
+}
+
+pub(crate) fn cancel_agent_export_impl(
+    q: vault_worker::data_kinds::exports::Cancel,
+) -> Result<Value, CommandError> {
+    super::data_kinds::surface_result(vault_worker::data_kinds::exports::cancel(q))
 }

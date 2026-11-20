@@ -30,7 +30,7 @@ fn intelligence_v2_keeps_every_row_and_total_and_isolates_lineages() {
     drop(store);
     let store = Store::open(config(root.path(), None)).unwrap();
     store.read(Db::Intelligence, |s| {
-        assert_eq!(s.schema_version()?, 2);
+        assert_eq!(s.schema_version()?,crate::store_schema::schema_version(Db::Intelligence));
         assert_eq!(s.query_one("SELECT COUNT(*),SUM(id),MIN(lineage),MAX(lineage) FROM ai_embeddings", (), |r| Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<String>(2)?,r.get::<String>(3)?)))?, (1025,1025*1026/2,"legacy".into(),"legacy".into()));
         assert_eq!(s.query_one("SELECT item_count,content_bytes,metadata_bytes,lineage FROM ai_embedding_totals", (), |r| Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?,r.get::<String>(3)?)))?, (1025,1025*128,1025*256,"legacy".into()));
         Ok(())

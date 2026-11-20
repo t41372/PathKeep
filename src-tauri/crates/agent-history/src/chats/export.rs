@@ -55,9 +55,27 @@ impl Archive {
         collapse_tools: bool,
         show_thinking: bool,
     ) -> Result<()> {
+        self.export_conversation_with_job(
+            q,
+            out,
+            collapse_tools,
+            show_thinking,
+            &JobControl::default(),
+        )
+    }
+    /// The window can stop an archive read between writes, including native frame replay.
+    pub fn export_conversation_with_job(
+        &self,
+        q: &ConversationExport,
+        out: &mut dyn Write,
+        collapse_tools: bool,
+        show_thinking: bool,
+        job: &JobControl,
+    ) -> Result<()> {
+        job.cancel.check()?;
         let h = self.screen_head(&q.id, q.publication.as_deref())?;
         match q.format {
-            ConversationFormat::Originals => self.export_originals(&h, out)?,
+            ConversationFormat::Originals => self.export_originals(&h, out, job)?,
             ConversationFormat::Jsonl => {
                 self.write_normalized(&q.id, ExportFormat::Jsonl, out)?;
             }
@@ -89,9 +107,8 @@ impl Archive {
                     show_cost: Some(display.show_cost),
                     estimate_cost: Some(display.estimate_cost),
                 };
-                let job = JobControl::default();
                 loop {
-                    let page = self.chat_window(&query, &job)?;
+                    let page = self.chat_window(&query, job)?;
                     for row in page["rows"].as_array().expect("reader window rows") {
                         let role = row["role"].as_str().or(row["kind"].as_str()).unwrap_or("");
                         if html {
@@ -147,7 +164,7 @@ impl Archive {
                                 .or(chip["kind"].as_str())
                                 .unwrap_or("attachment");
                             if html {
-                                self.export_chip(&h, row, chip, out, &job)?;
+                                self.export_chip(&h, row, chip, out, job)?;
                             } else {
                                 writeln!(out, "[{label}]")?;
                             }
@@ -188,11 +205,17 @@ impl Archive {
         }).collect::<Vec<_>>()))
     }
 
-    fn export_originals(&self, head: &ReaderPublication, out: &mut dyn Write) -> Result<()> {
+    fn export_originals(
+        &self,
+        head: &ReaderPublication,
+        out: &mut dyn Write,
+        job: &JobControl,
+    ) -> Result<()> {
         let mut tar = tar::Builder::new(out);
         let mut pending = vec![head.clone()];
         let mut seen = HashSet::new();
         while let Some(h) = pending.pop() {
+            job.cancel.check()?;
             if !seen.insert(h.conversation_id.clone()) {
                 continue;
             }
@@ -207,7 +230,7 @@ impl Archive {
                     let mut header = tar::Header::new_gnu();
                     header.set_size(m.bytes);
                     header.set_mode(0o600);
-                    let mut reader = self.raw_reader(m.revision)?;
+                    let mut reader = self.raw_reader(m.revision)?.with_scan_control(job);
                     use sha2::{Digest, Sha256};
                     let directory = hex::encode(Sha256::digest(m.root.as_bytes()));
                     let path = Path::new(&m.harness).join(directory).join(&m.relative_path);

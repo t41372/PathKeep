@@ -578,7 +578,7 @@ for one already up to date. vault-core counts the update from that moment until 
 The consolidated v1 includes the batch-review, outbox-page, manifest-run and
 snapshot-run indexes, and the URL recency index `(last_visit_ms DESC, id DESC)`.
 No read path runs DDL. Doctor expects each durable database at the version its registered
-migrations reach (`MigrationRegistry::latest_version`); Intelligence is at 2. The catalog,
+migrations reach (`MigrationRegistry::latest_version`); Archive is at 24 and Intelligence is at 3. These latest migrations add per-attempt task acknowledgements and state indexes. The catalog,
 reopen and consolidated-version tests cover the schema in plaintext and with a key.
 
 `archive_totals` keys named `sourceVisits:<source_profile_id>` track visible visits.

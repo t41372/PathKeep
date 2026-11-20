@@ -449,3 +449,6 @@ mod outcomes;
 mod conversations;
 #[path = "app_surface/source_rules.rs"]
 mod source_rules;
+
+#[path = "app_surface/screen_gaps.rs"]
+mod screen_gaps;

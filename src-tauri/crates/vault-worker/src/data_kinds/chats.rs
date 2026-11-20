@@ -217,52 +217,14 @@ pub fn find(s: &VaultSession, q: FindRequest) -> Result<super::preview::Frames> 
 
 pub use agent_history::chats::ConversationExport;
 
-/// Check reader admission before opening a system dialog. The write checks again when it returns.
-pub fn admit_export(session: &VaultSession, id: &str) -> Result<()> {
-    let (vault, _) = backups::admitted(session, false)?;
-    vault.agent_history()?.reader_header(id)?;
-    Ok(())
-}
-
-/// Save only after the native dialog supplies a destination. A failed read leaves any previous file intact.
+/// Non-window callers can stream directly to an already chosen target.
 pub fn export(
     session: &VaultSession,
-    mut q: ConversationExport,
+    q: ConversationExport,
     target: &std::path::Path,
 ) -> Result<Value> {
-    use std::io::Write;
-    delivery::read(|| {
-        let (vault, config) = backups::admitted(session, false)?;
-        use agent_history::chats::ExportLocale;
-        use vault_core::LanguagePreference;
-        q.locale.get_or_insert(match config.preferred_language {
-            LanguagePreference::ZhCn => ExportLocale::Simplified,
-            LanguagePreference::ZhTw => ExportLocale::Traditional,
-            LanguagePreference::System | LanguagePreference::En => ExportLocale::English,
-        });
-        let folder = std::fs::canonicalize(target.parent().ok_or(Refusal::Destination)?)?;
-        let archive = vault.agent_history()?;
-        if folder.starts_with(std::fs::canonicalize(archive.root())?)
-            || backups::selection::device_roots(&vault, &config.capture_policy)?
-                .iter()
-                .any(|r| folder.starts_with(&r.path))
-        {
-            return Err(Refusal::Destination.into());
-        }
-        vault_core::durable_io::atomic_durable_write_with(target, |out| {
-            let mut out = std::io::BufWriter::new(out);
-            archive.export_conversation(
-                &q,
-                &mut out,
-                config.agent_viewer.reader_collapse_tool_calls,
-                config.agent_viewer.reader_show_thinking,
-            )?;
-            out.flush()?;
-            backups::check_reply(&vault, session, false)?;
-            Ok(())
-        })?;
-        Ok(serde_json::json!({"path":target,"bytes":target.metadata()?.len().to_string()}))
-    })
+    let job = super::exports::Job::begin(session, &q.id, None, std::sync::Arc::new(|_, _| {}))?;
+    job.write(session, q, target)
 }
 
 #[derive(Deserialize)]

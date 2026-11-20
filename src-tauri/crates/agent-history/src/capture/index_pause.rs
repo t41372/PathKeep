@@ -37,7 +37,11 @@ impl IndexPause {
     pub(super) fn synchronize(&self, a: &Archive, opts: &BackupOptions) -> Result<()> {
         *self.state.lock().unwrap() = State::Running;
         notify_phase(opts, "index", None);
-        let result = self.run(a, opts);
+        let result = super::debug_delay::wait(
+            super::debug_delay::configured("PATHKEEP_TEST_AGENT_INDEX_DELAY_US"),
+            &opts.cancel,
+        )
+        .and_then(|()| self.run(a, opts));
         *self.state.lock().unwrap() = State::Inactive;
         result
     }

@@ -10,7 +10,7 @@ agent-history = { path = "../agent-history" }
 fs4 = "0.13.1"
 same-file = "1.0.6"
 libc.workspace = true
-uuid = { version = "1.23.1", features = ["v4"] }
+uuid = { version = "1.23.1", features = ["v4","serde"] }
 vault-build = { path = "../vault-build" }
 vault-layout = { path = "../vault-layout" }
 vault-convert-sqlcipher = { path = "../vault-convert-sqlcipher" }

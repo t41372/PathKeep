@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, JsonSchema,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum DataKind {
     Browsing,
@@ -30,6 +32,35 @@ pub enum AgentTool {
     Codex,
     Pi,
     Deepseek,
+}
+
+/// Device-local setup draft. Only a reviewed source selection can authorize a capture.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OnboardingChoices {
+    pub kinds: BTreeSet<DataKind>,
+    pub agent_tools: BTreeSet<AgentTool>,
+    pub read_git: bool,
+}
+impl OnboardingChoices {
+    pub fn capture_policy(self) -> Result<CapturePolicy, LastActiveKind> {
+        let agent = self.kinds.contains(&DataKind::AgentHistory);
+        let policy = CapturePolicy {
+            browsing: if self.kinds.contains(&DataKind::Browsing) {
+                KindState::On
+            } else {
+                KindState::Off
+            },
+            agent_history: if agent { KindState::On } else { KindState::Off },
+            explicitly_off: !agent,
+            empty_tools_chosen: self.agent_tools.is_empty(),
+            enabled_tools: self.agent_tools,
+            read_git: self.read_git,
+            ..Default::default()
+        };
+        policy.validate()?;
+        Ok(policy)
+    }
 }
 
 impl AgentTool {

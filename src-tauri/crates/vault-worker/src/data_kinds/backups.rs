@@ -440,6 +440,18 @@ pub fn register_recovery_events(session: &VaultSession, events: Events) {
 }
 
 pub(crate) fn observe_availability(session: &VaultSession, vault: &Vault) {
+    if has_event_sink(session) {
+        let owner = Arc::downgrade(&session.conversations);
+        let paths = vault.paths().clone();
+        vault.store().on_table_writes(
+            &[(Db::Archive, &["RUNS"]), (Db::Intelligence, &["AI_JOBS", "INTELLIGENCE_JOBS"])],
+            move |_| {
+                if let Some(runtime) = owner.upgrade() {
+                    notify_browsing_tasks(&runtime, &paths);
+                }
+            },
+        );
+    }
     let runtime = Arc::downgrade(&session.conversations);
     let paths = vault.paths().clone();
     vault.store().on_availability_change(move ||{
@@ -448,6 +460,14 @@ pub(crate) fn observe_availability(session: &VaultSession, vault: &Vault) {
             emit(super::POLICY_EVENT,json!({"policyToken":config.capture_policy.token(),"changedKinds":["agent-history"]}));
         }
     });
+}
+
+pub(crate) fn notify_browsing_tasks(runtime: &Runtime, paths: &ProjectPaths) {
+    if let Some(emit) = runtime.recovery_events.get()
+        && admitted_config(paths).is_ok()
+    {
+        emit("pathkeep://background-tasks-changed", json!({"kind":"browsing","taskId":null}));
+    }
 }
 
 pub(super) fn has_event_sink(session: &VaultSession) -> bool {

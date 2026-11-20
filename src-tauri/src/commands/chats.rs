@@ -142,11 +142,16 @@ pub(crate) async fn find_in_agent_conversation(
 pub(crate) async fn export_agent_conversation(
     app: AppHandle,
     state: State<'_, SessionState>,
-    request: Request<chats::ConversationExport>,
+    request: Request<vault_worker::data_kinds::exports::Request>,
 ) -> Result<Value, CommandError> {
     let session = state.inner().clone();
     run_blocking_command("export_agent_conversation", move || {
-        worker_bridge::export_agent_conversation_impl(Some(&app), &session, request.0)
+        worker_bridge::export_agent_conversation_impl(
+            Some(&app),
+            &session,
+            request.0,
+            super::data_kinds::desktop_events(app.clone()),
+        )
     })
     .await
 }
@@ -213,6 +218,16 @@ pub(crate) async fn control_agent_semantic_index(
             request.0,
             super::data_kinds::desktop_events(app),
         )
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn cancel_agent_export(
+    request: Request<vault_worker::data_kinds::exports::Cancel>,
+) -> Result<Value, CommandError> {
+    run_blocking_command("cancel_agent_export", move || {
+        worker_bridge::cancel_agent_export_impl(request.0)
     })
     .await
 }

@@ -241,6 +241,8 @@ fn run_app() -> Result<()> {
             search_agent_conversations,
             find_in_agent_conversation,
             export_agent_conversation,
+            cancel_agent_export,
+            save_onboarding_choices,
             get_agent_viewer_preferences,
             get_agent_semantic_index,
             control_agent_semantic_index,

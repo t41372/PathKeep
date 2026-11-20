@@ -9,7 +9,13 @@ use crate::{Error, Result};
 // statement. Only one statement is allowed; migrations use one call per statement.
 // Identifiers are decoded, comments/string contents are skipped, and reserved
 // namespaces are excluded throughout (including trigger bodies and CTEs).
-pub(crate) fn validate(sql: &str, read_only: bool) -> Result<(bool, bool)> {
+#[derive(Clone, Default)]
+pub(crate) struct Policy {
+    pub scratch: bool,
+    pub archive: bool,
+    pub write_table: Option<std::sync::Arc<str>>,
+}
+pub(crate) fn validate(sql: &str, read_only: bool) -> Result<Policy> {
     let words = tokens(sql)?;
     let Some(first) = words.first() else { return Err(Error::RestrictedSql("empty statement")) };
     let reading = matches!(first.as_str(), "SELECT" | "WITH" | "EXPLAIN");
@@ -64,7 +70,33 @@ pub(crate) fn validate(sql: &str, read_only: bool) -> Result<(bool, bool)> {
     {
         return Err(Error::RestrictedSql("archive writes belong to Db::Archive"));
     }
-    Ok((words.iter().any(|word| word == "SCRATCH"), words.iter().any(|word| word == "ARCHIVE")))
+    Ok(Policy {
+        scratch: words.iter().any(|w| w == "SCRATCH"),
+        archive: words.iter().any(|w| w == "ARCHIVE"),
+        write_table: write_target(&words).map(std::sync::Arc::from),
+    })
+}
+
+// Only writes have a target. Skip a CTE prefix, conflict clauses and the optional main qualifier.
+fn write_target(words: &[String]) -> Option<&str> {
+    let i = match words.first()?.as_str() {
+        "WITH" => words
+            .iter()
+            .position(|w| matches!(w.as_str(), "INSERT" | "REPLACE" | "UPDATE" | "DELETE"))?,
+        "INSERT" | "REPLACE" | "UPDATE" | "DELETE" => 0,
+        _ => return None,
+    };
+    let mut target = match words[i].as_str() {
+        "INSERT" | "REPLACE" => i + 1 + words[i + 1..].iter().position(|w| w == "INTO")? + 1,
+        "DELETE" if words.get(i + 1)?.as_str() == "FROM" => i + 2,
+        "UPDATE" if words.get(i + 1)?.as_str() == "OR" => i + 3,
+        "UPDATE" => i + 1,
+        _ => return None,
+    };
+    if words.get(target)?.as_str() == "MAIN" {
+        target += 1;
+    }
+    words.get(target).map(String::as_str)
 }
 fn tokens(sql: &str) -> Result<Vec<String>> {
     let b = sql.as_bytes();

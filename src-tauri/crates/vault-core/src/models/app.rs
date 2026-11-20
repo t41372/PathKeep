@@ -182,6 +182,8 @@ impl AgentViewerSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub onboarding_choices: Option<super::OnboardingChoices>,
     #[serde(default, skip_serializing_if = "AgentViewerSettings::is_default")]
     pub agent_viewer: AgentViewerSettings,
     pub capture_policy: super::CapturePolicy,
@@ -305,6 +307,7 @@ impl Default for AppConfig {
             capture_policy: Default::default(),
             dismissed_agent_hints: Default::default(),
             agent_viewer: Default::default(),
+            onboarding_choices: None,
             initialized: false,
             archive_mode: ArchiveMode::Plaintext,
             preferred_language: LanguagePreference::System,

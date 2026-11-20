@@ -3,8 +3,8 @@
 use super::*;
 use vault_store::{OptionalRow, Row, params};
 
-const WIDE: &str = "'doctor','retention_prune','rekey','archive_restore'";
-const PRIVATE: &str = "'system','mcp_query','ai_index','assistant'";
+pub(super) const WIDE: &str = "'doctor','retention_prune','rekey','restore','archive_restore'";
+pub(super) const PRIVATE: &str = "'system','mcp_query','ai_index','assistant'";
 const COLUMNS: &str = "id,started_at,finished_at,run_type,trigger,status,stats_json,warnings_json";
 
 pub(super) fn origin(tx: &vault_store::Session<'_>) -> vault_store::Result<String> {

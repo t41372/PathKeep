@@ -10,9 +10,21 @@ use vault_store::params;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ListTasks {
     pub(super) group: Group,
-    kind: Option<DataKind>,
+    kind: Option<TaskKind>,
     pub(super) cursor: Option<String>,
     pub(super) limit: usize,
+}
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum TaskKind {
+    Browsing,
+    AgentHistory,
+    Archive,
+}
+impl ListTasks {
+    pub(super) fn archive_only(&self) -> bool {
+        matches!(self.kind, Some(TaskKind::Archive))
+    }
 }
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -28,7 +40,9 @@ pub(super) enum Group {
 pub struct Control {
     task_id: String,
     action: Action,
+    #[serde(default)]
     expected_token: String,
+    #[serde(default)]
     request_id: String,
     confirmation: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -143,7 +157,7 @@ pub(super) fn local_day(date: chrono::NaiveDate) -> Result<(i64, i64)> {
 }
 /// Project native receipts into a page of actionable attempts.
 pub fn tasks(session: &VaultSession, req: ListTasks) -> Result<Value> {
-    if matches!(req.kind, Some(DataKind::Browsing)) {
+    if matches!(req.kind, Some(TaskKind::Browsing | TaskKind::Archive)) {
         return super::browsing_tasks::list(session, req);
     }
     let (vault, config) = admitted(session, true)?;
@@ -209,9 +223,28 @@ pub fn tasks(session: &VaultSession, req: ListTasks) -> Result<Value> {
 }
 /// Serve the rail from active work and unacknowledged terminal receipts.
 pub fn task_summary(session: &VaultSession, _: super::super::Empty) -> Result<Value> {
-    let (vault, config) = admitted(session, true)?;
-    if vault.agent_visibility(&config.capture_policy)? == KindState::Off {
-        return Ok(json!({"runningCount":0,"queuedCount":0,"attentionCount":"0","running":[]}));
+    let config = admitted_config(&vault_core::project_paths()?)?;
+    if !config.initialized {
+        return Err(Refusal::NotInitialized.into());
+    }
+    let vault = session.vault().map_err(anyhow::Error::msg)?;
+    let with_browsing = config.capture_policy.browsing != KindState::Off;
+    let (mut running, mut queued, browsing_attention) =
+        super::browsing_tasks::summary(&vault, with_browsing)?;
+    let unavailable = vault.conversation_availability().is_err();
+    if unavailable || vault.agent_visibility(&config.capture_policy)? == KindState::Off {
+        if check_reply(&vault, session, true)?.browsing != config.capture_policy.browsing {
+            return Err(Refusal::PolicyChanged.into());
+        }
+        let mut summary = json!({"runningCount":running.len(),"queuedCount":queued,"attentionCount":browsing_attention.to_string(),"running":running});
+        if unavailable {
+            summary["unavailableKinds"] = json!(["agent-history"]);
+        }
+        return Ok(summary);
+    }
+    let (current, _) = admitted(session, false)?;
+    if !Arc::ptr_eq(vault.store(), current.store()) {
+        return Err(Refusal::Replaced.into());
     }
     let count =
         vault.store().read(Db::AgentHistoryEvidence, |s| {
@@ -220,14 +253,13 @@ pub fn task_summary(session: &VaultSession, _: super::super::Empty) -> Result<Va
             })
         })?;
     let id = session.conversations.active.lock().unwrap().as_ref().map(|a| a.intent.task.clone());
-    let mut running = Vec::new();
-    let mut queued = 0;
+
     if let Some(id) = id {
         let r = record(&vault, &id)?;
         if r.status == "running" {
             let row = task_row(&session.conversations, &r)?;
             if row["state"] == "paused" {
-                queued = 1;
+                queued += 1;
             } else {
                 running.push(row);
             }
@@ -240,14 +272,22 @@ pub fn task_summary(session: &VaultSession, _: super::super::Empty) -> Result<Va
             running.push(row);
         }
     }
-    check_reply(&vault, session, false)?;
+    if check_reply(&vault, session, false)?.browsing != config.capture_policy.browsing {
+        return Err(Refusal::PolicyChanged.into());
+    }
     Ok(
-        json!({"runningCount":running.len(),"queuedCount":queued,"attentionCount":count.to_string(),"running":running}),
+        json!({"runningCount":running.len(),"queuedCount":queued,"attentionCount":(count+browsing_attention).to_string(),"running":running}),
     )
 }
 
 /// Resolve duplicate delivery before changing a task or scheduling its retry.
 pub fn control(session: &VaultSession, req: Control, events: Events) -> Result<Value> {
+    if req.task_id.starts_with("browsing:") || req.task_id.starts_with("archive:") {
+        if !matches!(req.action, Action::Dismiss) {
+            return Err(Refusal::ActionUnavailable.into());
+        }
+        return super::browsing_tasks::dismiss(session, &req.task_id);
+    }
     let (vault, _) = admitted(session, false)?;
     let _admission = session.conversations.enter();
     let policy = check_reply(&vault, session, false)?;

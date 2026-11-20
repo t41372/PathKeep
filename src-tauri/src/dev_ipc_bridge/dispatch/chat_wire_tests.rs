@@ -257,7 +257,7 @@ fn conversation_screen_wire_opens_a_saved_pi_turn_and_reads_its_image() {
         let exported = dispatch_command(
             &state,
             "export_agent_conversation",
-            json!({"request":{"id":id,"format":"html","locale":"zh-TW"}}),
+            json!({"request":{"id":id,"format":"html","locale":"zh-TW","exportId":"86b71049-20c2-4aa3-8ec4-91677db14471"}}),
         )
         .await;
         unsafe {
@@ -267,6 +267,15 @@ fn conversation_screen_wire_opens_a_saved_pi_turn_and_reads_its_image() {
             }
         }
         let result = exported.unwrap();
+        assert_eq!(result["exportId"], "86b71049-20c2-4aa3-8ec4-91677db14471");
+        let ended = dispatch_command(
+            &state,
+            "cancel_agent_export",
+            json!({"request":{"exportId":result["exportId"]}}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(ended["cancelled"], false);
         let html = std::fs::read_to_string(result["path"].as_str().unwrap()).unwrap();
         assert!(
             html.contains("Look at the image")

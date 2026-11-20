@@ -320,6 +320,8 @@ fn observe(operation: Operation, control: &str) -> Observation {
             use vault_worker::data_kinds::{self as kinds, preview};
             let quiet: backups::Events = Arc::new(|_, _| {});
             let failures = [
+                error(kinds::save_onboarding_choices(from_value(json!({"kinds":["browsing"],"agentTools":[],"readGit":false})).unwrap())),
+                error(kinds::exports::cancel(from_value(json!({"exportId":"f1e73842-94c8-40bd-935d-255e6ace76b3"})).unwrap())),
                 error(backups::enable(&f.session,from_value(json!({"previewId":"preview","selectedRootIds":[],"expectedPolicyToken":"old","readGit":false,"requestId":"id"})).unwrap(),quiet.clone())),
                 error(backups::start(&f.session,from_value(json!({"scope":{"type":"kind","kind":"agent-history"},"requestId":"id"})).unwrap(),quiet.clone())),
                 error(backups::list_runs(&f.session,from_value(json!({"includeArchiveWide":true,"limit":1})).unwrap())),

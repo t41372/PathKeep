@@ -10,7 +10,8 @@ use std::{
 };
 
 pub(super) fn has_choices(config: &AppConfig) -> bool {
-    config.agent_viewer != Default::default()
+    config.onboarding_choices.is_some()
+        || config.agent_viewer != Default::default()
         || config.capture_policy != Default::default()
         || !config.dismissed_agent_hints.is_empty()
 }

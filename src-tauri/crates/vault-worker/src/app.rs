@@ -313,6 +313,7 @@ pub fn save_user_config_with_vault(
         None => config.clone(),
     };
     check_profile_removal(&previous_config, &next_config)?;
+    next_config.onboarding_choices.clone_from(&previous_config.onboarding_choices);
     next_config.capture_policy = previous_config.capture_policy.clone();
     next_config.dismissed_agent_hints.clone_from(&previous_config.dismissed_agent_hints);
     if next_config.initialized && !previous_config.initialized {
@@ -557,6 +558,7 @@ where
     let previous_config = load_unlocked_config(&paths)?;
     crate::data_kinds::validate_config_input(config)?;
     let mut next_config = config.clone();
+    next_config.onboarding_choices.clone_from(&previous_config.onboarding_choices);
     next_config.capture_policy = previous_config.capture_policy.clone();
     next_config.dismissed_agent_hints.clone_from(&previous_config.dismissed_agent_hints);
     if previous_config.initialized && previous_config.archive_mode != next_config.archive_mode {
@@ -628,8 +630,17 @@ where
     {
         let control = vault_core::ControlGate::acquire(&paths);
         let latest = load_config(&paths)?;
-        check_profile_removal(&latest, &next_config)?;
-        next_config.capture_policy = latest.capture_policy;
+        next_config.capture_policy = if !latest.initialized
+            && let Some(draft) = latest.onboarding_choices.clone()
+        {
+            draft.capture_policy().map_err(|_| crate::data_kinds::Refusal::LastActive)?
+        } else {
+            latest.capture_policy.clone()
+        };
+        next_config.onboarding_choices = None;
+        if next_config.capture_policy.browsing == vault_core::KindState::On {
+            check_profile_removal(&latest, &next_config)?;
+        }
         next_config.dismissed_agent_hints = latest.dismissed_agent_hints;
         save_config(&control, &next_config)?;
     }
