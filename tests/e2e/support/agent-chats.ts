@@ -9,13 +9,10 @@
  * fixture's facts (`fixture().agents`): its tool and its title, which is
  * the name the tool recorded or the first thing the person typed.
  */
-import { readFileSync, rmSync, statSync } from 'node:fs'
+import { rmSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { expect, type Locator, type Page } from '@playwright/test'
-import type {
-  AgentConversation,
-  AgentSubagent,
-} from '../../../scripts/fixtures/synthetic-agents.mjs'
+import type { AgentConversation } from '../../../scripts/fixtures/synthetic-agents.mjs'
 import { unlockIfLocked } from './app'
 import { backend, fixture } from './fixture'
 
@@ -131,39 +128,6 @@ export function wireWindow<Row>(request: Record<string, unknown>) {
 const plain = (text: string) => text.replace(/\s+/g, ' ').trim()
 
 /** The fixture's conversation with this key, as the mutators left it. */
-/**
- * A subagent's title (`agent-history.md` §4: a name you gave it, then the
- * tool's title, then what the parent wrote when it sent it, then its first
- * prompt): the description in the parent's `Task` call, read from the
- * parent's own file; the fixture gives its subagents no other title.
- */
-export function subagentTitle(
-  parent: AgentConversation,
-  sub: AgentSubagent,
-): string {
-  for (const file of parent.files)
-    for (const line of readFileSync(file, 'utf8').split('\n')) {
-      if (!line.includes(sub.toolUseId)) continue
-      const record = JSON.parse(line) as {
-        message?: {
-          content?: {
-            type: string
-            id?: string
-            input?: { description?: unknown }
-          }[]
-        }
-      }
-      for (const part of record.message?.content ?? [])
-        if (
-          part.type === 'tool_use' &&
-          part.id === sub.toolUseId &&
-          typeof part.input?.description === 'string'
-        )
-          return part.input.description
-    }
-  return sub.firstUserMessage
-}
-
 export function agentChat(key: string): AgentConversation {
   const { agents } = fixture()
   const found = [...agents.conversations, ...agents.removed].find(

@@ -29,7 +29,7 @@ import {
   type ChatListQuery,
 } from '@/lib/backend-client/agent-chats'
 import { subscribeToAgentConversations } from '@/lib/ipc/agent-chats-events'
-import { queryClient, queryKeys } from '@/lib/query'
+import { patchQueries, queryClient, queryKeys } from '@/lib/query'
 import { useAgentKind } from './agent-backup'
 import { useInsightsPreferences } from './agent-insights'
 
@@ -175,10 +175,10 @@ export function useChatVersions(
 let ownViewToken: string | null = null
 
 function patchListRows(header: ChatHeader) {
-  queryClient.setQueriesData<InfiniteData<ShownChatListPage>>(
-    { queryKey: [...queryKeys.agentChats, 'list'] },
+  patchQueries<InfiniteData<ShownChatListPage>>(
+    [...queryKeys.agentChats, 'list'],
     (data) =>
-      data?.pages
+      data.pages
         ? {
             ...data,
             pages: data.pages.map((page) => ({
@@ -190,7 +190,7 @@ function patchListRows(header: ChatHeader) {
               ),
             })),
           }
-        : data,
+        : undefined,
   )
 }
 

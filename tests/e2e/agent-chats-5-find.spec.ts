@@ -22,7 +22,6 @@ import {
   openChat,
   readerTitle,
   savedChat,
-  subagentTitle,
   transcript,
 } from './support/agent-chats'
 import { findHighlights, wireFind } from './support/agent-search'
@@ -119,9 +118,9 @@ test('find goes into a subagent and keeps working in its sheet', async ({
   await page.keyboard.press('ControlOrMeta+f')
   await findInput(page).fill(word)
   const sheet = page.getByRole('dialog')
-  await expect(
-    sheet.getByRole('heading', { name: subagentTitle(parent, sub) }),
-  ).toBeVisible({ timeout: 30_000 })
+  await expect(sheet.getByRole('heading', { name: sub.title })).toBeVisible({
+    timeout: 30_000,
+  })
   await expect(sheet.getByRole('search')).toContainText(`1 / ${occurrences}`)
   await expectCurrent(page, word, new RegExp(word, 'i'))
   await testInfo.attach('found in a subagent', {

@@ -39,7 +39,6 @@ import {
   readerMenu,
   readerTitle,
   savedChat,
-  subagentTitle,
   transcript,
   wireHeader,
   wireWindow,
@@ -245,12 +244,11 @@ test('subagents sent together, one opened in the side sheet', async ({
     })
     .click()
   const sub = parent.subagents[1]
-  // Its title is what the parent wrote when it sent it.
-  const title = subagentTitle(parent, sub)
-  expect(title).not.toBe(sub.firstUserMessage)
-  await rows.getByRole('button', { name: title, exact: false }).click()
+  // Its title is what the parent wrote when it sent it, not its prompt.
+  expect(sub.title).not.toBe(sub.firstUserMessage)
+  await rows.getByRole('button', { name: sub.title, exact: false }).click()
   const sheet = page.getByRole('dialog')
-  await expect(sheet.getByRole('heading', { name: title })).toBeVisible()
+  await expect(sheet.getByRole('heading', { name: sub.title })).toBeVisible()
   await expect(sheet).toContainText('subagent · general-purpose')
   await expect(
     sheet.locator('[data-transcript]').getByText(sub.words[0]).first(),

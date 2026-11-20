@@ -125,6 +125,7 @@ export function subagentScene(ctx) {
     later(c.state, 1, 3)
     const id = `toolu_01${chars(c.random, ALNUM, 22)}`
     const prompt = `Read the ${area} code and report every path where a backup can be skipped or lost without an error. Quote file and line.`
+    const description = `Audit the ${area}`
     const record = claudeRecord(base, c.state, 'assistant', {
       id: response.id,
       type: 'message',
@@ -136,7 +137,7 @@ export function subagentScene(ctx) {
           id,
           name: 'Task',
           input: {
-            description: `Audit the ${area}`,
+            description,
             prompt,
             subagent_type: 'general-purpose',
           },
@@ -145,7 +146,7 @@ export function subagentScene(ctx) {
       usage: response.usage,
     })
     rows.push(record)
-    return { id, prompt, uuid: record.uuid, at: c.state.at }
+    return { id, prompt, description, uuid: record.uuid, at: c.state.at }
   })
   const folder = path.join(
     path.dirname(claudeMainFile(ctx, c.cwd, sessionId)),
@@ -193,6 +194,8 @@ export function subagentScene(ctx) {
       file: transcript,
       metaFile: meta,
       toolUseId: call.id,
+      // Nobody renamed it and Claude Code saves no title for a subagent.
+      title: call.description,
       firstUserMessage: call.prompt,
       userMessages: sub.user,
       assistantMessages: sub.assistant,

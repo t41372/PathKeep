@@ -31,7 +31,6 @@ import {
   openHistory,
   reader,
   savedChat,
-  subagentTitle,
   transcript,
 } from './support/agent-chats'
 import { findHighlights, wireFind, wireSearch } from './support/agent-search'
@@ -208,9 +207,7 @@ test('a word only a subagent wrote opens in the subagent, lit', async ({
   expect(hashParam(page, 'find')).toBe(word)
   expect(hashParam(page, 'at')).toMatch(/^\d+:/)
   const sheet = page.getByRole('dialog')
-  await expect(
-    sheet.getByRole('heading', { name: subagentTitle(parent, sub) }),
-  ).toBeVisible()
+  await expect(sheet.getByRole('heading', { name: sub.title })).toBeVisible()
   await expect(findBar(page)).toContainText(
     new RegExp(`\\d+ / ${occurrences}$`),
   )

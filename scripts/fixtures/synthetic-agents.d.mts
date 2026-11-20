@@ -66,7 +66,13 @@ export interface AgentSubagent {
   metaFile: string
   /** The parent's `Task` tool call that started it. */
   toolUseId: string
-  /** The task prompt; it is also the subagent's title in a list. */
+  /**
+   * Its title in the reader (`agent-history.md` §4: a name you gave it, then
+   * the title its tool saved, then the description the parent wrote in the
+   * `Task` call, then its first prompt). Here the `Task` description.
+   */
+  title: string
+  /** The task prompt: the first message the subagent got. */
   firstUserMessage: string
   userMessages: number
   assistantMessages: number
