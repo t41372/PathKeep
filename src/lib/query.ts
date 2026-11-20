@@ -58,6 +58,30 @@ export const queryClient = new QueryClient({
   },
 })
 
+/**
+ * Applies `patch` to each cached answer under `queryKey` that is still
+ * current, so a live event or an action's answer shows at once.
+ *
+ * An answer marked to be read again that no screen shows is left alone.
+ * Writing to it would mark it fresh, and the read its screen makes when it
+ * opens would not happen: the screen would open on what the backend has
+ * since changed (a build that moved from Waiting to Running, still under
+ * Waiting). An answer on screen is being read again already; patching it
+ * keeps it live until the new one lands. `patch` returns `undefined` to
+ * leave an answer as it is.
+ */
+export function patchQueries<T>(
+  queryKey: QueryKey,
+  patch: (data: T) => T | undefined,
+) {
+  for (const query of queryClient.getQueryCache().findAll({ queryKey })) {
+    if (query.state.isInvalidated && !query.isActive()) continue
+    queryClient.setQueryData<T>(query.queryKey, (data) =>
+      data === undefined ? undefined : patch(data),
+    )
+  }
+}
+
 export const queryKeys = {
   snapshot: ['snapshot'] as const,
   buildInfo: ['build-info'] as const,

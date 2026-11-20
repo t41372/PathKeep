@@ -201,6 +201,25 @@ function currentSearch() {
 /** A change to apply over the current parameters. */
 export type ChatsChange = Partial<ChatsParams>
 
+/**
+ * `update`: a change, or one worked out from the parameters as the address
+ * holds them when it applies. A toggle takes the second form: the screen
+ * can be drawn from an address a click ago, and a second quick click that
+ * read it would undo the first.
+ */
+export type ChatsUpdate = (
+  change: ChatsChange | ((now: ChatsParams) => ChatsChange),
+  options?: { push?: boolean },
+) => void
+
+/** `list` with `item` taken out, or put in (in `order`, when given). */
+export function toggled<T>(list: readonly T[], item: T, order?: readonly T[]) {
+  if (list.includes(item)) return list.filter((value) => value !== item)
+  return order
+    ? order.filter((value) => value === item || list.includes(value))
+    : [...list, item]
+}
+
 /** Applies `change` with the rules that tie the parameters together. */
 export function applyChange(
   now: ChatsParams,
@@ -237,10 +256,14 @@ export function useChatsParams(fixedProject: string | null = null) {
     () => parseChatsParams(search, fixedProject),
     [search, fixedProject],
   )
-  const update = useCallback(
-    (change: ChatsChange, options: { push?: boolean } = {}) => {
+  const update: ChatsUpdate = useCallback(
+    (change, options = {}) => {
       const current = currentSearch()
-      const next = applyChange(parseChatsParams(current, fixedProject), change)
+      const now = parseChatsParams(current, fixedProject)
+      const next = applyChange(
+        now,
+        typeof change === 'function' ? change(now) : change,
+      )
       setSearch(write(current, next), { replace: !options.push })
     },
     [setSearch, fixedProject],

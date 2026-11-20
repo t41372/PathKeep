@@ -28,7 +28,7 @@ import {
 } from '@/lib/backend-client/agent-semantic'
 import { AGENT_VIEWER_PREFERENCES_CHANGED_EVENT } from '@/lib/backend-client/agent-viewer'
 import { listenDesktopEvent } from '@/lib/ipc/events'
-import { queryClient, queryKeys } from '@/lib/query'
+import { patchQueries, queryClient, queryKeys } from '@/lib/query'
 import { useAgentKind } from './agent-backup'
 import { useSnapshot } from './app'
 
@@ -87,18 +87,16 @@ function patchTasks(job: SemanticJob) {
   queryClient.setQueryData<TaskSummary>(queryKeys.taskSummary, (summary) =>
     summary ? { ...summary, semantic: patch(summary.semantic) } : summary,
   )
-  queryClient.setQueriesData<InfiniteData<TaskPage>>(
-    { queryKey: queryKeys.kindTasks },
-    (data) =>
-      data?.pages
-        ? {
-            ...data,
-            pages: data.pages.map((page) => ({
-              ...page,
-              semantic: patch(page.semantic ?? null),
-            })),
-          }
-        : data,
+  patchQueries<InfiniteData<TaskPage>>(queryKeys.kindTasks, (data) =>
+    data.pages
+      ? {
+          ...data,
+          pages: data.pages.map((page) => ({
+            ...page,
+            semantic: patch(page.semantic ?? null),
+          })),
+        }
+      : undefined,
   )
   if (moved) refetchTasks(true)
   else if (!listed) refetchTasks(false)

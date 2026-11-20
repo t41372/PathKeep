@@ -57,12 +57,26 @@ function Mode({
   )
 }
 
+/**
+ * A change of what to search, worked out from the roles as they are when it
+ * applies: the buttons may still show the roles of a click ago.
+ */
+export type RolesChange = (roles: SearchRole[]) => SearchRole[]
+
+/** `roles` with `role` turned off (never the last one) or on, in order. */
+function toggleRole(roles: SearchRole[], role: SearchRole) {
+  if (roles.includes(role) && roles.length === 1) return roles
+  return roles.includes(role)
+    ? roles.filter((item) => item !== role)
+    : SEARCH_ROLES.filter((item) => item === role || roles.includes(item))
+}
+
 function Roles({
   roles,
   onRoles,
 }: {
   roles: SearchRole[]
-  onRoles: (roles: SearchRole[]) => void
+  onRoles: (change: RolesChange) => void
 }) {
   const { t } = useI18n()
   return (
@@ -87,13 +101,7 @@ function Roles({
             title={last ? t('agentSearch.roles.lastOne') : undefined}
             onClick={() => {
               if (last) return
-              onRoles(
-                on
-                  ? roles.filter((item) => item !== role)
-                  : SEARCH_ROLES.filter(
-                      (item) => item === role || roles.includes(item),
-                    ),
-              )
+              onRoles((now) => toggleRole(now, role))
             }}
             className={cn(
               pill,
@@ -119,7 +127,7 @@ export function SearchControls({
   mode: ChatSearchMode
   onMode: (mode: ChatSearchMode) => void
   roles: SearchRole[]
-  onRoles: (roles: SearchRole[]) => void
+  onRoles: (change: RolesChange) => void
 }) {
   return (
     <div className="flex flex-col gap-1.5 px-4 pt-1 pb-2">

@@ -26,7 +26,7 @@ import {
 } from '@/lib/backend-client/agent-search'
 import { useI18n, type Formatters } from '@/lib/i18n'
 import { ResultCard } from './result-card'
-import { SearchControls } from './search-controls'
+import { SearchControls, type RolesChange } from './search-controls'
 import { useAnnounced } from './use-announced'
 import { useChatSearch, type SearchState } from './use-chat-search'
 
@@ -151,7 +151,7 @@ export function SearchResults({
   f: Formatters
   zone: string
   onMode: (mode: ChatSearchMode) => void
-  onRoles: (roles: SearchRole[]) => void
+  onRoles: (change: RolesChange) => void
   onOpen: (card: SearchCard, snippet: SearchMatch | null) => void
 }) {
   const { t } = useI18n()

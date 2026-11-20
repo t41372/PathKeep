@@ -33,7 +33,7 @@ import {
 import type { DataKindRow } from '@/lib/backend-client/data-kinds'
 import { agentNeedsReview, isViewOnly } from '@/lib/backend-client/data-kinds'
 import { subscribeToAgentBackup } from '@/lib/ipc/agent-backup-events'
-import { queryClient, queryKeys } from '@/lib/query'
+import { patchQueries, queryClient, queryKeys } from '@/lib/query'
 import { useDataKinds } from './data-kinds'
 
 /** Rows of a source list page; there are a handful of tools and folders. */
@@ -216,10 +216,10 @@ function patchSummary(live: Live) {
 }
 
 function patchGroups(live: Live) {
-  queryClient.setQueriesData<InfiniteData<CursorPage<KindTask>>>(
-    { queryKey: queryKeys.kindTasks },
+  patchQueries<InfiniteData<CursorPage<KindTask>>>(
+    queryKeys.kindTasks,
     (data) => {
-      if (!data?.pages) return data
+      if (!data.pages) return undefined
       return {
         ...data,
         pages: data.pages.map((page) => ({
@@ -271,10 +271,10 @@ export function rememberTask(task: KindTask) {
         }
       : summary,
   )
-  queryClient.setQueriesData<InfiniteData<CursorPage<KindTask>>>(
-    { queryKey: queryKeys.kindTasks },
+  patchQueries<InfiniteData<CursorPage<KindTask>>>(
+    queryKeys.kindTasks,
     (data) =>
-      data?.pages
+      data.pages
         ? {
             ...data,
             pages: data.pages.map((page) => ({
@@ -284,7 +284,7 @@ export function rememberTask(task: KindTask) {
               ),
             })),
           }
-        : data,
+        : undefined,
   )
   queryClient.setQueryData<InfiniteData<ArchiveRunDetail>>(
     queryKeys.archiveRun(task.runRef),

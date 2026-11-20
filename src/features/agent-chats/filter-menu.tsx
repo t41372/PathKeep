@@ -48,8 +48,9 @@ import {
   RANGES,
   SORTS,
   conditionCount,
-  type ChatsChange,
+  toggled,
   type ChatsParams,
+  type ChatsUpdate,
 } from './chats-params'
 
 const rangeKey: Record<ChatRange, MessageKey> = {
@@ -228,23 +229,15 @@ export function FilterMenu({
   f,
 }: {
   params: ChatsParams
-  update: (change: ChatsChange) => void
+  update: ChatsUpdate
   f: Formatters
 }) {
   const { t } = useI18n()
   const active = conditionCount(params)
   const toggleTool = (tool: AgentToolId) =>
-    update({
-      harnesses: params.harnesses.includes(tool)
-        ? params.harnesses.filter((item) => item !== tool)
-        : [...params.harnesses, tool],
-    })
+    update((now) => ({ harnesses: toggled(now.harnesses, tool) }))
   const toggleFlag = (flag: ChatFlag) =>
-    update({
-      flags: params.flags.includes(flag)
-        ? params.flags.filter((item) => item !== flag)
-        : [...params.flags, flag],
-    })
+    update((now) => ({ flags: toggled(now.flags, flag) }))
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -368,7 +361,7 @@ export function FilterChips({
   f,
 }: {
   params: ChatsParams
-  update: (change: ChatsChange) => void
+  update: ChatsUpdate
   projectLabel: string | null
   f: Formatters
 }) {
@@ -385,7 +378,9 @@ export function FilterChips({
       key: tool,
       label: t(toolName(tool)),
       clear: () =>
-        update({ harnesses: params.harnesses.filter((item) => item !== tool) }),
+        update((now) => ({
+          harnesses: now.harnesses.filter((item) => item !== tool),
+        })),
     })
   if (params.range !== 'all')
     chips.push({
@@ -404,7 +399,9 @@ export function FilterChips({
       key: flag,
       label: t(flagKey(flag)),
       clear: () =>
-        update({ flags: params.flags.filter((item) => item !== flag) }),
+        update((now) => ({
+          flags: now.flags.filter((item) => item !== flag),
+        })),
     })
   if (chips.length === 0) return null
   return (

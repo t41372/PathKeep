@@ -185,7 +185,7 @@ export function Workbench({
           f={f}
           zone={zone}
           onMode={(mode) => update({ mode })}
-          onRoles={(roles) => update({ roles })}
+          onRoles={(change) => update((now) => ({ roles: change(now.roles) }))}
           onOpen={openPassage}
         />
       )
@@ -197,7 +197,7 @@ export function Workbench({
           f={f}
           zone={zone}
           onMode={(mode) => update({ mode })}
-          onRoles={(roles) => update({ roles })}
+          onRoles={(change) => update((now) => ({ roles: change(now.roles) }))}
           onOpen={openHit}
         />
       )

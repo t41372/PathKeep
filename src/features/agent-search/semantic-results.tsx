@@ -24,7 +24,6 @@ import type {
 } from '@/features/agent-chats/chats-params'
 import type { SemanticGeneration } from '@/lib/backend-client/agent-semantic'
 import type {
-  SearchRole,
   SemanticPassage,
   SemanticSearchRequest,
 } from '@/lib/backend-client/agent-search'
@@ -34,7 +33,7 @@ import { useSnapshot } from '@/lib/queries/app'
 import { semanticIndexKey } from '@/lib/queries/agent-semantic'
 import { BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID } from '@/lib/types'
 import { PassageRow } from './passage-row'
-import { SearchControls } from './search-controls'
+import { SearchControls, type RolesChange } from './search-controls'
 import { SemanticBlocked } from './semantic-blocked'
 import { useSemanticGate, type SemanticGate } from './semantic-gate'
 import { useAnnounced } from './use-announced'
@@ -279,7 +278,7 @@ export function SemanticResults({
   f: Formatters
   zone: string
   onMode: (mode: ChatSearchMode) => void
-  onRoles: (roles: SearchRole[]) => void
+  onRoles: (change: RolesChange) => void
   onOpen: (passage: SemanticPassage) => void
 }) {
   const { t } = useI18n()
