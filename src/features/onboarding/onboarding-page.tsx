@@ -5,10 +5,10 @@
  * Responsible for: the window layout (step list, progress bar, language and
  * theme), moving between steps, holding the draft (which kinds of data,
  * which of their sources, and the rest), the walk of the Agent tool folders
- * the later steps share, and saving the browser choice so an interrupted
- * setup resumes with it. The kinds and Agent tools chosen can't be saved
- * before the archive exists; an interrupted setup starts from what this
- * computer has again.
+ * the later steps share, and saving the choices so an interrupted setup
+ * resumes with them: the kinds and Agent tools (`save_onboarding_choices`,
+ * on Continue from the kinds and sources steps) and the browsers (the
+ * config). Continue waits while they save; a failed save keeps the step.
  * Not responsible for: what each step shows (the `*-step.tsx` files) or
  * creating the archive (see `use-finish-setup.ts`).
  */
@@ -33,6 +33,7 @@ import { inToolOrder } from '@/features/data-kinds/tools'
 import {
   dataKindsClient,
   type DataKindId,
+  type OnboardingChoices,
 } from '@/lib/backend-client/data-kinds'
 import { cn } from '@/lib/cn'
 import { describeError } from '@/lib/errors'
@@ -49,6 +50,7 @@ import { DoneStep } from './done-step'
 import {
   backgroundCanUnlock,
   canContinue,
+  choicesToSave,
   chosenKinds,
   initialDraft,
   kindsLackingSource,
@@ -84,6 +86,7 @@ export default function OnboardingPage() {
   const [index, setIndex] = useState(0)
   const [draft, setDraft] = useState<Draft>(() => initialDraft(snapshot))
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [savingChoices, setSavingChoices] = useState(false)
   const step = steps[index]
   const where = t(
     isMacOsHost() ? 'onboarding.where.mac' : 'onboarding.where.other',
@@ -184,12 +187,35 @@ export default function OnboardingPage() {
     void enterApp()
   }
 
+  /** Keeps the choices for a setup that stops here; false (and says why) when it can't. */
+  async function keepChoices(choices: OnboardingChoices) {
+    setSavingChoices(true)
+    try {
+      await dataKindsClient.saveOnboardingChoices(choices)
+      return true
+    } catch (error) {
+      setSaveError(describeError(error, 'save_onboarding_choices'))
+      return false
+    } finally {
+      setSavingChoices(false)
+    }
+  }
+
   async function next() {
-    if (!ready) return
+    if (!ready || savingChoices) return
     // What was shown is the choice from here on, whatever a later check finds.
-    if (step === 'kinds' && kinds) update({ kinds })
+    if (step === 'kinds' && kinds) {
+      update({ kinds })
+      // No tools are chosen before the sources step: those saved earlier stay.
+      if (!(await keepChoices(choicesToSave(kinds, draft.agentTools ?? []))))
+        return
+    }
     if (step === 'sources') {
-      if (agentChosen) update({ agentTools: inToolOrder(agentTools) })
+      const tools = agentChosen
+        ? inToolOrder(agentTools)
+        : (draft.agentTools ?? [])
+      if (agentChosen) update({ agentTools: tools })
+      if (kinds && !(await keepChoices(choicesToSave(kinds, tools)))) return
       if (kinds?.includes('browsing')) {
         try {
           await save.mutateAsync((config) => ({
@@ -365,6 +391,7 @@ export default function OnboardingPage() {
                   disabled={
                     !ready ||
                     save.isPending ||
+                    savingChoices ||
                     finish.state.status === 'running'
                   }
                   onClick={() => void next()}

@@ -9,6 +9,11 @@
  * opened at the start would not show it.
  *
  * Proves:
+ * - A new chat says what the assistant reads: with the switch on, the
+ *   browsing history and the Agent conversations; with it off, the browsing
+ *   history, and that the conversations are read only once allowed in
+ *   Settings › Agent conversations. Either way, with this service on this
+ *   computer, that nothing leaves it.
  * - With the switch on, the model is offered `search_agent_conversations`;
  *   asked for the word, PathKeep sends back that prompt and its
  *   `pathkeep://conversation/open?…` link, and nothing from any other
@@ -162,6 +167,12 @@ const recordChips = (page: Page) =>
   chatColumn(page)
     .getByRole('group', { name: 'Agent conversations used' })
     .getByRole('link')
+/** What a new chat says the assistant reads, with the switch on and off. */
+const STARTER_ON =
+  'The assistant reads the browsing history and the Agent conversations in your archive. With a local model, nothing leaves this computer.'
+const STARTER_OFF =
+  'The assistant reads the browsing history in your archive. It doesn’t read your Agent conversations unless you allow it in Settings › Agent conversations. With a local model, nothing leaves this computer.'
+
 const settingSwitch = (page: Page) =>
   page.locator('#settings-agent-assistantMayRead')
 
@@ -313,6 +324,9 @@ test('with access on, Ask cites the record under the conversation’s title', as
   await setSwitch(page, true)
   await addService(page, { name: SERVICE, address: model!.url, key: KEY })
   await goto(page, '/#/ask')
+  // The new chat says what the assistant reads now, and that the service
+  // (on this computer) keeps it here.
+  await expect(chatColumn(page).getByText(STARTER_ON)).toBeVisible()
   await ask(page, FIRST_QUESTION, ANSWER_LEAD)
 
   // What the provider got: the tool offered, then that prompt and its link.
@@ -409,8 +423,11 @@ test('with access off, nothing from the conversations reaches the service', asyn
   await setSwitch(page, false)
   const from = chatRequests(model!).length
 
-  // A new question: the tool is not offered, and nothing is cited.
+  // A new question: the tool is not offered, and nothing is cited. The new
+  // chat says the conversations aren't read, and where to allow it.
   await goto(page, '/#/ask')
+  await expect(chatColumn(page).getByText(STARTER_OFF)).toBeVisible()
+  await expect(chatColumn(page).getByText(STARTER_ON)).toHaveCount(0)
   await ask(page, NO_ACCESS_QUESTION, NO_ACCESS_ANSWER)
   await expect(chatColumn(page).locator('a[href^="#/agent/"]')).toHaveCount(0)
   await expect(
