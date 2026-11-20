@@ -339,7 +339,7 @@ pub(crate) fn switch_summaries(tx: &Session<'_>) -> Result<()> {
     let parents=tx.query("SELECT DISTINCT s.parent FROM ah_reader_build b JOIN ah_chat_summary s ON s.id=b.conversation WHERE s.parent IS NOT NULL AND (s.live=1 OR s.publication=b.publication)",(),|r|Ok(r.get::<String>(0)?))?;
     tx.execute("UPDATE ah_chat_summary SET live=0 WHERE live=1 AND id IN (SELECT conversation FROM ah_reader_build)",())?;
     tx.execute("UPDATE ah_chat_summary SET live=1 WHERE publication IN (SELECT publication FROM ah_reader_build)",())?;
-    super::subagents::name_launched_children(tx)?;
+    super::subagents::apply_launch_details(tx)?;
     let mut roots: BTreeSet<String> = parents.into_iter().collect();
     roots.extend(tx.query("SELECT b.conversation FROM ah_reader_build b WHERE EXISTS(SELECT 1 FROM ah_chat_summary c WHERE c.live=1 AND c.parent=b.conversation)",(),|r|Ok(r.get::<String>(0)?))?);
     let mut affected = BTreeSet::new();

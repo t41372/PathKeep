@@ -3187,3 +3187,7 @@ that held up when checked against the code.
 - 2026-11-20：開發與 E2E 的 Agent 專案分組沿用擷取時的家目錄。Claude 子代理從已保存的派工識別碼連回父對話的工具呼叫，顯示派工描述或第一則提問。開發橋接會轉送洞察費用設定變更。修復個別對話前會先完成讀取服務啟動與搜尋準備，再固定預覽的檔案版本。內建或外部模型回傳全零向量時，歷史索引記下該內容並繼續建置，可搜尋的頁面照常發布。
 
   本輪記下兩處。Linux 的 `legacy_sealed_copy_rebuilds_from_verified_evidence` 在候選版 `837926da` 和修改後都報 `UNIQUE constraint failed: ah_insight_preferences.id`。這個測試把最新一筆 migration 當成 pair seal，現在刪到的是另一筆。閱讀器的 `agent-chats-2-reader.spec.ts` 仍用第一則提問找子代理標題，該 fixture 的 Task 已經有較優先的 description。
+
+- 2026-11-20：Claude 子代理自己的紀錄沒寫類型時，閱讀器從派出它的 Task 或 Agent 呼叫補上，收合列和子代理側欄都能顯示。已備份的對話從存檔更新。
+
+  此輪 Linux gate 的 lifecycle 測試有 93 項通過、4 項失敗。四項在原版 `5ea342eb` 也失敗：三項歷史版本測試仍預期 Archive 23、Intelligence 2 或 0.5.0 搬移檔不需升級，另一項是前述舊安全副本 fixture。子代理的 17 項畫面資料測試與桌面收合列、側欄情境通過。

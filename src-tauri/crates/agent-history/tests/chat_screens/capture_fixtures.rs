@@ -95,3 +95,66 @@ fn saved_subagent_metadata_links_the_launch_and_names_the_child() {
     );
     assert!(children.iter().any(|c| c["launch"].is_null() && c["title"] == "Check the schema"));
 }
+
+#[test]
+fn branch_cards_use_the_matching_launch_type_when_the_child_has_none() {
+    use std::io::Write;
+
+    let dir = tempfile::tempdir().unwrap();
+    let archive = Archive::create_unencrypted(&dir.path().join("archive")).unwrap();
+    let root = dir.path().join("claude");
+    let mut calls = native::claude_tool_call("parent", "dispatch", "u", "/repo", json!({}));
+    calls["message"]["content"] = json!([
+        {"type":"tool_use","id":"task","name":"Task","input":{"description":"Survey code","subagent_type":"general-purpose"}},
+        {"type":"tool_use","id":"agent","name":"Agent","input":{"subagent_type":"Explore"}},
+        {"type":"tool_use","id":"typed","name":"Agent","input":{"subagent_type":"requested-type"}}
+    ]);
+    native::claude_main(
+        &root,
+        "parent",
+        &[native::claude_user("parent", "u", None, "/repo", "Review code"), calls],
+    );
+    for id in ["task", "agent", "typed"] {
+        let path = native::claude_subagent(
+            &root,
+            "parent",
+            &format!("agent-{id}.jsonl"),
+            id,
+            "/repo",
+            "Investigate",
+        );
+        write(
+            &path.with_extension("meta.json"),
+            &serde_json::to_vec(&json!({"toolUseId":id})).unwrap(),
+        );
+        if id == "task" || id == "typed" {
+            let mut title = native::claude_title("parent", "Native title");
+            title["agentId"] = json!(id);
+            if id == "typed" {
+                title["agentType"] = json!("recorded-type");
+            }
+            writeln!(std::fs::OpenOptions::new().append(true).open(path).unwrap(), "{title}")
+                .unwrap();
+        }
+    }
+    capture(&archive, agent_history::Harness::ClaudeCode, &root);
+    std::fs::remove_dir_all(root).unwrap();
+    let branches = archive
+        .chat_branches(
+            &serde_json::from_value(json!({"id":all(&archive)[0]["id"]})).unwrap(),
+            &Default::default(),
+        )
+        .unwrap();
+    let children = branches["children"].as_array().unwrap();
+    assert_eq!(children.len(), 3);
+    for (call, title, kind) in [
+        ("typed", "Native title", "recorded-type"),
+        ("task", "Native title", "general-purpose"),
+        ("agent", "Investigate", "Explore"),
+    ] {
+        let card = children.iter().find(|card| card["launch"]["callId"] == call).unwrap();
+        assert_eq!(card["title"], title, "{call}");
+        assert_eq!(card["agentType"], kind, "{call}");
+        assert_eq!(archive.chat_info(card["id"].as_str().unwrap()).unwrap()["agentType"], kind);
+    }
+}

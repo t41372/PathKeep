@@ -29,7 +29,12 @@ pub fn schema_steps(db: Db) -> Vec<Migration> {
                 crate::projects::schema::MODEL,
                 crate::insights::MODEL,
                 &["INSERT OR IGNORE INTO ah_reader_dirty
-                   SELECT conversation,lower(hex(randomblob(16))) FROM ah_reader_head WHERE parent IS NOT NULL"],
+                   SELECT conversation,lower(hex(randomblob(16))) FROM ah_reader_head WHERE parent IS NOT NULL",
+                  "INSERT OR IGNORE INTO ah_reader_dirty
+                   SELECT id,lower(hex(randomblob(16))) FROM ah_chat_summary
+                   WHERE live=1 AND root=0 AND harness='claude-code'
+                     AND json_extract(detail,'$.launchCallId') IS NOT NULL
+                     AND nullif(trim(json_extract(detail,'$.agentType')),'') IS NULL"],
             ]
             .concat(),
         ),

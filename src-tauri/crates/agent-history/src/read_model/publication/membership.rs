@@ -186,7 +186,7 @@ pub(super) fn prepare(
             batch.elected = Some(after.clone());
         }
         if member.parent_id.is_some() {
-            digest.update(b"subagent-assignment-v1");
+            digest.update(b"subagent-assignment-v2");
         }
         digest.update([u8::from(elected)]);
         let status = resolver.lineage.describe(tx, after.clone()).map_err(operation)?;
