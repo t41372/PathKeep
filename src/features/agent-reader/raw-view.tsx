@@ -123,9 +123,12 @@ export function RawView({
   f,
   onSee,
   onStale,
+  startRank = null,
 }: {
   header: ChatHeader
   f: Formatters
+  /** Opened by find at a record not on the conversation's line: its rank. */
+  startRank?: number | null
   /** Back to the conversation, at this rank. */
   onSee: (visibleRank: number) => void
   onStale: () => void
@@ -151,6 +154,10 @@ export function RawView({
     estimateSize: () => ROW,
     overscan: 16,
   })
+  useEffect(() => {
+    if (startRank !== null)
+      virtualizer.scrollToIndex(startRank, { align: 'center' })
+  }, [startRank, virtualizer])
   const items = virtualizer.getVirtualItems()
   const first = items[0]?.index ?? 0
   const last = items.at(-1)?.index ?? 0

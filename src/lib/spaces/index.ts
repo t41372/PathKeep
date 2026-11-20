@@ -23,6 +23,8 @@ export {
 export { kindStateOf, useKindList, type KindListAnswer } from './kind-states'
 export {
   agentChatPath,
+  agentProjectPath,
+  agentProjectsPath,
   pageElsewhere,
   spaceBackupPath,
   spaceOfPath,

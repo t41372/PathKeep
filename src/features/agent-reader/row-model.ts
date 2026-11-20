@@ -48,6 +48,28 @@ export function isPrompt(row: ChatRow) {
   )
 }
 
+/** Where the parts of `kind` are in `row.parts`. */
+export function partIndexes(
+  row: ChatRow,
+  kind: ChatRow['parts'][number]['kind'],
+) {
+  const indexes: number[] = []
+  row.parts.forEach((part, index) => {
+    if (part.kind === kind) indexes.push(index)
+  })
+  return indexes
+}
+
+/** Find's tokens for the parts of `kind` (`find-target.ts`). */
+export function partTokensOf(
+  row: ChatRow,
+  kind: ChatRow['parts'][number]['kind'],
+) {
+  return partIndexes(row, kind)
+    .map((index) => `${row.sourceId}:${row.ordinal}:${index}`)
+    .join(' ')
+}
+
 export function textOf(row: ChatRow) {
   return row.parts
     .filter((part) => part.kind === 'text')
@@ -80,6 +102,9 @@ export interface ToolCall {
   edit: ChatEdit | null
   /** The output was cut to fit the window. */
   truncated: boolean
+  /** Find's tokens for its input and its output part. */
+  inputToken: string | null
+  outputToken: string | null
 }
 
 /** The calls of `rows` in order, each result joined to its call. */
@@ -87,8 +112,12 @@ export function toolCalls(rows: ChatRow[]): ToolCall[] {
   const calls: ToolCall[] = []
   const byId = new Map<string, ToolCall>()
   for (const row of rows) {
-    const inputs = row.parts.filter((part) => part.kind === 'callInput')
-    const outputs = row.parts.filter((part) => part.kind === 'callResult')
+    const token = (index: number | undefined) =>
+      index === undefined ? null : `${row.sourceId}:${row.ordinal}:${index}`
+    const inputIndexes = partIndexes(row, 'callInput')
+    const outputIndexes = partIndexes(row, 'callResult')
+    const inputs = inputIndexes.map((index) => row.parts[index])
+    const outputs = outputIndexes.map((index) => row.parts[index])
     let input = 0
     let output = 0
     for (const op of row.operations) {
@@ -96,20 +125,26 @@ export function toolCalls(rows: ChatRow[]): ToolCall[] {
         const call: ToolCall = {
           key: `${row.sourceId}:${row.ordinal}:${calls.length}`,
           name: op.name,
-          input: inputs[input++]?.text ?? null,
+          input: inputs[input]?.text ?? null,
           output: null,
           status: op.status ?? null,
           durationMs: op.durationMs ?? null,
           edit: op.edit ?? null,
           truncated: false,
+          inputToken: token(inputIndexes[input]),
+          outputToken: null,
         }
+        input += 1
         calls.push(call)
         if (op.callId) byId.set(op.callId, call)
       } else if (op.kind === 'result') {
-        const text = outputs[output++]?.text ?? null
+        const text = outputs[output]?.text ?? null
+        const outputToken = token(outputIndexes[output])
+        output += 1
         const call = op.callId ? byId.get(op.callId) : undefined
         if (call) {
           call.output = text
+          call.outputToken = outputToken
           call.status ??= op.status
           call.durationMs ??= op.durationMs ?? null
           call.truncated = row.truncated
@@ -123,6 +158,8 @@ export function toolCalls(rows: ChatRow[]): ToolCall[] {
             durationMs: op.durationMs ?? null,
             edit: null,
             truncated: row.truncated,
+            inputToken: null,
+            outputToken,
           })
         }
       }

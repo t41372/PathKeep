@@ -101,8 +101,36 @@ export const queryKeys = {
     ['archive', 'agent-chats', 'list', query] as const,
   agentChatCounts: (query: object) =>
     ['archive', 'agent-chats', 'counts', query] as const,
-  /** The projects (working folders) the filter offers. */
-  agentChatProjects: ['archive', 'agent-chats', 'projects'] as const,
+  /** Where one record of a line sits in the conversation (find, search hits). */
+  agentChatRank: (
+    id: string,
+    publication: string,
+    line: string,
+    sourceId: string,
+    ordinal: number,
+  ) =>
+    [
+      'archive',
+      'agent-chats',
+      'chat',
+      id,
+      'rank',
+      publication,
+      line,
+      sourceId,
+      ordinal,
+    ] as const,
+  /**
+   * Prefix for the Agent space's projects: cards, the arrangement, one
+   * project and the folder suggestions. Any project edit refetches all.
+   */
+  agentProjects: ['archive', 'agent-projects'] as const,
+  agentProjectList: (query: object) =>
+    ['archive', 'agent-projects', 'list', query] as const,
+  agentProject: (id: string) =>
+    ['archive', 'agent-projects', 'project', id] as const,
+  agentProjectSuggestions: (into: string | null) =>
+    ['archive', 'agent-projects', 'suggestions', into] as const,
   agentChat: (id: string) => ['archive', 'agent-chats', 'chat', id] as const,
   agentChatInfo: (id: string) =>
     ['archive', 'agent-chats', 'chat', id, 'info'] as const,

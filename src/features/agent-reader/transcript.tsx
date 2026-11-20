@@ -40,6 +40,12 @@ export interface TranscriptControl {
   scrollToEnd: () => void
 }
 
+/** A rank to bring to the middle once drawn; a new `nonce` asks again. */
+export interface ScrollRequest {
+  rank: number
+  nonce: number
+}
+
 function Placeholder() {
   const { t } = useI18n()
   return (
@@ -117,6 +123,7 @@ export function Transcript({
   onOpenChild,
   onTopTurn,
   onStale,
+  scrollRequest = null,
 }: {
   id: string
   publication: string
@@ -133,6 +140,8 @@ export function Transcript({
   /** The turn number of the row at the top, for the outline. */
   onTopTurn?: (turn: number | null) => void
   onStale: () => void
+  /** Find moved to a record here. */
+  scrollRequest?: ScrollRequest | null
 }) {
   const { t } = useI18n()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -188,6 +197,13 @@ export function Transcript({
         virtualizer.scrollToIndex(Math.max(0, count - 1), { align: 'end' }),
     }
   }, [control, virtualizer, count])
+
+  const requestNonce = scrollRequest?.nonce
+  const requestRank = scrollRequest?.rank
+  useEffect(() => {
+    if (requestRank === undefined) return
+    virtualizer.scrollToIndex(requestRank, { align: 'center' })
+  }, [requestNonce, requestRank, virtualizer])
 
   // The prompt at the top of the view, for the outline's highlight.
   const top = items.find(

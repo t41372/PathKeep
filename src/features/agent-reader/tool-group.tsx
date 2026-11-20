@@ -14,7 +14,6 @@ import {
   SquareTerminal,
   Wrench,
 } from 'lucide-react'
-import { useState } from 'react'
 import {
   Collapsible,
   CollapsibleContent,
@@ -28,6 +27,7 @@ import {
 import type { ChatChildCard } from '@/lib/backend-client/agent-chats'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
+import { useReveal } from './find-target'
 import { durationText } from './reader-words'
 import { callArgument, type ToolCall } from './row-model'
 
@@ -80,7 +80,10 @@ function CallDetail({ call }: { call: ToolCall }) {
   if (call.output?.trim())
     return (
       <>
-        <pre className="max-h-[260px] overflow-auto rounded-md bg-muted p-2.5 font-mono text-[11.5px] leading-[1.55] whitespace-pre-wrap [overflow-wrap:anywhere]">
+        <pre
+          data-part={call.outputToken ?? undefined}
+          className="max-h-[260px] overflow-auto rounded-md bg-muted p-2.5 font-mono text-[11.5px] leading-[1.55] whitespace-pre-wrap [overflow-wrap:anywhere]"
+        >
           {call.output}
         </pre>
         {call.truncated && (
@@ -99,7 +102,7 @@ function CallDetail({ call }: { call: ToolCall }) {
 
 function CallRow({ call }: { call: ToolCall }) {
   const { t } = useI18n()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useReveal(callTokens([call]))
   const added = call.edit?.addedLines
   const removed = call.edit?.removedLines
   return (
@@ -116,7 +119,10 @@ function CallRow({ call }: { call: ToolCall }) {
             {call.name}
           </span>
         )}
-        <span className="truncate font-mono text-[11.5px] text-muted-foreground">
+        <span
+          data-part={call.inputToken ?? undefined}
+          className="truncate font-mono text-[11.5px] text-muted-foreground"
+        >
           {callArgument(call.input)}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-2 text-[11.5px] text-muted-foreground tabular">
@@ -148,9 +154,15 @@ function CallRow({ call }: { call: ToolCall }) {
   )
 }
 
+function callTokens(calls: ToolCall[]) {
+  return calls.flatMap((call) =>
+    [call.inputToken, call.outputToken].filter((token) => token !== null),
+  )
+}
+
 export function ToolGroup({ calls }: { calls: ToolCall[] }) {
   const { t } = useI18n()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useReveal(callTokens(calls))
   if (calls.length === 0) return null
   const counts = new Map<string, number>()
   for (const call of calls) {
@@ -243,7 +255,10 @@ function SubagentCard({
       <span className="shrink-0 text-[12px] text-muted-foreground">
         {t('agentReader.rows.subagent')}
       </span>
-      <span className="truncate text-[13px] font-medium">
+      <span
+        data-part={`title:${child.id}`}
+        className="truncate text-[13px] font-medium"
+      >
         {child.title?.trim() || t('agentReader.untitled')}
       </span>
       {child.agentMs !== null && (
@@ -271,7 +286,7 @@ export function SubagentCards({
   onOpen: (child: ChatChildCard) => void
 }) {
   const { t } = useI18n()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useReveal(cards.map((card) => `title:${card.id}`))
   if (cards.length === 0) return null
   if (cards.length === 1)
     return <SubagentCard child={cards[0]} onOpen={onOpen} />

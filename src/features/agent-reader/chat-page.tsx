@@ -1,13 +1,13 @@
 /**
  * One conversation as a full page (`#/agent/chat/:id`, `agent-history.md`
  * §4): the reader with its outline open. Closing goes back to where it was
- * opened from; moving it to the trash goes to the list.
+ * opened from; moving it to the trash goes to the list; its project goes
+ * to the project's page.
  */
 import { useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { projectListSearch } from '@/features/agent-chats/chats-params'
 import { useAgentChatsSync } from '@/lib/queries/agent-chats'
-import { spacePath } from '@/lib/spaces'
+import { agentProjectPath, spacePath } from '@/lib/spaces'
 import { Reader } from './reader'
 
 export default function ChatPage() {
@@ -27,9 +27,7 @@ export default function ChatPage() {
         beside={false}
         onClose={close}
         onTrashed={() => void navigate(spacePath('agent', 'chats'))}
-        onOpenProject={(project) =>
-          void navigate(spacePath('agent', 'chats', projectListSearch(project)))
-        }
+        onOpenProject={(project) => void navigate(agentProjectPath(project))}
       />
     </div>
   )

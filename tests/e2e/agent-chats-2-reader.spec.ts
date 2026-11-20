@@ -23,15 +23,15 @@
  * - a pasted screenshot is drawn from the saved bytes at its own size;
  * - a conversation whose working folder is gone says so in Continue and
  *   in the info panel;
- * - "Open full page" opens it at its own address with the outline; its
- *   project opens History filtered to it; Esc goes back; an address naming
- *   no conversation says so and leads to History.
+ * - "Open full page" opens it at its own address with the outline, with
+ *   History current in the rail; its project opens the project's page;
+ *   Esc goes back; an address naming no conversation says so and leads to
+ *   History.
  */
 import { expect, test } from '@playwright/test'
 import { TOOL_NAMES } from './support/agent-tools'
 import {
   agentChat,
-  chip,
   hashParam,
   openChat,
   openHistory,
@@ -393,19 +393,32 @@ test('the full page, its project, and an address with no conversation', async ({
     page.getByRole('navigation', { name: 'What you said' }),
   ).toBeVisible()
   await expect(page.getByRole('button', { name: 'Close (Esc)' })).toHaveCount(0)
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Main navigation' })
+      .getByRole('link', { name: 'History', exact: true }),
+  ).toHaveAttribute('aria-current', 'page')
   await testInfo.attach('the full page', {
     body: await page.screenshot(),
     contentType: 'image/png',
   })
 
-  // Its project: History, filtered to it.
+  // Its project: the project's page.
   await reader(page)
     .locator('header')
     .getByRole('button', { name: chat.project!.label, exact: true })
     .click()
-  await expect.poll(() => hashParam(page, 'project')).toBe(chat.project!.id)
-  await expect(page).toHaveURL(/#\/agent\/chats\?/)
-  await expect(chip(page, chat.project!.label)).toBeVisible()
+  await expect(page).toHaveURL(
+    new RegExp(`#/agent/projects/${encodeURIComponent(chat.project!.id)}$`),
+  )
+  await expect(
+    page.getByRole('heading', { name: chat.project!.label, level: 1 }),
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Main navigation' })
+      .getByRole('link', { name: 'Projects', exact: true }),
+  ).toHaveAttribute('aria-current', 'page')
   await page.goBack()
   await expect(
     page.getByRole('heading', { name: chat.title!, level: 1 }),

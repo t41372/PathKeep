@@ -1,12 +1,12 @@
 /**
- * The reader's ⋯ menu (`agent-history.md` §4.3), in the spec's order: the
- * outline, the raw records, jump to the end; open as a full page (beside
- * the list only), rename, show the tool's file in the file manager (not
- * when the tool's file is gone); put away or bring back, move to the trash
- * or put back.
+ * The reader's ⋯ menu (`agent-history.md` §4.3), in the spec's order: find
+ * in this conversation, the outline, the raw records, jump to the end;
+ * open as a full page (beside the list only), rename, show the tool's file
+ * in the file manager (not when the tool's file is gone); put away or
+ * bring back, move to the trash or put back.
  *
- * Not here yet: "Find in this conversation" and "Export ▸", which need
- * commands the backend does not have yet.
+ * Not here yet: "Export ▸", which needs a command the backend does not
+ * have yet.
  */
 import {
   Archive,
@@ -16,6 +16,7 @@ import {
   FolderOpen,
   Maximize2,
   Pencil,
+  TextSearch,
   Trash2,
   Undo2,
 } from 'lucide-react'
@@ -27,22 +28,17 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { ChatMarks } from '@/features/agent-chats/chat-marks'
 import { supportClient } from '@/lib/backend-client/support'
 import type { ChatHeader } from '@/lib/backend-client/agent-chats'
 import { describeError } from '@/lib/errors'
-import { useI18n, type MessageKey } from '@/lib/i18n'
-import { isMacOsHost } from '@/lib/runtime'
+import { useI18n } from '@/lib/i18n'
+import { shortcutLabel } from '@/lib/runtime'
 import { agentChatPath } from '@/lib/spaces'
-
-function revealLabel(): MessageKey {
-  if (isMacOsHost()) return 'agentReader.menu.revealMac'
-  if (typeof navigator !== 'undefined' && /Win/.test(navigator.platform))
-    return 'agentReader.menu.revealWindows'
-  return 'agentReader.menu.revealLinux'
-}
+import { revealLabel } from './reader-words'
 
 export function MoreMenu({
   header,
@@ -57,6 +53,7 @@ export function MoreMenu({
   onEnd,
   onRename,
   onTrashed,
+  onFind,
 }: {
   header: ChatHeader
   beside: boolean
@@ -71,6 +68,7 @@ export function MoreMenu({
   onEnd: () => void
   onRename: () => void
   onTrashed: () => void
+  onFind: () => void
 }) {
   const { t } = useI18n()
   const navigate = useNavigate()
@@ -88,6 +86,11 @@ export function MoreMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[260px]">
+        <DropdownMenuItem onSelect={onFind}>
+          <TextSearch aria-hidden />
+          {t('agentReader.menu.find')}
+          <DropdownMenuShortcut>{shortcutLabel('F')}</DropdownMenuShortcut>
+        </DropdownMenuItem>
         <DropdownMenuCheckboxItem checked={outline} onCheckedChange={onOutline}>
           {t('agentReader.menu.outline')}
         </DropdownMenuCheckboxItem>

@@ -21,7 +21,8 @@
  *   the only-in-PathKeep mark;
  * - a day in the address (Insights links so) shows that day's
  *   conversations; a range replaces the day;
- * - the project field lists every working folder and narrows to one;
+ * - the project field lists every project (`list_agent_projects`: its
+ *   total, its ids) and narrows to one;
  * - ↓ and j move the selection, which opens the reader beside the list;
  *   Esc closes it.
  */
@@ -47,6 +48,7 @@ import {
   wirePage,
   wireProjects,
 } from './support/agent-chats'
+import { wireProjectList } from './support/agent-projects'
 import { fixture } from './support/fixture'
 
 const compact = (n: number) =>
@@ -237,19 +239,22 @@ test('History lists, sorts, groups and filters the saved conversations', async (
   expect(hashParam(page, 'day')).toBeNull()
   expect(hashParam(page, 'range')).toBe('30d')
 
-  // The project field lists every working folder; one narrows the list.
+  // The project field lists every project; one narrows the list.
   await openHistory(page)
   const tidepool = projects.find((group) => group.project?.label === 'tidepool')
   expect(tidepool, 'the tidepool project').toBeDefined()
+  const catalog = await wireProjectList()
+  expect(
+    catalog.items.map((card) => card.id),
+    'the list groups and the projects name the same project',
+  ).toContain(tidepool!.project!.id)
   await filterButton(page).click()
   const field = page
     .getByRole('dialog')
     .getByRole('button', { name: 'Project', exact: true })
-  await expect(field).toHaveText(projectsText(counts.folderCount))
+  await expect(field).toHaveText(projectsText(catalog.total))
   await field.click()
-  await expect(page.getByRole('option')).toHaveCount(
-    projects.filter((group) => group.project).length,
-  )
+  await expect(page.getByRole('option')).toHaveCount(catalog.items.length)
   await page.getByPlaceholder('Find a project…').fill('tidepool')
   await page.getByRole('option', { name: /^tidepool/ }).click()
   await page.keyboard.press('Escape')

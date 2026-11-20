@@ -24,7 +24,7 @@ import {
   Sun,
   type LucideIcon,
 } from 'lucide-react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import {
   Tooltip,
   TooltipContent,
@@ -59,22 +59,27 @@ function RailLink({
   also?: string[]
 }) {
   const { pathname } = useLocation()
-  const elsewhere = also.some((prefix) => pathname.startsWith(prefix))
+  // Its own address, a screen under it, or one of its screens elsewhere
+  // (the full-page reader belongs to History): all of them are this page,
+  // for the eye and for a screen reader.
+  const current =
+    pathname === to ||
+    pathname.startsWith(`${to}/`) ||
+    also.some((prefix) => pathname.startsWith(prefix))
   return (
-    <NavLink
+    <Link
       to={to}
-      className={({ isActive }) =>
-        cn(
-          'flex h-[54px] w-[60px] shrink-0 flex-col items-center justify-center gap-1 rounded-xl text-muted-foreground transition-[background-color,color,box-shadow] duration-150 hover:text-foreground',
-          (isActive || elsewhere) && 'bg-card text-foreground shadow-card',
-        )
-      }
+      aria-current={current ? 'page' : undefined}
+      className={cn(
+        'flex h-[54px] w-[60px] shrink-0 flex-col items-center justify-center gap-1 rounded-xl text-muted-foreground transition-[background-color,color,box-shadow] duration-150 hover:text-foreground',
+        current && 'bg-card text-foreground shadow-card',
+      )}
     >
       <Icon className="size-5" strokeWidth={1.75} aria-hidden />
       <span className="text-[11px] leading-none font-medium whitespace-nowrap">
         {label}
       </span>
-    </NavLink>
+    </Link>
   )
 }
 

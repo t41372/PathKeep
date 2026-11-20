@@ -6,8 +6,10 @@ import type { MessagePath, ResolvedLanguage } from '../define'
 import { agentBackup } from './agent-backup'
 import { agentChats } from './agent-chats'
 import { agentInfo } from './agent-info'
+import { agentProjects } from './agent-projects'
 import { agentReader } from './agent-reader'
 import { agentRepair } from './agent-repair'
+import { agentSearch } from './agent-search'
 import { agentTasks } from './agent-tasks'
 import { agentInsights } from './agent-insights'
 import { agentInsightsCards } from './agent-insights-cards'
@@ -44,7 +46,9 @@ const namespaces = {
   agentChats,
   agentReader,
   agentInfo,
+  agentProjects,
   agentRepair,
+  agentSearch,
   agentTasks,
   agentInsights,
   agentInsightsCards,

@@ -39,7 +39,9 @@ import type {
 import { AGENT_TOOLS, type AgentToolId } from '@/lib/backend-client/data-kinds'
 import { cn } from '@/lib/cn'
 import { useI18n, type Formatters, type MessageKey } from '@/lib/i18n'
-import { useChatProjects } from '@/lib/queries/agent-chats'
+import { useProjectList } from '@/lib/queries/agent-projects'
+import { ProjectIcon } from '@/features/agent-projects/project-icon'
+import { projectName } from '@/features/agent-projects/project-words'
 import {
   FLAGS,
   GROUPS,
@@ -111,24 +113,23 @@ function Pill({
 
 function ProjectField({
   value,
-  timeZone,
-  folderCount,
   f,
   onChange,
 }: {
   value: string | null
-  timeZone: string
-  folderCount: number | undefined
   f: Formatters
   onChange: (project: string | null) => void
 }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
-  const projects = useChatProjects(timeZone, open)
+  // Every project, put-away conversations' too; the newest activity first.
+  const projects = useProjectList({})
+  const items = projects.data?.items ?? []
+  const picked = value ? items.find((item) => item.id === value) : undefined
   const current = value
-    ? (projects.options.find((option) => option.id === value)?.label ??
-      value.split(/[\\/]/).filter(Boolean).pop() ??
-      value)
+    ? picked
+      ? projectName(t, picked)
+      : (value.split(/[\\/]/).filter(Boolean).pop() ?? value)
     : null
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -148,9 +149,11 @@ function ProjectField({
             )}
           >
             {current ??
-              (folderCount === undefined
-                ? t('agentChats.filter.anyProject')
-                : t('agentChats.filter.allProjects', { count: folderCount }))}
+              (projects.data
+                ? t('agentChats.filter.allProjects', {
+                    count: projects.data.total,
+                  })
+                : t('agentChats.filter.anyProject'))}
           </span>
           <ChevronsUpDown
             className="size-3.5 text-muted-foreground"
@@ -162,7 +165,7 @@ function ProjectField({
         <Command>
           <CommandInput placeholder={t('agentChats.filter.findProject')} />
           <CommandList className="max-h-[320px]">
-            {projects.complete && (
+            {projects.data && (
               <CommandEmpty>{t('agentChats.filter.noProject')}</CommandEmpty>
             )}
             <CommandGroup>
@@ -177,29 +180,32 @@ function ProjectField({
                   {t('agentChats.filter.anyProject')}
                 </CommandItem>
               )}
-              {projects.options.map((project) => (
+              {items.map((project) => (
                 <CommandItem
                   key={project.id}
-                  value={`${project.label} ${project.id}`}
+                  value={`${projectName(t, project)} ${project.mainFolder ?? ''} ${project.id}`}
                   onSelect={() => {
                     onChange(project.id)
                     setOpen(false)
                   }}
                 >
-                  <FolderClosed aria-hidden />
-                  <span className="truncate" title={project.id}>
-                    {project.label}
+                  <ProjectIcon project={project} />
+                  <span
+                    className="truncate"
+                    title={project.mainFolder ?? undefined}
+                  >
+                    {projectName(t, project)}
                   </span>
-                  {project.lastActivityAt !== null && (
+                  {project.lastActivity !== null && (
                     <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                      {f.relative(project.lastActivityAt)}
+                      {f.relative(project.lastActivity)}
                     </span>
                   )}
                   {project.id === value && <Check className="size-3.5" />}
                 </CommandItem>
               ))}
             </CommandGroup>
-            {!projects.complete && (
+            {!projects.data && (
               <p
                 role="status"
                 className="px-3 py-2 text-[12.5px] text-muted-foreground"
@@ -219,14 +225,10 @@ function ProjectField({
 export function FilterMenu({
   params,
   update,
-  timeZone,
-  folderCount,
   f,
 }: {
   params: ChatsParams
   update: (change: ChatsChange) => void
-  timeZone: string
-  folderCount: number | undefined
   f: Formatters
 }) {
   const { t } = useI18n()
@@ -271,18 +273,18 @@ export function FilterMenu({
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[340px] p-0">
         <div className="flex flex-col divide-y">
-          <div className="flex flex-col gap-1.5 px-3 py-2.5">
-            <span className="text-[11.5px] font-medium text-muted-foreground">
-              {t('agentChats.filter.project')}
-            </span>
-            <ProjectField
-              value={params.project}
-              timeZone={timeZone}
-              folderCount={folderCount}
-              f={f}
-              onChange={(project) => update({ project })}
-            />
-          </div>
+          {!params.fixedProject && (
+            <div className="flex flex-col gap-1.5 px-3 py-2.5">
+              <span className="text-[11.5px] font-medium text-muted-foreground">
+                {t('agentChats.filter.project')}
+              </span>
+              <ProjectField
+                value={params.project}
+                f={f}
+                onChange={(project) => update({ project })}
+              />
+            </div>
+          )}
           <Section title={t('agentChats.filter.tools')}>
             <Pill
               on={params.harnesses.length === 0}
@@ -323,28 +325,35 @@ export function FilterMenu({
               </Pill>
             ))}
           </Section>
-          <Section title={t('agentChats.filter.sort')}>
-            {SORTS.map((sort) => (
-              <Pill
-                key={sort}
-                on={params.sort === sort}
-                onClick={() => update({ sort })}
-              >
-                {t(sortKey(sort))}
-              </Pill>
-            ))}
-          </Section>
-          <Section title={t('agentChats.filter.group')}>
-            {GROUPS.map((group) => (
-              <Pill
-                key={group}
-                on={params.group === group}
-                onClick={() => update({ group })}
-              >
-                {t(groupKey(group))}
-              </Pill>
-            ))}
-          </Section>
+          {/* A search comes in last-activity order, in no groups. */}
+          {!params.q && (
+            <Section title={t('agentChats.filter.sort')}>
+              {SORTS.map((sort) => (
+                <Pill
+                  key={sort}
+                  on={params.sort === sort}
+                  onClick={() => update({ sort })}
+                >
+                  {t(sortKey(sort))}
+                </Pill>
+              ))}
+            </Section>
+          )}
+          {!params.q && (
+            <Section title={t('agentChats.filter.group')}>
+              {GROUPS.filter(
+                (group) => !(params.fixedProject && group === 'project'),
+              ).map((group) => (
+                <Pill
+                  key={group}
+                  on={params.group === group}
+                  onClick={() => update({ group })}
+                >
+                  {t(groupKey(group))}
+                </Pill>
+              ))}
+            </Section>
+          )}
         </div>
       </PopoverContent>
     </Popover>
@@ -365,7 +374,7 @@ export function FilterChips({
 }) {
   const { t } = useI18n()
   const chips: { key: string; label: ReactNode; clear: () => void }[] = []
-  if (params.project)
+  if (params.project && !params.fixedProject)
     chips.push({
       key: 'project',
       label: projectLabel ?? params.project,
@@ -422,7 +431,7 @@ export function FilterChips({
           className="px-1 text-[12px] text-muted-foreground hover:text-foreground"
           onClick={() =>
             update({
-              project: null,
+              ...(params.fixedProject ? {} : { project: null }),
               harnesses: [],
               range: 'all',
               day: null,

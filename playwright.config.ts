@@ -269,16 +269,20 @@ export default defineConfig({
       ],
       'agent',
     ),
-    // History and the reader on the conversations the projects above
-    // backed up (Claude Code, Codex, Pi; one Codex conversation deleted
-    // from its folder). In name order; the marks spec takes off every mark
-    // it puts on.
+    // History, the reader, search, find and Projects on the conversations
+    // the projects above backed up (Claude Code, Codex, Pi; one Codex
+    // conversation deleted from its folder). In name order; the marks spec
+    // takes off every mark it puts on, the projects spec every name, pin,
+    // section and added folder.
     project(
       'agent-chats',
       [
         'agent-chats-1-list.spec.ts',
         'agent-chats-2-reader.spec.ts',
         'agent-chats-3-marks.spec.ts',
+        'agent-chats-4-search.spec.ts',
+        'agent-chats-5-find.spec.ts',
+        'agent-chats-6-projects.spec.ts',
       ],
       'agent-sources',
     ),

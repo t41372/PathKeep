@@ -18,6 +18,7 @@
 import {
   Bot,
   ChartColumn,
+  FolderKanban,
   Globe,
   HardDriveDownload,
   History,
@@ -194,11 +195,10 @@ const browsing = {
 
 /**
  * Agent conversations. Its pages are insights, records, projects and
- * backup (`data-spaces-tradeoff.md` §4.1); this build has insights,
- * records (the list and the reader) and backup, and the space opens at
- * insights. ⌘K finds its sources and recent backups, with no "Search in"
- * row: the list does not search yet. Projects comes between records and
- * backup; with search, ⌘K finds conversations and searches them.
+ * backup (`data-spaces-tradeoff.md` §4.1); this build has all four, and
+ * the space opens at insights. ⌘K finds its sources and recent backups,
+ * with no "Search in" row yet: finding conversations from ⌘K is its own
+ * piece of work.
  */
 const agent = {
   id: 'agent',
@@ -225,6 +225,18 @@ const agent = {
         {
           path: 'chat/:id',
           screen: () => import('@/features/agent-reader/chat-page'),
+        },
+      ],
+    },
+    {
+      id: 'projects',
+      label: 'shell.nav.projects',
+      icon: FolderKanban,
+      screen: () => import('@/features/agent-projects/projects-page'),
+      children: [
+        {
+          path: ':id',
+          screen: () => import('@/features/agent-projects/project-page'),
         },
       ],
     },
