@@ -18,7 +18,8 @@
 分工（用戶 2026-11-18）：後端程式由 Codex `gpt-6.2-astra`（high）寫；UI 由 Claude 寫。Codex 的回報不當作結果：看 diff、自己跑 gate。
 
 > 用戶 2026-11-20：「後端先放著吧。見好就收，如果還有缺口我們未來再審查，先把整個東西做完。所有新的極端情況都不修了，只記錄。我要看到整個應用程序完工，e2e 測試完整，而不是讓你花一週的時間死嗑在斷電或是某些從來不會遇到的極端情況。」
-> 所以從 2026-11-20 起：每條分支的 xhigh 審查暫停；新發現的極端情況（當機落在兩個交易之間、Time Machine 或同步工具放回舊檔、手動改檔等）只記進 BACKLOG，不寫程式；後端只做畫面與功能需要的部分。順序：先用完整 E2E 驗證現有的東西，再做第 4、5 組還沒有的功能（每項都要 E2E 證明），最後才看第 6 組：逐項判斷，正常使用會碰到的錯才修，其餘只記錄。`WORK-AH-EVIDENCE-LINEAGE` 因此擱置（見 BACKLOG）。
+> 同一天又說：「夠了，所有接下來的 code review 全部取消，我們不這麼 review 了。我們記錄下 review 塊，等全部工作完成之後再分範圍去 reivew，而不是做完一塊就 review 一次然後跑測試。」
+> 所以從 2026-11-20 起：做完一塊就審查的做法取消，要審的範圍記在 BACKLOG 的 `WORK-V060-REVIEW-BLOCKS`，全部做完再審；新發現的極端情況（當機落在兩個交易之間、Time Machine 或同步工具放回舊檔、手動改檔等）只記進 BACKLOG，不寫程式；後端只做畫面與功能需要的部分。順序：先用完整 E2E 驗證現有的東西，再做第 4、5 組還沒有的功能（每項都要 E2E 證明），最後才看第 6 組：逐項判斷，正常使用會碰到的錯才修，其餘只記錄。`WORK-AH-EVIDENCE-LINEAGE` 因此擱置（見 BACKLOG）。
 
 依序做。每一項做完才打勾，沒做的不默默略過。
 
@@ -107,7 +108,7 @@ BACKLOG 原有的，依領域：
 
 ### 7. 發布
 
-- [ ] 這條分支上還沒被 Codex astra 審過的部分分塊審查、驗證、修。
+- [ ] 全部工作做完後，照 BACKLOG 的 `WORK-V060-REVIEW-BLOCKS` 分範圍審查（用戶 2026-11-20：做完一塊就審查一次的做法取消，之後的審查全部等到最後）。
 - [ ] landing page：補 Agent 空間的介紹、圖片，重錄 demo 加上 Agent 空間（`WORK-SITE-DEMO-V060`），網站的檢查進 CI，合併 PR #25；Cloudflare Pages 與網域要用用戶的帳號。
 - [ ] 在 macOS 上完整跑一次 E2E（用戶 2026-11-18：至少一次，放在最後，開發過程中不在這台電腦上跑）。Linux 的 gate 看不到只在 macOS 才有的行為（鑰匙圈、排程、檔案系統）。更正（2026-11-18）：之前寫「Platform Native 只跑 Rust 測試」是錯的，它的 macOS 工作在 GitHub 的 macOS 機器上跑整套 E2E（`bun run test:e2e`），每次觸發都跑；2026-11-18 那次就抓到一個只在慢機器上出現的 spec 等待寫法（`semantic-progress.spec.ts`，已修，等下一次 macOS 執行證實）。所以 macOS 的 E2E 平常由 Platform Native 看，用戶電腦上的這一次是發布前在真的鑰匙圈與排程上的最後確認。先做完 `WORK-E2E-WINDOW-OFF-THE-DESKTOP`。
 - [ ] 發布流程實跑一次（`WORK-RELEASE-REHEARSAL-V06`，動 GitHub 前問用戶）。
