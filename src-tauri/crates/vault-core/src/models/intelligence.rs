@@ -1483,6 +1483,8 @@ pub enum ModelDownloadWait {
 /// journal (keyed by the run that answered this message), so the evidence — and its W-STAR star key —
 /// survives a reopen exactly as it survived a crash, with the same profile the live turn showed.
 pub struct AgentCitation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<ConversationCitation>,
     pub history_id: i64,
     /// Empty only on rows converted from an archive that predates keeping it.
     #[serde(default)]
@@ -2000,6 +2002,8 @@ pub struct AiAssistantRequest {
 /// "Option::is_none")]` so every pre-W-AI-7 payload (insights, the old assistant response) still
 /// serializes/deserializes byte-for-byte unchanged.
 pub struct AiCitation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<ConversationCitation>,
     pub history_id: i64,
     pub profile_id: String,
     pub url: String,
@@ -2483,4 +2487,11 @@ mod tests {
             );
         }
     }
+}
+
+/// Reader anchor carried by Ask in addition to the durable citation key.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ConversationCitation {
+    Conversation { conversation_id: String, source_id: String, ordinal: u64 },
 }

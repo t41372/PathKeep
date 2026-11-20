@@ -12,13 +12,13 @@ use std::{
 use tantivy::tokenizer::{TokenStream, Tokenizer};
 use vault_store::CancelToken;
 
-pub(super) struct Part {
+pub(crate) struct Part {
     pub role: Role,
     pub kind: PartKind,
     pub text: String,
 }
 
-pub(super) fn readable(
+pub(crate) fn readable(
     event: &crate::NativeEvent,
     harness: crate::Harness,
     format: Option<i64>,

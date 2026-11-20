@@ -92,8 +92,14 @@ pub(crate) fn recent_runs_from(
 pub struct McpQueryRecord {
     pub id: i64,
     pub at: String,
-    /// `search-history`, `archive-status` or `usage-guide`.
+    /// Name registered by the read-only stdio server.
     pub tool: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ordinal: Option<u64>,
     pub query: Option<String>,
     pub domain: Option<String>,
     pub profile_id: Option<String>,
@@ -147,6 +153,9 @@ pub fn load_mcp_queries(vault: &Vault, cursor: Option<i64>, limit: usize) -> Res
                 id,
                 at,
                 tool: text("tool").unwrap_or_default(),
+                conversation_id: text("conversationId"),
+                source_id: text("sourceId"),
+                ordinal: stats["ordinal"].as_u64(),
                 query: text("query"),
                 domain: text("domain"),
                 profile_id: text("profileId"),

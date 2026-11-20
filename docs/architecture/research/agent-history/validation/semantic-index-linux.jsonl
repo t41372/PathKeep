@@ -1,0 +1,3 @@
+{"distinctPrompts":false,"roots":120000,"passages":14400000,"uniqueVectors":3,"elapsedMs":124847,"bytes":16216522,"model":"minishlab/potion-multilingual-128M"}
+{"distinctPrompts":true,"roots":120000,"passages":14400000,"uniqueVectors":3600002,"elapsedMs":574915,"bytes":970026069,"model":"minishlab/potion-multilingual-128M","peakProcessRSSKiB":488804}
+{"query":"medical care for an ill dog","petScore":0.6485968,"unrelatedFloatScore":-0.0056010443,"otherReturnedScore":null}

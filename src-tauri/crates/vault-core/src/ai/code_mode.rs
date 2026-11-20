@@ -517,6 +517,7 @@ impl HostState {
             let canonical_url = crate::visit_taxonomy::normalize_visit_url(&item.url)
                 .map(|normalized| normalized.canonical_url);
             self.citations.push(AiCitation {
+                target: None,
                 history_id: item.history_id,
                 profile_id: item.profile_id.clone(),
                 url: item.url.clone(),

@@ -78,9 +78,19 @@ pub(super) fn recreate(archive: &Archive) -> Result<Opened> {
         if metadata.file_type().is_symlink() || !metadata.is_dir() {
             return Err(Error::InvalidInput("search directory must be an owned directory".into()));
         }
-        // Only the owner's dedicated search directory is reset.
-        // The source and canonical records are outside this operation's ownership.
-        vault_fs::remove_dir_all(path)?;
+        // Both search modes own generations here. Rebuilding the lexical index keeps
+        // the independently consented semantic publication available.
+        for item in std::fs::read_dir(path)? {
+            let item = item?;
+            if item.file_name() == "semantic" {
+                continue;
+            }
+            if item.file_type()?.is_dir() {
+                vault_fs::remove_dir_all(item.path())?;
+            } else {
+                std::fs::remove_file(item.path())?;
+            }
+        }
     }
     std::fs::create_dir_all(path)?;
     #[cfg(test)]
@@ -94,7 +104,7 @@ pub(super) fn recreate(archive: &Archive) -> Result<Opened> {
     Ok(Opened { index, directory, fields, watermark: 0 })
 }
 
-fn validate_parent(archive: &Archive) -> Result<()> {
+pub(super) fn validate_parent(archive: &Archive) -> Result<()> {
     match std::fs::symlink_metadata(
         archive
             .search_path

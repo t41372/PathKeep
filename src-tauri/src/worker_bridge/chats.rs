@@ -91,10 +91,11 @@ pub(crate) fn get_agent_viewer_preferences_impl(
     super::data_kinds::surface_result(vault_worker::data_kinds::viewer::get(q))
 }
 pub(crate) fn set_agent_viewer_preferences_impl(
+    session: &SessionState,
     q: vault_worker::data_kinds::viewer::Patch,
     events: Events,
 ) -> Result<Value, CommandError> {
-    super::data_kinds::surface_result(vault_worker::data_kinds::viewer::set(q, events))
+    super::data_kinds::surface_result(vault_worker::data_kinds::viewer::set(session, q, events))
 }
 
 pub(crate) fn query_agent_palette_impl(
@@ -107,4 +108,18 @@ pub(crate) fn query_agent_palette_impl(
 /// Both transports ask the platform to select the same validated source file.
 pub(crate) fn reveal_file_impl(path: String) -> Result<String, CommandError> {
     Ok(vault_platform::reveal_file(path)?)
+}
+
+pub(crate) fn get_agent_semantic_index_impl(
+    s: &SessionState,
+    q: vault_worker::data_kinds::Empty,
+) -> Result<Value, CommandError> {
+    super::data_kinds::surface_result(vault_worker::data_kinds::semantic::status(s, q))
+}
+pub(crate) fn control_agent_semantic_index_impl(
+    s: &SessionState,
+    q: vault_worker::data_kinds::semantic::Control,
+    events: Events,
+) -> Result<Value, CommandError> {
+    super::data_kinds::surface_result(vault_worker::data_kinds::semantic::control(s, q, events))
 }

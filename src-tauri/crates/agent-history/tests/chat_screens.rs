@@ -604,3 +604,31 @@ fn codex_resume_is_bound_to_a_verified_cli_release_and_a_present_source() {
     assert_eq!(header["summary"]["onlyInPathKeep"], true);
     assert!(header["resumeCommand"].is_null());
 }
+
+#[test]
+fn embedding_inputs_and_semantic_hits_use_the_same_native_speaker_and_part() {
+    let t = tempfile::tempdir().unwrap();
+    let a = Archive::create_unencrypted(&t.path().join("archive")).unwrap();
+    let dir = t.path().join("claude");
+    let id = "reasoning-example";
+    let mut reply = native::claude_reply(id, "reply", "prompt", "/project", "visible answer");
+    reply["message"]["content"] = json!([{"type":"thinking","thinking":"hidden reasoning"},{"type":"text","text":"visible answer"}]);
+    native::claude_main(
+        &dir,
+        id,
+        &[native::claude_user(id, "prompt", None, "/project", "question"), reply],
+    );
+    capture(&a, agent_history::Harness::ClaudeCode, &dir);
+    let records = a.embedding_rows(0).unwrap();
+    let record =
+        records.iter().find(|r| r.chunks.iter().any(|c| c.text == "visible answer")).unwrap();
+    let addresses =
+        record.chunks.iter().enumerate().map(|(i, _)| (record.id, i as u32)).collect::<Vec<_>>();
+    let q =
+        serde_json::from_value(json!({"query":"reasoning","mode":"semantic","roles":["thinking"]}))
+            .unwrap();
+    let hits = a.semantic_page(&addresses, &q).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].1["role"], "thinking");
+    assert_eq!(hits[0].1["text"], "hidden reasoning");
+}

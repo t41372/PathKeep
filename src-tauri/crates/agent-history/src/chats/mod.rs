@@ -22,3 +22,5 @@ pub(crate) use list::DayCounts;
 pub use list::{Flag, Group, ListQuery, Sort};
 pub(crate) use publish::{stage_summary, switch_summaries};
 pub use reader::{BranchesQuery, RawQuery, WindowQuery};
+
+pub mod passages;

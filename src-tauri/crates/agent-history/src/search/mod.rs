@@ -5,10 +5,11 @@ mod candidates;
 mod catalog;
 mod delivery;
 mod expression;
+pub(crate) use expression::readable;
 mod publication;
 mod queue;
 mod stream;
-pub use stream::{Role, ScreenQuery};
+pub use stream::{Role, ScreenQuery, SearchMode};
 mod index;
 mod initial;
 pub(crate) use initial::InitialSearch;
@@ -73,3 +74,6 @@ impl crate::Archive {
         Ok(crate::read_model::IndexLag { indexed_through, target: self.projection_generation()? })
     }
 }
+
+mod semantic_files;
+pub use semantic_files::SemanticFiles;

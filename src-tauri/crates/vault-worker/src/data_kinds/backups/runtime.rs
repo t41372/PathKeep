@@ -196,6 +196,9 @@ impl Producer {
                 .unwrap()
                 .push((Arc::downgrade(vault.store()), intent.task.clone()));
         }
+        if terminal.as_ref().is_ok_and(|r| matches!(r.status.as_str(), "complete" | "partial")) {
+            crate::data_kinds::semantic::update_if_needed(&vault, events.clone());
+        }
         let summary = terminal.as_ref().ok().and_then(|record| record.row(&vault).ok());
         drop(self);
         {

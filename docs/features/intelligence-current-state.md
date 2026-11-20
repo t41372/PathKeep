@@ -398,7 +398,7 @@ PathKeep 現在的 intelligence，不是一個單一功能，而是三層東西�
 兩者要分清楚：
 
 - **Integrations preview**（deterministic intelligence external-output）：在 Integrations 做 manual review / copy-export（embed cards / widget / public snapshot / `browser-snippet-v1` trusted local host）。定位是給使用者 review，不是假裝已自動安裝。
-- **AI MCP server**（W-AI-9-B，已交付）：localhost stdio MCP server，opt-in、hard-default-OFF（`mcp_enabled`）、unlock-gated、**read-only**（`search-history` / `archive-status` / `usage-guide`），SQLCipher key 不外洩，每次外部查詢 audited 為 `mcp_query`。skills（W-AI-9-C）的 usage-guide JSON gated on `skill_enabled`。邊界見 [../architecture/ai-security-posture.md](../architecture/ai-security-posture.md) §3。
+- **AI MCP server**（W-AI-9-B，已交付）：localhost stdio MCP server，opt-in、hard-default-OFF（`mcp_enabled`）、unlock-gated、**read-only**（`search-history` / `archive-status` / `usage-guide`；另外允許讀 Agent 對話時可用 `search-conversations` 與 `read-conversation`），SQLCipher key 不外洩，每次外部查詢 audited 為 `mcp_query`。skills（W-AI-9-C）的 usage-guide JSON gated on `skill_enabled`。邊界見 [../architecture/ai-security-posture.md](../architecture/ai-security-posture.md) §3。
 
 ---
 

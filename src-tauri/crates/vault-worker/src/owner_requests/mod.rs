@@ -129,6 +129,14 @@ fn dispatch_inner(
                     )
                     .map_err(failed)?,
                 ),
+                "search-conversations" => {
+                    mcp::search_agent(&vault().map_err(failed)?, params(call.arguments)?)
+                        .map_err(failed)
+                }
+                "read-conversation" => {
+                    mcp::read_agent(&vault().map_err(failed)?, params(call.arguments)?)
+                        .map_err(failed)
+                }
                 "archive-status" => {
                     let _: Empty = params(call.arguments)?;
                     encode(

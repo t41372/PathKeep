@@ -6,6 +6,7 @@ pub mod delivery;
 mod hints;
 pub mod insights;
 pub mod projects;
+pub mod semantic;
 mod snapshot;
 pub mod viewer;
 pub use hints::{DismissHint, HintAcknowledgement, dismiss_hint};
@@ -76,6 +77,7 @@ pub enum Refusal {
     InvalidCursor,
     ActionUnavailable,
     Finishing,
+    SemanticNotReady,
 }
 impl Refusal {
     pub fn code(self) -> &'static str {
@@ -98,6 +100,7 @@ impl Refusal {
             Self::Missing => "record-unavailable",
             Self::ActionUnavailable => "task-action-unavailable",
             Self::InvalidCursor => "invalid-cursor",
+            Self::SemanticNotReady => "agent-semantic-index-not-ready",
             Self::Finishing => "operation-finishing",
             Self::NotInitialized => "archive-uninitialized",
         }

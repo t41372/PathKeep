@@ -28,10 +28,20 @@ pub enum Role {
 fn all_roles() -> Vec<Role> {
     vec![Role::User, Role::Agent, Role::Tool, Role::Thinking]
 }
+#[derive(Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchMode {
+    #[default]
+    Lexical,
+    Semantic,
+}
+
 /// Expression and scope shared by the Records box and reader find.
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScreenQuery {
+    #[serde(default)]
+    pub mode: SearchMode,
     pub query: String,
     #[serde(default = "all_roles")]
     pub roles: Vec<Role>,
@@ -40,7 +50,7 @@ pub struct ScreenQuery {
 }
 impl ScreenQuery {
     pub fn all(query: String) -> Self {
-        Self { query, roles: all_roles(), filters: ListQuery::default() }
+        Self { mode: SearchMode::Lexical, query, roles: all_roles(), filters: ListQuery::default() }
     }
     pub fn validate(&self) -> Result<()> {
         self.expression().map(drop)

@@ -39,6 +39,7 @@ const CAPACITY: usize = 32;
 
 #[derive(Clone)]
 struct Permit {
+    semantic: bool,
     inbox: Weak<Inbox>,
     search_view: Option<(Weak<agent_history::Archive>, i64)>,
     paths: ProjectPaths,
@@ -64,6 +65,16 @@ impl Permit {
 
     fn check(&self) -> Result<()> {
         let current = admitted_config(&self.paths)?;
+        if self.semantic
+            && (!current.agent_viewer.build_semantic_index
+                || vault_core::ensure_ai_capability_enabled(
+                    &current,
+                    vault_core::AiCapability::SemanticIndex,
+                )
+                .is_err())
+        {
+            return Err(Refusal::ScopeDenied.into());
+        }
         self.cancel.check().map_err(|_| Refusal::Cancelled)?;
         if self.expired() {
             return Err(Refusal::Expired.into());
@@ -434,6 +445,24 @@ pub(super) fn conversation_stream(
     })
 }
 
+pub(super) fn semantic_stream(
+    session: &VaultSession,
+    config: vault_core::AppConfig,
+    archive: Arc<agent_history::Archive>,
+    work: impl FnOnce(&agent_history::Archive, &CancelToken, &mut Emit<'_>) -> Result<()>
+    + Send
+    + 'static,
+) -> Result<Frames> {
+    let view = (Arc::downgrade(&archive), archive.search_marks_generation()?);
+    private_stream(
+        session,
+        config,
+        false,
+        Some(view),
+        "agent-semantic-search",
+        move |permit, send| work(&archive, &permit.cancel, send),
+    )
+}
 type Emit<'a> = dyn FnMut(&str, Value) -> Result<()> + 'a;
 fn private_stream(
     session: &VaultSession,
@@ -451,6 +480,7 @@ fn private_stream(
     let (sender, receiver) = tokio::sync::mpsc::channel(4);
     let receiver = Arc::new(Inbox { receiver: Mutex::new(receiver), room: Default::default() });
     let permit = Permit {
+        semantic: name == "agent-semantic-search",
         inbox: Arc::downgrade(&receiver),
         search_view,
         owner_permit: super::delivery::Permit::at(&paths.app_root),
@@ -515,6 +545,7 @@ fn idle_ticket_releases_pinned_directory_at_expiry() {
     let temp = tempfile::tempdir().unwrap();
     let paths = vault_core::project_paths_with_root(temp.path());
     let permit = Permit {
+        semantic: false,
         inbox: Weak::new(),
         search_view: None,
         session: VaultSession::default(),

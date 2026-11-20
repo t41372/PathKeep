@@ -72,7 +72,7 @@
   - [ ] 專案頁做好後：標頭和資訊面板的專案連到專案頁；篩選的專案清單改用列專案的命令（現在全部封存的專案會漏掉）。
   - [ ] 側欄在全頁閱讀器時，「紀錄」也要設 `aria-current`（現在只有外觀亮起）。
   - 只記錄、不修：清單的 `viewToken` 沒用來判斷過期；讀到一半發布換了，舊的視窗留給快取回收；專案下拉要先讀完全部才會顯示「沒有這個專案」；有「復原」的通知只停 4 秒；提示的語氣由前端依代碼決定。
-- [ ] Agent 對話的 AI 存取（agent-history.md §7「AI 存取」三個開關）：助理回答時引用 Agent 對話、對話的語意搜尋索引、MCP 讀 Agent 對話。開關的偏好已存（screens-backend-5），功能本身還沒做；做好之前設定頁不放這三個開關。
+- [ ] Agent 對話的 AI 存取（agent-history.md §7「AI 存取」三個開關）：助理回答時引用 Agent 對話、對話的語意搜尋索引、MCP 讀 Agent 對話。後端已接入三項各自的權限、可定位到記錄的引用、可暫停與取消的語意索引工作及讀取審計；設定頁、Ask 引用、紀錄的搜尋模式與 E2E 待接。[命令與權限](../architecture/desktop-command-surface.md#agent-conversation-ai-access)。
 - [ ] 背景任務做成 dashboard（`WORK-BACKGROUND-DASHBOARD`）：設計原型裡的背景任務頁（`#/tasks`），設定裡的工作清單搬過去，設定只留排程與限制。是上面兩塊的一部分，單獨列出來免得漏。
 - [ ] 刪掉原型資料夾（`WORK-PROTOTYPE-2026-10-REMOVE`）。
 

@@ -314,8 +314,7 @@ pub(crate) fn recover(session: &VaultSession, vault: &Vault) -> Result<()> {
             Ok(r.get::<String>(0)?)
         })
     })?;
-    let events =
-        session.conversations.recovery_events.get().cloned().unwrap_or_else(|| Arc::new(|_, _| {}));
+    let events = owner_events(session);
     if let Some(intent) = ledger::receipt(vault, &request, &fingerprint)? {
         let saved = runs::record(vault, &intent.task)?;
         if saved.status == "queued" {
@@ -430,6 +429,9 @@ pub(super) fn active_id(session: &VaultSession) -> Option<String> {
 }
 
 /// Install the desktop notification sink before startup recovery can claim a first save.
+pub(crate) fn owner_events(session: &VaultSession) -> Events {
+    session.conversations.recovery_events.get().cloned().unwrap_or_else(|| Arc::new(|_, _| {}))
+}
 pub fn register_recovery_events(session: &VaultSession, events: Events) {
     let _ = session.conversations.recovery_events.set(events);
     if let Some(vault) = session.current_vault() {

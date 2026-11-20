@@ -3178,3 +3178,5 @@ that held up when checked against the code.
 - 2026-11-20：Agent 紀錄與閱讀器接上桌面與開發橋接命令。清單讀摘要索引，閱讀器可從末尾、原始紀錄或工具 ID 定位。已記錄工具用量與推算費用分開，缺少用量保留為未知。[畫面契約](../architecture/desktop-command-surface.md#conversation-list-and-reader)
 
 - Agent 閱讀器可把選取分支串流匯出為 Markdown 或單檔 HTML，也能匯出整理過的 JSONL 及包含子代理的原始檔。原始檔顯示、已核實版本的接續指令、⌘K 標題查找、閱讀偏好和零散資料夾設定已接入桌面命令。Agent 排程使用自己的備份時間，啟用預覽依 Linux 實測估計各角色的增量。[桌面契約](../architecture/desktop-command-surface.md#agent-viewer-export-and-shell)
+
+- Agent 對話的 AI 存取後端已接上三個獨立開關。Ask 只把選中的文字片段與讀取位置交給聊天模型；語意索引採用已選的 embedding 服務或內建 model2vec，向量跟著對話存檔加密；MCP 可搜尋、分頁讀取對話並留下讀取審計。權限測試透過實際 HTTP 請求與 stdio 連線驗證，索引量測使用 Linux release 的 12 萬段合成對話。[命令、工作與串流](../architecture/desktop-command-surface.md#agent-conversation-ai-access)

@@ -195,7 +195,7 @@ config.ai.mcp_enabled` (both default `false`) and additionally bails if the app 
   archive: `archive-status` returns a degraded snapshot with an honest "locked" warning, and
   `search-history` refuses (errors via `ensure_app_lock_unlocked`) — neither bypasses App Lock
   (aligns with [ADR-005](decisions/005-app-lock-session-boundary.md)).
-- **Read-only surface — three tools, no mutation.** `search-history`, `archive-status`, and `usage-guide`.
+- **Read-only tools.** Browsing exposes `search-history`, `archive-status` and `usage-guide`. Agent retrieval adds `search-conversations` and `read-conversation` with a separate per-call device grant.
   There is **no write/mutation tool**. The search limit is clamped to `[1, 50]` in `ai/search.rs`, so no
   external caller can pull an unbounded page.
 - **The archive key never crosses to the caller.** The MCP server (`vault-worker/src/mcp.rs`) is a
@@ -323,7 +323,7 @@ The user's full local browsing history (canonical, in the encrypted Turso archiv
   pages, the Full Disk Access pane) accepts no `file://` at all. Until 2026-10-08 answer links went
   straight to `open_external_url`, which accepted any `file://` URL (found by the unit test audit).
 - **An external MCP caller is untrusted.** Mitigation: the MCP face is localhost stdio, opt-in +
-  default-OFF + unlock-gated, exposes only read-only search/status/guide tools, clamps the result limit to
+  default-OFF + unlock-gated, exposes read-only search, conversation read, status and guide tools, clamps the result limit to
   50, keeps the archive key in the app that owns the archive, and audits every query as `mcp_query`.
 - **The local network/machine is trusted.** PathKeep is a local-first desktop app; the MCP transport is
   stdio (no socket to attack), and content-fetch only reaches out to public hosts the user opted into,
@@ -360,3 +360,7 @@ These are flagged for later; none blocks the shipped surface, but each is a real
 - **A full prompt-injection red-team is recommended.** Basic adversarial cases are covered by the sandbox
   contract and read-only tools; a dedicated red-team over injected page titles/URLs would harden the
   assumption that untrusted LLM steering cannot exfiltrate.
+
+### Agent conversations
+
+Three installation-bound opt-ins further restrict Assistant, semantic indexing and MCP. The global master and matching capability gate each path. Ask retrieves bounded excerpts locally and supplies each with a reader citation. The harness checks continuing permission before the next provider turn. The MCP owner checks unlock, kind visibility and MCP permission for both search and read, including continuation requests. Agent embedding checks consent before provider resolution and between batches. A remote embedding service receives the readable passages selected for embedding; the in-app model runs locally. Native payloads, attachment files and working-directory metadata are outside the retrieval contract. The Agent semantic pages use the Agent search encryption key in encrypted archives. [Wire contracts](desktop-command-surface.md#agent-conversation-ai-access)
