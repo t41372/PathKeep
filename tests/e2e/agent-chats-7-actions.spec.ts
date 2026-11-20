@@ -10,12 +10,10 @@
  *   backend counts them), opens nothing from the network and uses the
  *   window's language; JSON Lines is one event per line;
  * - Stop on a running export: the notice offers it while the file is
- *   written; once the backend takes it, the export ends as stopped, the
- *   notice says nothing was written and a file already there is as it was,
- *   and the save folder holds exactly what it held before (that file,
- *   byte for byte, and nothing half written). A Stop that comes too late
- *   (the file already being put in place) is not taken: that export ends
- *   as usual, and the test tries again, up to five times;
+ *   written; the backend takes it, the export ends as stopped, the notice
+ *   says nothing was written and a file already there is as it was, and
+ *   the save folder holds exactly what it held before (that file, byte for
+ *   byte, and nothing half written);
  * - the original files of a conversation with three subagents: the tar
  *   holds the conversation's transcript and every subagent's, byte for
  *   byte what the tool wrote, under the tool's name;
@@ -32,8 +30,9 @@
  * In the agent-chats project, on the conversations the projects before it
  * backed up. Exports go to PATHKEEP_TEST_SAVE_DIR under the name the save
  * dialog suggests (`conversation.<ext>`); each test deletes the file first.
- * Nothing slows an export down for the Stop test: it relies on writing the
- * long conversation as HTML taking longer than one click.
+ * The backend holds each export two seconds before it puts the file in
+ * place (`PATHKEEP_TEST_AGENT_EXPORT_DELAY_US` in playwright.config.ts), so
+ * Stop reaches the export while it can still stop.
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -181,82 +180,40 @@ test('the long conversation exported as Markdown, HTML and JSON Lines', async ({
 test('Stop ends an export: nothing is written, and a file already there is as it was', async ({
   page,
 }, testInfo) => {
-  test.setTimeout(180_000)
   const large = fixture().agents.scenes.large
   const chat = await savedChat(agentChat(large.conversation))
   await openChat(page, chat.id)
   const file = path.join(savedDir(), 'conversation.html')
   const earlier = '<!doctype html><title>An earlier export</title>\n'
-  // What the backend answered each Stop, in order.
-  const answers: boolean[] = []
-  page.on('response', (response) => {
-    if (response.url().endsWith('/commands/cancel_agent_export'))
-      void response
-        .json()
-        .then((body: { cancelled: boolean }) => answers.push(body.cancelled))
-  })
-  const attempts: string[] = []
-
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    writeFileSync(file, earlier)
-    const folder = readdirSync(savedDir()).sort()
-    const asked = answers.length
-    const exported = page.waitForResponse((response) =>
-      response.url().endsWith('/commands/export_agent_conversation'),
-    )
-    await reader(page)
-      .getByRole('button', { name: 'More', exact: true })
-      .click()
-    await page.getByRole('menuitem', { name: 'Export', exact: true }).click()
-    await page.getByRole('menuitem', { name: /^HTML/ }).click()
-    const notice = toast(page, 'Exporting as HTML')
-    const clicked = await notice
-      .getByRole('button', { name: 'Stop', exact: true })
-      .click({ timeout: 5_000 })
-      .then(
-        () => true,
-        () => false,
-      )
-    const response = await exported
-    const body = (await response.json()) as { code?: string } | null
-
-    if (!clicked) {
-      // Done before Stop could be pressed.
-      attempts.push('finished before the click')
-      expect(response.ok()).toBe(true)
-      continue
-    }
-    await expect.poll(() => answers.length).toBeGreaterThan(asked)
-    if (!answers[asked]) {
-      // Too late: the file was being put in place; it ends as an export does.
-      attempts.push('stop not taken')
-      expect(response.ok(), 'a Stop not taken leaves the export alone').toBe(
-        true,
-      )
-      continue
-    }
-
-    attempts.push('stopped')
-    expect(response.ok()).toBe(false)
-    expect(body?.code).toBe('cancelled')
-    await expect(toast(page, 'Export stopped')).toContainText(
-      'Nothing was written. A file that was already there is as it was.',
-    )
-    expect(readFileSync(file, 'utf8')).toBe(earlier)
-    expect(readdirSync(savedDir()).sort()).toEqual(folder)
-    await testInfo.attach('the export stopped', {
-      body: await page.screenshot(),
-      contentType: 'image/png',
-    })
-    await testInfo.attach('attempts', {
-      body: JSON.stringify(attempts, null, 2),
-      contentType: 'application/json',
-    })
-    return
-  }
-  throw new Error(
-    `No Stop reached the export while it was writing: ${attempts.join(', ')}`,
+  writeFileSync(file, earlier)
+  const folder = readdirSync(savedDir()).sort()
+  const stopped = page.waitForResponse((response) =>
+    response.url().endsWith('/commands/cancel_agent_export'),
   )
+  const exported = page.waitForResponse((response) =>
+    response.url().endsWith('/commands/export_agent_conversation'),
+  )
+  await reader(page).getByRole('button', { name: 'More', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Export', exact: true }).click()
+  await page.getByRole('menuitem', { name: /^HTML/ }).click()
+  await toast(page, 'Exporting as HTML')
+    .getByRole('button', { name: 'Stop', exact: true })
+    .click()
+  const answer = (await (await stopped).json()) as { cancelled: boolean }
+  expect(answer.cancelled, 'the backend took the Stop').toBe(true)
+  const response = await exported
+  expect(response.ok()).toBe(false)
+  const body = (await response.json()) as { code?: string } | null
+  expect(body?.code).toBe('cancelled')
+  await expect(toast(page, 'Export stopped')).toContainText(
+    'Nothing was written. A file that was already there is as it was.',
+  )
+  expect(readFileSync(file, 'utf8')).toBe(earlier)
+  expect(readdirSync(savedDir()).sort()).toEqual(folder)
+  await testInfo.attach('the export stopped', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  })
 })
 
 test('the original files: the transcript and every subagent’s, as the tool wrote them', async ({

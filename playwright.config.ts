@@ -117,6 +117,11 @@ function prepareFixture() {
     // press Pause in it; every conversation backup takes this much longer.
     // Debug only.
     PATHKEEP_TEST_AGENT_INDEX_DELAY_US: '4000000',
+    // Holds each conversation export this long before it puts the file in
+    // place, so agent-chats-7's Stop always reaches an export that can
+    // still stop; every conversation export takes this much longer. Debug
+    // only.
+    PATHKEEP_TEST_AGENT_EXPORT_DELAY_US: '2000000',
     // A file here fails the app's checkpoint of that name (`injectFault`). Debug only.
     PATHKEEP_TEST_FAULTS_DIR: path.join(root, 'faults'),
     // The launcher runs the app itself and starts it again when it exits
