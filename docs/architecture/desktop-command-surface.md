@@ -167,16 +167,16 @@ The response is the usual `AiIndexReport` with `jobId`. Both transports share th
 
 ### Free the browsing semantic index
 
-| Command | Request | Response |
-| --- | --- | --- |
-| `preview_free_semantic_index` | `{"request":{}}` | `{"previewId":"<uuid>","keptBytes":"16384"}` |
-| `free_semantic_index` | `{"request":{"previewId":"<uuid>","confirm":true}}` | `{"freedBytes":"16384","keptBytes":"0"}` |
+| Command                       | Request                                             | Response                                     |
+| ----------------------------- | --------------------------------------------------- | -------------------------------------------- |
+| `preview_free_semantic_index` | `{"request":{}}`                                    | `{"previewId":"<uuid>","keptBytes":"16384"}` |
+| `free_semantic_index`         | `{"request":{"previewId":"<uuid>","confirm":true}}` | `{"freedBytes":"16384","keptBytes":"0"}`     |
 
 Settings reads the existing numeric `AiIndexStatus.semanticSidecarBytes` for both the retained size and the model-switch prompt. Storage counts the same regular-file lengths under `derived/vectors/` and `sidecars/semantic-index/`, including every provider, model, lineage, generation and GC leftover. The command receipts encode byte counts as decimal strings. `semanticMetadataBytes` estimates row payload in the shared Intelligence database. Removing provenance and ledger rows releases pages for database reuse, so the receipts exclude those estimates. Directory allocation and the filesystem's free-block count are outside this measure.
 
 Preview and free require an initialized, unlocked archive and effective browsing semantic search off. Both return `task-action-unavailable` while the AI master and semantic search switches are on, or `archive-busy` while an archive operation, backup, index worker, or queued/running browsing build or clear owns the work. App Lock returns `lock-required`, a missing archive unlock can return `archive-password-required`, and an uninitialized archive returns `archive-uninitialized`. The normal root compatibility and recovery refusals apply. An unclassified storage or filesystem failure uses the shared surface error code `kind-unavailable`. Malformed requests, unknown request fields and `confirm:false` return `invalid-request`.
 
-Each successful preview replaces the previous receipt. A valid UUID that was replaced, used, issued to a different archive owner or issued five minutes ago returns `preview-expired`. A change to the reviewed files, archive control, canonical archive or Intelligence data also expires the receipt. Refresh the preview before confirming again.
+Each successful preview replaces the previous receipt. A valid UUID that was replaced, used, issued to a different archive owner or issued five minutes ago returns `preview-expired`. A change to the reviewed files, archive control, canonical archive or Intelligence data also expires the receipt. Refresh the preview before confirming again. Any write to the canonical archive counts, `run_retention_prune` included (it records its run and manifest), so Free up space frees the index before it prunes the other rows ticked with it.
 
 Free retires the serving pointers in one Intelligence transaction and cancels paused or stale browsing index work. Files held by a query remain readable until it releases its generation lease. On success refresh AI status and Storage. An archive with an available chosen provider and AI enabled reports `empty`. A later build starts from the archive visits with the saved provider and model.
 

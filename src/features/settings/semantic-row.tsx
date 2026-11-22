@@ -2,8 +2,9 @@
  * Semantic search: the switch, which model makes the index (the in-app one,
  * downloaded once, or an embeddings service the user adds), and the in-app
  * model's download, or what it waits for. The chosen model's index under them is
- * `semantic-index-state.tsx`. Behavior comes from `useSemanticIndex` and
- * `useAiProviders`; this file only renders it.
+ * `semantic-index-state.tsx`; while semantic search is off, the index kept on
+ * disk and its Free… are `kept-browsing-index.tsx`. Behavior comes from
+ * `useSemanticIndex` and `useAiProviders`; this file only renders it.
  */
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -27,6 +28,7 @@ import { MODEL_DOWNLOAD_IDLE_TIMEOUT_MS } from '@/lib/ipc/model-download'
 import { BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID } from '@/lib/types'
 import { ProviderDetails } from './provider-details'
 import { AutoUpdate, IndexState, ProgressLine } from './semantic-index-state'
+import { KeptBrowsingIndex } from './kept-browsing-index'
 import { RowSelect } from './row-select'
 
 export type SemanticIndex = ReturnType<typeof useSemanticIndex>
@@ -233,11 +235,19 @@ function SemanticStatus({ index }: { index: SemanticIndex }) {
   }
 
   if (!index.enabled) {
-    return !index.service && index.modelDownloaded ? (
-      <p className="text-[13px] text-muted-foreground">
-        {t('settingsAi.semantic.offNote')}
-      </p>
-    ) : null
+    // Off keeps the index on disk, unused, until it is freed here.
+    return (
+      <>
+        {!index.service && index.modelDownloaded && (
+          <p className="text-[13px] text-muted-foreground">
+            {t('settingsAi.semantic.offNote')}
+          </p>
+        )}
+        <KeptBrowsingIndex
+          bytes={index.setupRunning ? 0 : index.status.semanticSidecarBytes}
+        />
+      </>
+    )
   }
 
   if (download.phase === 'failed') {

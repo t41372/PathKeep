@@ -64,6 +64,18 @@ export const settingsStorage = defineMessages({
       delete: 'Delete {size}',
       done: 'Freed {size}.',
       failed: 'Nothing was deleted. {message}',
+      index: {
+        title: 'Semantic search index',
+        description:
+          'Only semantic search uses it, and it’s off. Turned on again, it builds the index from the start.',
+        searchOn: 'Turn off semantic search in Settings › AI first.',
+      },
+      indexFailed:
+        'Nothing was deleted: the semantic search index couldn’t be freed. {reason}',
+      indexChanged:
+        'Nothing was deleted: the semantic search index changed since its size was read. The list shows its size now; delete again to free it.',
+      restFailed:
+        'The semantic search index was freed ({size}), but nothing else was deleted. {message}',
     },
     move: {
       title: 'Move to another computer',
@@ -308,6 +320,17 @@ export const settingsStorage = defineMessages({
       delete: '删除 {size}',
       done: '已释放 {size}。',
       failed: '没有删除任何内容。{message}',
+      index: {
+        title: '语义搜索索引',
+        description:
+          '只有语义搜索会用到它，而语义搜索已关闭。再打开时，索引会从头建立。',
+        searchOn: '先到“设置 › AI”关闭语义搜索。',
+      },
+      indexFailed: '没有删除任何内容：语义搜索索引无法释放。{reason}',
+      indexChanged:
+        '没有删除任何内容：读取大小之后语义搜索索引有了变化。列表上是它现在的大小，再删除一次就会释放。',
+      restFailed:
+        '语义搜索索引已释放（{size}），但其他项目都没有删除。{message}',
     },
     move: {
       title: '迁移到另一台电脑',
@@ -538,6 +561,17 @@ export const settingsStorage = defineMessages({
       delete: '刪除 {size}',
       done: '已釋放 {size}。',
       failed: '沒有刪除任何內容。{message}',
+      index: {
+        title: '語意搜尋索引',
+        description:
+          '只有語意搜尋會用到它，而語意搜尋關著。再打開時，索引會從頭建立。',
+        searchOn: '先到「設定 › AI」關掉語意搜尋。',
+      },
+      indexFailed: '沒有刪除任何內容：語意搜尋索引無法釋放。{reason}',
+      indexChanged:
+        '沒有刪除任何內容：讀取大小之後語意搜尋索引有了變化。清單上是它現在的大小，再刪除一次就會釋放。',
+      restFailed:
+        '語意搜尋索引已釋放（{size}），但其他項目都沒有刪除。{message}',
     },
     move: {
       title: '搬到另一台電腦',

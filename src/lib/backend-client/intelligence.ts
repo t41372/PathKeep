@@ -60,6 +60,7 @@ import type {
   CoreIntelligenceSecondaryOverview,
   DayInsights,
 } from '../core-intelligence/types'
+import type { FreeSemanticPreview } from './agent-semantic'
 import { call } from './shared'
 
 /**
@@ -97,6 +98,23 @@ export const intelligenceClient = {
   /** With `transferId`, the build the built-in model's setup asks for once its download is done. */
   buildIndex: (request: BuildAiIndexRequest) =>
     call<AiIndexReport>('build_ai_index', { request }),
+  /**
+   * Reads what freeing the browsing semantic index would delete: every
+   * model's files. Only while semantic search is off and no index job is
+   * queued or running (`task-action-unavailable`, `archive-busy` otherwise).
+   * A new preview replaces the one before.
+   */
+  previewFreeSemanticIndex: () =>
+    call<FreeSemanticPreview>('preview_free_semantic_index', { request: {} }),
+  /**
+   * Deletes exactly what the preview counted; `preview-expired` once
+   * anything changed since or five minutes passed. Visits, full-text search
+   * and saved page text stay.
+   */
+  freeSemanticIndex: (previewId: string) =>
+    call<{ freedBytes: string; keptBytes: string }>('free_semantic_index', {
+      request: { previewId, confirm: true },
+    }),
   estimateReembed: (scope: ReembedScope) =>
     call<ReembedEstimate>('estimate_reembed', { scope }),
   searchHistory: (request: AiSearchRequest) =>

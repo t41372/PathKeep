@@ -1,8 +1,11 @@
 /**
  * What switching the semantic search model does, said before it happens: the
  * new model needs its own index, search keeps the complete one until that is
- * built, the old index is deleted once it is, an unfinished one is not kept,
- * and with an embeddings service every search depends on that service.
+ * built, how much disk the index on this computer takes meanwhile (both are on
+ * disk while the new one is built; with semantic search off nothing is built
+ * and it stays until freed), the old index is deleted once the new one is
+ * complete, an unfinished one is not kept, and with an embeddings service
+ * every search depends on that service.
  *
  * Responsibilities: those consequences, worked out from the queue's view of
  * the indexes, and the confirmation the model picker asks for. Not
@@ -95,13 +98,14 @@ export function SwitchConsequences({
       ? semantic.serving
       : null
   const model = shortModel(target.model)
-  const lines: string[] = []
+  const lines: { text: string; bytes?: number }[] = []
+  const say = (text: string) => lines.push({ text })
 
   if (isTarget(complete, target)) {
-    lines.push(t('settingsAi.semantic.switch.ready', { model }))
+    say(t('settingsAi.semantic.switch.ready', { model }))
   } else {
     const count = estimate.data?.pageCount ?? 0
-    lines.push(
+    say(
       count > 0
         ? t(
             on
@@ -116,12 +120,36 @@ export function SwitchConsequences({
             { model },
           ),
     )
+    say(
+      complete
+        ? t('settingsAi.semantic.meanwhilePrevious', {
+            model: shortModel(complete.model),
+          })
+        : t('settingsAi.semantic.meanwhilePartial'),
+    )
+    // The disk space: every model's index files, the 4–59 GB a big archive's
+    // index takes. Building the new one keeps the complete one beside it;
+    // while semantic search is off nothing is built and it all stays until
+    // freed. Without a complete index, search has nothing it keeps using
+    // meanwhile, and an unfinished one is `dropsUnfinished`'s line.
+    const kept = snapshot.aiStatus.semanticSidecarBytes
+    if (kept > 0 && (!on || complete)) {
+      lines.push({
+        text: t(
+          on
+            ? 'settingsAi.semantic.switch.diskWhileBuilding'
+            : 'settingsAi.semantic.switch.diskWhileOff',
+          { size: format.bytes(kept) },
+        ),
+        bytes: kept,
+      })
+    }
     if (complete) {
-      const old = shortModel(complete.model)
-      lines.push(t('settingsAi.semantic.meanwhilePrevious', { model: old }))
-      lines.push(t('settingsAi.semantic.switch.replaces', { old }))
-    } else {
-      lines.push(t('settingsAi.semantic.meanwhilePartial'))
+      say(
+        t('settingsAi.semantic.switch.replaces', {
+          old: shortModel(complete.model),
+        }),
+      )
     }
   }
 
@@ -132,7 +160,7 @@ export function SwitchConsequences({
       ? snapshot.aiStatus.indexedItems
       : 0
   if (chosen && unfinished > 0) {
-    lines.push(
+    say(
       t('settingsAi.semantic.switch.dropsUnfinished', {
         model: shortModel(chosen.model),
         count: unfinished,
@@ -141,16 +169,14 @@ export function SwitchConsequences({
   }
 
   if (target.service) {
-    lines.push(
-      t('settingsAi.semantic.switch.service', { name: target.service.name }),
-    )
+    say(t('settingsAi.semantic.switch.service', { name: target.service.name }))
     if (dataNote && !target.service.local) {
-      lines.push(t('settingsAi.semantic.serviceRemoteNote'))
+      say(t('settingsAi.semantic.serviceRemoteNote'))
     }
   } else {
-    lines.push(t('settingsAi.semantic.switch.static'))
+    say(t('settingsAi.semantic.switch.static'))
     if (!snapshot.aiStatus.staticEmbedding?.modelDownloaded) {
-      lines.push(
+      say(
         t('settingsAi.semantic.switch.download', {
           size: format.bytes(
             snapshot.aiStatus.staticEmbedding?.modelSizeBytes ||
@@ -164,7 +190,9 @@ export function SwitchConsequences({
   return (
     <ul className="flex list-disc flex-col gap-1.5 pl-5 text-[13px] text-foreground">
       {lines.map((line) => (
-        <li key={line}>{line}</li>
+        <li key={line.text} data-index-bytes={line.bytes}>
+          {line.text}
+        </li>
       ))}
     </ul>
   )
