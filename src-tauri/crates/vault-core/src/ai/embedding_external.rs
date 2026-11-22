@@ -123,13 +123,10 @@ pub(super) fn decode_response_body(body: &[u8], expected_count: usize) -> Result
             expected_count
         );
     }
-    if let Some(first) = parsed.data.first() {
-        if parsed.data.iter().any(|datum| datum.embedding.len() != first.embedding.len()) {
-            anyhow::bail!("embedding service returned a ragged batch");
-        }
-        if parsed.data.iter().all(|datum| datum.embedding.iter().all(|value| *value == 0.0)) {
-            anyhow::bail!("embedding service returned only zero vectors");
-        }
+    if let Some(first) = parsed.data.first()
+        && parsed.data.iter().any(|datum| datum.embedding.len() != first.embedding.len())
+    {
+        anyhow::bail!("embedding service returned a ragged batch");
     }
     // Restore request order by `index`; default-0 servers (single input) stay correct.
     let mut ordered: Vec<Option<Vec<f32>>> = (0..expected_count).map(|_| None).collect();
@@ -503,10 +500,7 @@ mod tests {
     fn unusable_service_vectors_stay_typed_through_context() {
         for (body, reason) in [
             (r#"{"data":[{"index":0,"embedding":[1,0]},{"index":1,"embedding":[1]}]}"#, "ragged"),
-            (
-                r#"{"data":[{"index":0,"embedding":[0,0]},{"index":1,"embedding":[0,0]}]}"#,
-                "zero vectors",
-            ),
+            (r#"{"data":[{"index":0,"embedding":[]},{"index":1,"embedding":[]}]}"#, "empty vector"),
         ] {
             let error = embeddings_response_to_vectors(200, true, body.as_bytes(), 2)
                 .context("index batch")

@@ -219,6 +219,7 @@ pub(crate) struct Interpreter {
     pub model: Option<String>,
     counter: Counter,
     pub details: Value,
+    pub assignment: Option<String>,
     pub structure: Totals,
     child: bool,
     context: crate::read_model::RecordContext,
@@ -238,6 +239,7 @@ impl Interpreter {
             model: None,
             structure: Totals::default(),
             details: json!({}),
+            assignment: None,
         }
     }
     pub fn record(
@@ -264,7 +266,6 @@ impl Interpreter {
             content.as_array().is_some_and(|a| a.iter().any(|b| b["type"] == "tool_result"));
         let prompt = role == Some("user")
             && !tool_result
-            && !self.child
             && match self.harness.as_str() {
                 "codex" => matches!(
                     kind,
@@ -278,6 +279,11 @@ impl Interpreter {
                 }
                 _ => true,
             };
+        // A parent's assignment names the child without counting as a human message.
+        if self.child && prompt && self.assignment.is_none() && !text.trim().is_empty() {
+            self.assignment = Some(text.chars().take(160).collect());
+        }
+        let prompt = prompt && !self.child;
         let mut finished = None;
         if kind == "turn/start" {
             self.pending_start = time;

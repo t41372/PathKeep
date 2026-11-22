@@ -13,14 +13,24 @@ pub struct Grouping {
 }
 impl Default for Grouping {
     fn default() -> Self {
-        let mut temporary =
-            vec!["/tmp".into(), "/private/tmp".into(), "/private/var/folders".into()];
-        temporary.push(std::env::temp_dir().to_string_lossy().into_owned());
-        Self {
-            read_git: true,
-            home: directories::BaseDirs::new().map(|d| d.home_dir().to_string_lossy().into_owned()),
-            temporary,
-        }
+        use crate::capture::ToolsHome;
+        let (home, temporary) = match ToolsHome::resolve() {
+            Some(ToolsHome::Isolated(home)) => {
+                let temp = home.join("tmp").to_string_lossy().into_owned();
+                (Some(home), vec![temp])
+            }
+            Some(ToolsHome::Native { home, .. }) => (
+                Some(home),
+                vec![
+                    "/tmp".into(),
+                    "/private/tmp".into(),
+                    "/private/var/folders".into(),
+                    std::env::temp_dir().to_string_lossy().into_owned(),
+                ],
+            ),
+            None => (None, Vec::new()),
+        };
+        Self { read_git: true, home: home.map(|p| p.to_string_lossy().into_owned()), temporary }
     }
 }
 fn windows(path: &str) -> bool {

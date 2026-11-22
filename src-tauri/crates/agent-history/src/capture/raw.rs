@@ -22,6 +22,22 @@ pub(super) fn capture_raw(
             } else {
                 report.captured = report.captured.saturating_add(1);
                 report.bytes = report.bytes.saturating_add(captured.byte_len);
+                if source.harness == crate::Harness::ClaudeCode
+                    && artifact.relative_path.contains("/subagents/")
+                    && let Some(stem) = artifact.relative_path.strip_suffix(".meta.json")
+                {
+                    // Metadata can arrive in a later backup, after the transcript was published.
+                    let transcript = crate::Artifact {
+                        relative_path: format!("{stem}.jsonl"),
+                        ..artifact.clone()
+                    };
+                    let id = super::source_identity(source, &transcript)?;
+                    archive.store.write(
+                        vault_store::Db::AgentHistoryReadModel,
+                        vault_store::Priority::Batch,
+                        move |tx| crate::read_model::publication::refresh(tx, &id, None),
+                    )?;
+                }
                 progress(options, source.harness, "raw_committed", source_id, &captured);
             }
             for diagnostic in &captured.diagnostics {

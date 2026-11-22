@@ -171,11 +171,11 @@ fn assert_unique(ids: &[i64]) {
 #[test]
 fn validate_embedding_batch_pairs_keys_and_guards_shape() {
     // Happy path: content_keys paired with vectors, effective dim = first vector length.
-    let (dim, records) =
+    let batch =
         validate_embedding_batch_for_keys(&[10, 20], &[vec![0.1, 0.2, 0.3], vec![0.4, 0.5, 0.6]])
             .expect("valid batch");
-    assert_eq!(dim, 3);
-    assert_eq!(records, vec![(10u64, vec![0.1, 0.2, 0.3]), (20u64, vec![0.4, 0.5, 0.6])]);
+    assert_eq!(batch.dimension, 3);
+    assert_eq!(batch.records, vec![(10u64, vec![0.1, 0.2, 0.3]), (20u64, vec![0.4, 0.5, 0.6])]);
 
     // Count mismatch.
     let count_error =
@@ -191,14 +191,15 @@ fn validate_embedding_batch_pairs_keys_and_guards_shape() {
         .expect_err("ragged batch");
     assert!(ragged_error.to_string().contains("ragged batch"));
 
-    // F3 (0-byte honesty): an all-zero batch (right dim, no signal) is rejected, not counted.
-    let zero_error = validate_embedding_batch_for_keys(&[1, 2], &[vec![0.0, 0.0], vec![0.0, 0.0]])
-        .expect_err("all-zero batch");
-    assert!(zero_error.to_string().contains("only zero vectors"));
-    // A batch with at least one real vector still passes (a single degenerate row is tolerated).
-    let (_, mixed) = validate_embedding_batch_for_keys(&[1, 2], &[vec![0.0, 0.0], vec![0.0, 1.0]])
-        .expect("mixed");
-    assert_eq!(mixed.len(), 2);
+    // Unknown-only text carries no signal. Each usable vector keeps its own key,
+    // including when it follows an unknown word in the same response.
+    let zero = validate_embedding_batch_for_keys(&[1], &[vec![0.0, 0.0]]).unwrap();
+    assert!(zero.records.is_empty());
+    assert_eq!(zero.unembeddable, [1]);
+    let mixed =
+        validate_embedding_batch_for_keys(&[1, 2], &[vec![0.0, 0.0], vec![0.0, 1.0]]).unwrap();
+    assert_eq!(mixed.records, vec![(2, vec![0.0, 1.0])]);
+    assert_eq!(mixed.unembeddable, [1]);
 }
 
 /// Builds a synthetic `IndexedVisit` for the pure dedup-selection tests (no archive needed).

@@ -465,3 +465,58 @@ fn browsing_restore_never_recreates_two_missing_conversation_stores() {
         assert!(f.vault().conversation_availability().is_err());
     }
 }
+
+#[test]
+fn repair_one_damaged_reader_after_reopening_from_backup_settings() {
+    use vault_worker::data_kinds::{self, repair};
+    let fixture = Fixture::new(false);
+    let _corpus = Corpus::seed(&fixture);
+    // A repaired or moved archive retains conversations but has no permission to recapture them.
+    let paths = fixture.vault().paths().clone();
+    let mut config = vault_core::load_config(&paths).unwrap();
+    config.capture_policy.selection_ref = None;
+    config.capture_policy.pending_first_save = None;
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
+    fixture.session.close_vault().unwrap();
+    fs::remove_dir_all(paths.artifact_path(vault_layout::ArtifactId::AgentHistorySearch)).unwrap();
+    let model = rusqlite::Connection::open(
+        fixture.root.join(vault_layout::database_path(Db::AgentHistoryReadModel)),
+    )
+    .unwrap();
+    let (id, version): (String, String) = model
+        .query_row(
+            "SELECT h.conversation,m.version FROM ah_reader_head h JOIN ah_reader_member m
+         ON m.publication=h.publication AND m.source=h.current_source WHERE m.version<>''
+         ORDER BY h.conversation LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    model
+        .execute("UPDATE ah_reader_version SET digest='invalid' WHERE token=?1", [version])
+        .unwrap();
+    model
+        .execute(
+            "INSERT OR REPLACE INTO ah_reader_dirty VALUES(?1,lower(hex(randomblob(16))))",
+            [&id],
+        )
+        .unwrap();
+    drop(model);
+
+    fixture.reopen(false);
+    let kinds = serde_json::to_value(data_kinds::list(&fixture.session).unwrap()).unwrap();
+    assert_eq!(kinds["kinds"][1]["readerRebuildRequired"], true);
+    let plan =
+        repair::preview(&fixture.session, serde_json::from_value(serde_json::json!({})).unwrap())
+            .unwrap();
+    assert_eq!(plan.conversations, "1");
+    // The Agent space can refresh its banner while the repair dialog is open.
+    data_kinds::backups::overview(
+        &fixture.session,
+        serde_json::from_value(serde_json::json!({"purpose":"space"})).unwrap(),
+    )
+    .unwrap();
+    let req = serde_json::from_value(serde_json::json!({"previewToken":plan.token})).unwrap();
+    repair::execute(&fixture.session, req, |_| {}).unwrap();
+    assert!(fixture.vault().agent_history().unwrap().reader_header(&id).is_ok());
+}

@@ -696,7 +696,8 @@ fn upgrade_recovers_the_parent_from_the_elected_child_descriptor() {
         cfg.databases = vec![DB, Db::Scratch];
         let mut migrations = crate::archive::schema_steps(DB);
         if old {
-            // Version 62 precedes the migration that adds the elected parent to the head.
+            // Version 62 stored the parent in the member descriptor and ah_reader_edge.
+            // Migration 63 added the parent column to ah_reader_head.
             migrations.truncate(62);
         }
         cfg.migrations = MigrationRegistry::default();

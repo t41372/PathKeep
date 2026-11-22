@@ -22,6 +22,7 @@ pub fn schema_steps(db: Db) -> Vec<Migration> {
             67,
             // Project choices and Insights preferences.
             &[(64, " ON CONFLICT(singleton) DO NOTHING"), (66, " ON CONFLICT(id) DO NOTHING")],
+            &[],
         ),
         Db::AgentHistoryReadModel => current_steps(
             &[
@@ -42,6 +43,17 @@ pub fn schema_steps(db: Db) -> Vec<Migration> {
                 // A SELECT with FROM needs WHERE before SQLite can disambiguate ON.
                 (177, " WHERE true ON CONFLICT(path) DO NOTHING"), // initial project work list
             ],
+            &[
+                // Re-read subagents published before the reader linked a child to its parent.
+                "INSERT OR IGNORE INTO ah_reader_dirty
+                 SELECT conversation,lower(hex(randomblob(16))) FROM ah_reader_head WHERE parent IS NOT NULL",
+                // Re-read Claude Code subagents whose type only their launching call names.
+                "INSERT OR IGNORE INTO ah_reader_dirty
+                 SELECT id,lower(hex(randomblob(16))) FROM ah_chat_summary
+                 WHERE live=1 AND root=0 AND harness='claude-code'
+                   AND json_extract(detail,'$.launchCallId') IS NOT NULL
+                   AND nullif(trim(json_extract(detail,'$.agentType')),'') IS NULL",
+            ],
         ),
         other => panic!("agent history does not own the {other:?} store"),
     }
@@ -50,10 +62,12 @@ pub fn schema_steps(db: Db) -> Vec<Migration> {
 /// Keep the original ledgers, including the pair-seal version. Some sealed copies have a
 /// populated default row ahead of their ledger and lack the seal table itself. Never issue a
 /// ticket on their behalf. An empty seal table lets the owner rebuild from verified evidence.
+/// `later` holds the migrations added after this correction, numbered from `version + 1`.
 fn current_steps(
     statements: &[&str],
     version: i64,
     pending_seeds: &[(usize, &str)],
+    later: &[&str],
 ) -> Vec<Migration> {
     // Append future migrations after this correction. Moving it would reuse a stored version.
     assert_eq!(statements.len() as i64 + 1, version);
@@ -78,6 +92,12 @@ fn current_steps(
             .with_pending_seed(seed_version as i64, format!("{original}{conflict_clause}"));
     }
     migrations.push(correction);
+    migrations.extend(
+        later
+            .iter()
+            .enumerate()
+            .map(|(index, sql)| Migration::sql(version + 1 + index as i64, *sql)),
+    );
     migrations
 }
 

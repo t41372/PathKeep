@@ -34,6 +34,7 @@ const APP_EVENTS: &[&str] = &[
     "pathkeep://agent-export-progress",
     "pathkeep://agent-semantic-index-changed",
     "pathkeep://agent-viewer-preferences-changed",
+    "pathkeep://agent-insights-preferences-changed",
     "pathkeep://agent-projects-changed",
     "pathkeep://agent-conversations-changed",
     "pathkeep://kind-backup-progress",
@@ -80,6 +81,7 @@ impl Hub {
                 | "pathkeep://agent-settings-changed"
                 | "pathkeep://agent-semantic-index-changed"
                 | "pathkeep://agent-viewer-preferences-changed"
+                | "pathkeep://agent-insights-preferences-changed"
                 | "pathkeep://agent-projects-changed"
                 | "pathkeep://agent-export-progress"
                 | "pathkeep://agent-conversations-changed"
@@ -153,6 +155,7 @@ impl futures_core::Stream for Browser {
             if matches!(
                 name,
                 "pathkeep://agent-semantic-index-changed"
+                    | "pathkeep://agent-insights-preferences-changed"
                     | "pathkeep://agent-projects-changed"
                     | "pathkeep://agent-export-progress"
                     | "pathkeep://agent-conversations-changed"
@@ -191,6 +194,29 @@ impl Hub {
                 .drain(..)
                 .map(|(name, data, _)| (name, serde_json::from_str(&data).unwrap()))
                 .collect()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tauri::Emitter;
+
+    #[test]
+    fn forwards_agent_preference_and_publication_changes() {
+        let app = tauri::test::mock_app();
+        let hub = Hub::default();
+        hub.forward_app_events(app.handle());
+        let received = hub.observe();
+        for name in [
+            "pathkeep://agent-insights-preferences-changed",
+            "pathkeep://agent-viewer-preferences-changed",
+            "pathkeep://agent-semantic-index-changed",
+            "pathkeep://agent-projects-changed",
+        ] {
+            app.emit(name, true).unwrap();
+            assert_eq!(received(), vec![(name, serde_json::json!(true))]);
         }
     }
 }
