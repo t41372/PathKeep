@@ -68,11 +68,13 @@ export function writeControl(control: unknown) {
 
 /**
  * What a start writes whatever happens, and nothing else does: the logs, the
- * crash reports, and the owner lock, which holds the running app's process id.
+ * crash reports, the owner lock, which holds the running app's process id,
+ * and `ipc`, where the running app listens (a socket, not a file to read).
  */
 const WRITTEN_BY_EVERY_START = [
   'logs',
   'diagnostics',
+  'ipc',
   path.join('archive', '.pk-owner.lock'),
 ]
 
