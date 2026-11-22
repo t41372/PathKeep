@@ -137,7 +137,15 @@ test('a note is found by its words, in either script, until it changes', async (
   const log = expected(archivedVisits(), (visit) => visit.url === LOG_URL)
   expect(run.pages * log.pages, 'the fixture visited both pages').toBe(1)
 
-  // No fixture page has these words; after the notes, only the noted pages do.
+  // No archived page has these words; after the notes, only the noted pages
+  // do. A spec that adds visits before this one must not use them.
+  for (const word of ['quokka', 'wombat', '设计系统'])
+    expect(
+      archivedVisits().filter((visit) =>
+        `${visit.title} ${visit.url}`.toLowerCase().includes(word),
+      ),
+      `no archived page has "${word}"`,
+    ).toEqual([])
   await page.goto('/#/browsing/history')
   await searchBox(page).fill('site:strava.com')
   await expectResults(page, testInfo, 'site:strava.com', onStrava)

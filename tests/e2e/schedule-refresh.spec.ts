@@ -26,7 +26,9 @@ test('a scheduled backup refreshes Home and an open History search', async ({
     await page.goto('/')
     const pill = page.getByRole('link', { name: /^Backed up / })
     await expect(pill).toBeVisible()
-    const title = 'A scheduled visit to Quokkaland'
+    // Words no other spec searches for: the read specs after this one
+    // count what their own words find (history-tools' notes use "quokka").
+    const title = 'A scheduled visit to Kingfisher Bay'
     const history = await context.newPage()
     await history.goto('/#/browsing/history')
     await history.getByRole('searchbox', { name: 'Search history' }).fill(title)
@@ -36,7 +38,7 @@ test('a scheduled backup refreshes Home and an open History search', async ({
 
     const visits = [2, 1].map((secondsAgo) => ({
       title,
-      url: 'https://scheduled.example/quokkaland',
+      url: 'https://scheduled.example/kingfisher-bay',
       at: fixture().now - secondsAgo * 1_000,
       typed: false,
       duration: 500,
