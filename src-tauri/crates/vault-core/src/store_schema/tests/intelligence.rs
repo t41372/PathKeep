@@ -166,8 +166,8 @@ pub(super) const ROWS: &[Fixture] = &[
     },
     Fixture {
         table: "intelligence_jobs",
-        columns: "id, job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json, artifact_json, created_at, scheduled_at, started_at, finished_at, heartbeat_at, lease_owner, lease_expires_at, updated_at, last_error, cancellation_reason, stop_requested, canonical_url, trigger_cursor, list_order, task_dismissed_for",
-        values: "1, 'sample', 'sample', 1, 'sample', 1, 1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 1, 'sample', 1, 1, 'failed-at'",
+        columns: "id, job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json, artifact_json, created_at, scheduled_at, started_at, finished_at, heartbeat_at, lease_owner, lease_expires_at, updated_at, last_error, cancellation_reason, stop_requested, canonical_url, trigger_cursor, list_order",
+        values: "1, 'sample', 'sample', 1, 'sample', 1, 1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 1, 'sample', 1, 1",
     },
     Fixture {
         table: "intelligence_job_triggers",
@@ -196,7 +196,7 @@ pub(super) const ROWS: &[Fixture] = &[
     },
     Fixture {
         table: "ai_jobs",
-        columns: "id, job_type, state, priority, attempt, max_attempts, payload_json, run_id, summary, available_at, created_at, updated_at, started_at, finished_at, heartbeat_at, lease_owner, lease_expires_at, stop_requested, error_code, error_message, task_dismissed_for",
-        values: "1, 'sample', 'sample', 1, 1, 1, 'sample', 1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 1, 'sample', 'sample', 'failed-at'",
+        columns: "id, job_type, state, priority, attempt, max_attempts, payload_json, run_id, summary, available_at, created_at, updated_at, started_at, finished_at, heartbeat_at, lease_owner, lease_expires_at, stop_requested, error_code, error_message",
+        values: "1, 'sample', 'sample', 1, 1, 1, 'sample', 1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 1, 'sample', 'sample'",
     },
 ];

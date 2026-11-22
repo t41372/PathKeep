@@ -39,22 +39,30 @@ pub fn conversation_markdown(
                 .and_then(|a| a.citation_title(conversation_id))
                 .ok()
                 .flatten();
-            titles.insert(
-                conversation_id.clone(),
-                title.unwrap_or_else(|| request.labels.untitled.clone()),
-            );
+            titles.insert(conversation_id.clone(), title);
         }
     }
-    let heading = match request.labels.conversations_used.as_deref() {
-        Some(label) => label,
-        None if !titles.is_empty() => match crate::load_config(vault.paths())?.preferred_language {
-            LanguagePreference::ZhTw => "引用的對話",
-            LanguagePreference::ZhCn => "引用的对话",
-            _ => "Conversations used",
-        },
-        None => "",
+    let labels = &request.labels;
+    let needs_defaults = (!titles.is_empty() && labels.conversations_used.is_none())
+        || (labels.cited_conversation_fallback.is_none() && titles.values().any(Option::is_none));
+    let language = if needs_defaults {
+        crate::load_config(vault.paths())?.preferred_language
+    } else {
+        LanguagePreference::En
     };
-    let markdown = render(title, &conversation.messages, &request.labels, heading, &titles);
+    let (heading, fallback) = match language {
+        LanguagePreference::ZhTw => ("引用的對話", "對話標題無法取得"),
+        LanguagePreference::ZhCn => ("引用的对话", "无法获取对话标题"),
+        _ => ("Conversations used", "Conversation title unavailable"),
+    };
+    let markdown = render(
+        title,
+        &conversation.messages,
+        labels,
+        labels.conversations_used.as_deref().unwrap_or(heading),
+        labels.cited_conversation_fallback.as_deref().unwrap_or(fallback),
+        &titles,
+    );
     let day = chrono::Local::now().format("%Y-%m-%d");
     Ok(Some(ConversationMarkdown {
         file_name: format!("{} {day}.md", file_name_part(title)),
@@ -67,7 +75,8 @@ fn render(
     messages: &[AgentMessage],
     labels: &ConversationExportLabels,
     conversation_heading: &str,
-    titles: &HashMap<String, String>,
+    cited_fallback: &str,
+    titles: &HashMap<String, Option<String>>,
 ) -> String {
     let mut out = format!("# {}\n", inline(title));
     for message in messages {
@@ -90,7 +99,12 @@ fn render(
             .filter_map(|c| {
                 let ConversationCitation::Conversation { conversation_id, .. } =
                     c.target.as_ref()?;
-                titles.get(conversation_id)
+                Some(
+                    titles
+                        .get(conversation_id)
+                        .and_then(Option::as_deref)
+                        .unwrap_or(cited_fallback),
+                )
             })
             .peekable();
         if conversations.peek().is_some() {

@@ -645,12 +645,12 @@ impl AiCapability {
 pub fn ensure_ai_capability_enabled(
     config: &AppConfig,
     capability: AiCapability,
-) -> anyhow::Result<()> {
+) -> Result<(), AiRefusal> {
     if !config.ai.enabled {
-        return Err(AiRefusal::MasterDisabled(capability).into());
+        return Err(AiRefusal::MasterDisabled(capability));
     }
     if !capability.sub_flag_enabled(&config.ai) {
-        return Err(AiRefusal::CapabilityDisabled(capability).into());
+        return Err(AiRefusal::CapabilityDisabled(capability));
     }
     Ok(())
 }
@@ -1340,7 +1340,26 @@ pub enum AiChatStreamChunk {
     /// Terminal success marker; no more chunks follow for this run.
     Done,
     /// Terminal failure marker carrying a user-facing message; no more chunks follow.
-    Error { message: String },
+    Error {
+        message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
+    },
+}
+impl AiChatStreamChunk {
+    /// Preserve a refusal through the streamed transport before the journal formats its diagnostic.
+    pub fn from_error(error: &anyhow::Error) -> Self {
+        Self::Error {
+            message: error.to_string(),
+            code: error
+                .downcast_ref::<AiRefusal>()
+                .map(AiRefusal::code)
+                .or_else(|| {
+                    error.downcast_ref::<crate::admission::Refusal>().map(|r| r.reason.code())
+                })
+                .map(str::to_owned),
+        }
+    }
 }
 
 /// One stable, locale-independent USER-facing agent-harness control note CODE.
@@ -1703,6 +1722,8 @@ pub struct ConversationExportLabels {
     pub assistant: String,
     pub pages_used: String,
     pub conversations_used: Option<String>,
+    /// Used when an Agent citation has no readable title.
+    pub cited_conversation_fallback: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

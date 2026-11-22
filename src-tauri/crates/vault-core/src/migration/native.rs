@@ -358,6 +358,11 @@ pub fn import(
     crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
     let staged = Vault::open_staged(staged_paths, config.clone(), Some(&key))?;
     staged.renew_browsing_run_origin()?;
+    // The run ledger travels. The intelligence queues start fresh on this computer.
+    staged.store().write(vault_store::Db::Archive, vault_store::Priority::Interactive, |s| {
+        s.execute("DELETE FROM archive_meta WHERE name GLOB 'taskDismissal/job/*'", ())?;
+        Ok(())
+    })?;
     let layout = staged.layout();
     for db in vault_layout::portable_databases(layout) {
         cancel.check()?;

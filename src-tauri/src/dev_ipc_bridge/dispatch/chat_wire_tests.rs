@@ -251,6 +251,15 @@ fn conversation_screen_wire_opens_a_saved_pi_turn_and_reads_its_image() {
                 config.capture_policy.agent_history = vault_core::KindState::Off;
             }
             vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
+            if grant && (!master || !semantic) {
+                let status =
+                    dispatch_command(&state, "get_agent_semantic_index", json!({"request":{}}))
+                        .await
+                        .unwrap();
+                assert_eq!(status["enabled"], false);
+                assert_eq!(status["reason"], code);
+                assert_eq!(status["keptBytes"], "0");
+            }
             let err = dispatch_command(
                 &state,
                 "control_agent_semantic_index",

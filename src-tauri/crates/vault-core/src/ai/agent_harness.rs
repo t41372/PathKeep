@@ -359,7 +359,8 @@ where
                     completion_tokens,
                 };
             }
-            Err(TurnError::Recoverable { message, usage }) => {
+            Err(TurnError::Recoverable { error, usage }) => {
+                let message = error.to_string();
                 if let Some(usage) = usage {
                     prompt_tokens += usage.prompt_tokens;
                     completion_tokens += usage.completion_tokens;
@@ -369,7 +370,7 @@ where
                     });
                 }
                 if previous_turn_failed || (max_iterations != 0 && turn >= max_iterations) {
-                    sink(AiChatStreamChunk::Error { message: message.clone() });
+                    sink(AiChatStreamChunk::from_error(&error));
                     return AgentRunOutcome::Failed {
                         iterations: turn,
                         prompt_tokens,
@@ -385,8 +386,9 @@ where
                 )));
                 continue;
             }
-            Err(TurnError::Stream(message)) => {
-                sink(AiChatStreamChunk::Error { message: message.clone() });
+            Err(TurnError::Stream(error)) => {
+                let message = error.to_string();
+                sink(AiChatStreamChunk::from_error(&error));
                 return AgentRunOutcome::Failed {
                     iterations: turn,
                     prompt_tokens,
@@ -447,7 +449,7 @@ where
         if let Err(error) =
             journal.journal_step(turn, STEP_KIND_ASSISTANT_TURN, None, None, &turn_payload)
         {
-            sink(AiChatStreamChunk::Error { message: error.to_string() });
+            sink(AiChatStreamChunk::from_error(&error));
             return AgentRunOutcome::Failed {
                 iterations: turn,
                 prompt_tokens,
@@ -549,7 +551,7 @@ where
                 Some(&call.call_id),
                 &result_payload,
             ) {
-                sink(AiChatStreamChunk::Error { message: error.to_string() });
+                sink(AiChatStreamChunk::from_error(&error));
                 return AgentRunOutcome::Failed {
                     iterations: turn,
                     prompt_tokens,
@@ -723,8 +725,9 @@ where
                 completion_tokens: *completion_tokens,
             };
         }
-        Err(TurnError::Stream(message) | TurnError::Recoverable { message, .. }) => {
-            sink(AiChatStreamChunk::Error { message: message.clone() });
+        Err(TurnError::Stream(error) | TurnError::Recoverable { error, .. }) => {
+            let message = error.to_string();
+            sink(AiChatStreamChunk::from_error(&error));
             return AgentRunOutcome::Failed {
                 iterations: turn,
                 prompt_tokens: *prompt_tokens,
@@ -752,7 +755,7 @@ where
         journal.journal_step(synthesis_turn, STEP_KIND_ASSISTANT_TURN, None, None, &payload)
     {
         // Unsaved, the answer would be missing from the conversation when it is reopened.
-        sink(AiChatStreamChunk::Error { message: error.to_string() });
+        sink(AiChatStreamChunk::from_error(&error));
         return AgentRunOutcome::Failed {
             iterations: synthesis_turn,
             prompt_tokens: *prompt_tokens,
@@ -825,7 +828,7 @@ fn finish_cancel_or_error<S: AgentRunSink>(
         AgentRunOutcome::Cancelled { iterations, prompt_tokens, completion_tokens }
     } else {
         let message = error.to_string();
-        sink(AiChatStreamChunk::Error { message: message.clone() });
+        sink(AiChatStreamChunk::from_error(&error));
         AgentRunOutcome::Failed { iterations, prompt_tokens, completion_tokens, message }
     }
 }
@@ -881,8 +884,9 @@ where
                 completion_tokens: *completion_tokens,
             };
         }
-        Err(TurnError::Stream(message) | TurnError::Recoverable { message, .. }) => {
-            sink(AiChatStreamChunk::Error { message: message.clone() });
+        Err(TurnError::Stream(error) | TurnError::Recoverable { error, .. }) => {
+            let message = error.to_string();
+            sink(AiChatStreamChunk::from_error(&error));
             return AgentRunOutcome::Failed {
                 iterations: 1,
                 prompt_tokens: *prompt_tokens,
@@ -901,7 +905,7 @@ where
     }
     let payload = json!({ "text": accumulated.text, "degraded": true }).to_string();
     if let Err(error) = journal.journal_step(1, STEP_KIND_DEGRADED_ANSWER, None, None, &payload) {
-        sink(AiChatStreamChunk::Error { message: error.to_string() });
+        sink(AiChatStreamChunk::from_error(&error));
         return AgentRunOutcome::Failed {
             iterations: 1,
             prompt_tokens: *prompt_tokens,

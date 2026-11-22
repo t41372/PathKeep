@@ -119,6 +119,38 @@ fn send(f: &support::Fixture, request: Value) -> Vec<Value> {
     frames
 }
 #[test]
+fn losing_the_conversation_grant_before_the_next_ask_turn_streams_a_typed_refusal() {
+    let f = support::Fixture::new(true);
+    let p = provider::Provider::new();
+    configure(&f, &p);
+    prefs(&f, json!({"assistantMayRead":true}));
+    let paths = f.paths();
+    let (tx, rx) = mpsc::channel();
+    let req=from_value(json!({"messages":[{"role":"user","content":"What did I save about pets?"}],"toolsEnabled":true})).unwrap();
+    vault_worker::ai_chat_send(f.vault(), None, &req, move |e| {
+        let frame = serde_json::to_value(e).unwrap();
+        if frame["chunk"]["kind"] == "toolResult" {
+            let gate = ControlGate::acquire(&paths);
+            let mut cfg = load_config(&paths).unwrap();
+            cfg.agent_viewer.assistant_may_read = false;
+            save_config(&gate, &cfg).unwrap();
+        }
+        tx.send(frame).unwrap();
+    })
+    .unwrap();
+    loop {
+        let frame = rx.recv_timeout(Duration::from_secs(30)).unwrap();
+        let chunk = &frame["chunk"];
+        assert_ne!(chunk["kind"], "done");
+        if chunk["kind"] == "error" {
+            assert_eq!(chunk["code"], "agent-conversations-access-disabled", "{chunk}");
+            break;
+        }
+    }
+    assert!(!json!(*p.requests.lock().unwrap()).to_string().contains("CITED_MARKER"));
+}
+
+#[test]
 fn provider_receives_only_the_independently_authorized_content() {
     let f = support::Fixture::new(true);
     let p = provider::Provider::new();
@@ -442,7 +474,7 @@ fn a_saved_citation_reopens_at_the_record_and_revocation_excludes_its_reply_from
     let p = provider::Provider::new();
     configure(&f, &p);
     f.vault().store().write(vault_store::Db::Agent,vault_store::Priority::Interactive,|s|{
-        s.execute("INSERT INTO conversations(id,title,created_at,updated_at,message_count) VALUES('chat','pets','2026-11-10','2026-11-10',1)",())?;
+        s.execute("INSERT INTO conversations(id,title,created_at,updated_at,message_count) VALUES('chat','','2026-11-10','2026-11-10',1)",())?;
         s.execute("INSERT INTO messages(id,conversation_id,seq,role,content,created_at) VALUES('answer','chat',1,'assistant','CITED_MARKER reply','2026-11-10')",())?;
         Ok(())
     }).unwrap();
@@ -478,6 +510,21 @@ fn a_saved_citation_reopens_at_the_record_and_revocation_excludes_its_reply_from
         assert!(md.contains("Pages used:\n\n1. [Reference](<https://fixture.test>)"), "{md}");
         assert!(md.contains(&format!("{expected}:\n\n1. \\[Feline\\] care")), "{md}");
         assert!(!md.contains("pathkeep://"), "{md}");
+    }
+    kinds::chats::edit(
+        &f.session,
+        from_value(json!({"action":"trash","id":conversation_id})).unwrap(),
+        events(),
+    )
+    .unwrap();
+    for (label, expected) in [
+        (Some("Unavailable source title"), "Unavailable source title"),
+        (None, "Conversation title unavailable"),
+    ] {
+        let request=from_value(json!({"id":"chat","labels":{"untitled":"New chat","you":"You","assistant":"Assistant","pagesUsed":"Pages used","citedConversationFallback":label}})).unwrap();
+        let md = vault_core::conversation_markdown(f.vault(), &request).unwrap().unwrap().markdown;
+        assert!(md.contains(&format!("Conversations used:\n\n1. {expected}")), "{md}");
+        assert!(md.starts_with("# New chat\n"), "{md}");
     }
     prefs(&f, json!({"assistantMayRead":false}));
     p.requests.lock().unwrap().clear();

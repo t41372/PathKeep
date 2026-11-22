@@ -262,6 +262,7 @@ fn spawn_chat_run<E>(
         emit(AiChatStreamEvent {
             run_id: run_id.clone(),
             chunk: AiChatStreamChunk::Error {
+                code: None,
                 message: format!("Failed to start chat stream worker: {error}"),
             },
         });
@@ -284,7 +285,7 @@ fn run_chat_stream<E>(
         Err(error) => {
             emit(AiChatStreamEvent {
                 run_id: run_id.to_string(),
-                chunk: AiChatStreamChunk::Error { message: error.to_string() },
+                chunk: AiChatStreamChunk::from_error(&error),
             });
             return;
         }
@@ -415,6 +416,7 @@ where
         emit(AiChatStreamEvent {
             run_id: run_id.clone(),
             chunk: AiChatStreamChunk::Error {
+                code: None,
                 message: format!("Failed to start agent run worker: {error}"),
             },
         });
@@ -433,16 +435,16 @@ fn run_agent_stream<E>(run_id: &str, setup: AgentRunSetup, cancel: Arc<AtomicBoo
 where
     E: Fn(AiChatStreamEvent) + Send + Sync,
 {
-    let emit_error = |message: String| {
+    let emit_error = |error: &anyhow::Error| {
         emit(AiChatStreamEvent {
             run_id: run_id.to_string(),
-            chunk: AiChatStreamChunk::Error { message },
+            chunk: AiChatStreamChunk::from_error(error),
         });
     };
 
     let stream_runtime = match tokio_runtime() {
         Ok(rt) => rt,
-        Err(error) => return emit_error(error.to_string()),
+        Err(error) => return emit_error(&error),
     };
 
     // Open the durable run header BEFORE any model call so a crash leaves an interrupted trace.
@@ -455,7 +457,7 @@ where
         embedding_provider_id: setup.embedding_runtime.as_ref().map(|p| p.config.id.clone()),
     };
     if let Err(error) = begin_agent_run(&setup.vault, &begin) {
-        return emit_error(error.to_string());
+        return emit_error(&error);
     }
 
     let provider = RigLlmProvider::new(setup.llm_runtime.clone());
@@ -523,7 +525,7 @@ where
         let can_use_tools = match probe_tool_capability(&provider).await {
             Ok(capable) => capable,
             Err(error) => {
-                emit_error(error.to_string());
+                emit_error(&error);
                 return None;
             }
         };

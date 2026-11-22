@@ -29,6 +29,8 @@ vault-core = { version = "0.1.0", path = "../vault-core" }
 vault-platform = { version = "0.1.0", path = "../vault-platform" }
 
 [dev-dependencies]
+flate2 = "1.1.9"
+tar = "0.4.46"
 tantivy = "0.27.0"
 zstd = "0.14.3"
 vault-core = { path = "../vault-core", features = ["test-fixtures"] }

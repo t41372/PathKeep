@@ -206,6 +206,58 @@ fn ledgers(vault: &vault_core::Vault, decoded: &std::path::Path) -> serde_json::
     serde_json::Value::Object(ledgers)
 }
 
+#[test]
+fn released_data_folder_opens_at_the_released_schema_versions_without_an_update() {
+    let f = Fixture::new(false);
+    let root = f.sandbox.path().join("released-folder");
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/fixtures/v0.5-archive");
+    let facts: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(fixtures.join("expected.json")).unwrap()).unwrap();
+    let file = std::fs::File::open(fixtures.join("data.tar.gz")).unwrap();
+    tar::Archive::new(flate2::read::GzDecoder::new(file)).unpack(&root).unwrap();
+    unsafe {
+        std::env::set_var("CHB_PROJECT_ROOT", &root);
+    }
+    let password = facts["password"].as_str().unwrap();
+    let assessment = vault_worker::assess_archive_upgrade(Some(password)).unwrap();
+    assert!(!assessment.pending && assessment.phases.is_empty());
+    let paths = vault_core::project_paths_with_root(&root);
+    let config = vault_core::load_config(&paths).unwrap();
+    // The debug observer writes a PID marker whenever a live open announces a database update.
+    // The hold file itself is absent, so a regression fails the assertion without blocking.
+    let hold = f.sandbox.path().join("updating");
+    let previous = std::env::var_os("PATHKEEP_TEST_HOLD_SCHEMA_UPDATE");
+    unsafe {
+        std::env::set_var("PATHKEEP_TEST_HOLD_SCHEMA_UPDATE", &hold);
+    }
+    let opened = vault_core::Vault::open_password(paths, config, password, None);
+    unsafe {
+        match previous {
+            Some(v) => std::env::set_var("PATHKEEP_TEST_HOLD_SCHEMA_UPDATE", v),
+            None => std::env::remove_var("PATHKEEP_TEST_HOLD_SCHEMA_UPDATE"),
+        }
+    }
+    let (vault, _) = opened.unwrap();
+    assert!(!hold.with_extension("held").exists(), "a released database announced a schema update");
+    let stored = ledgers(&vault, &f.sandbox.path().join("released-roles"));
+    // These are the published v0.5.0 ceilings, independent of the current registry.
+    for (role, version) in [
+        (Db::Archive, 23),
+        (Db::Intelligence, 2),
+        (Db::SourceEvidence, 1),
+        (Db::Agent, 1),
+        (Db::Scratch, 0),
+    ] {
+        assert_eq!(vault_core::store_schema::schema_version(role), version);
+        assert_eq!(
+            stored[vault_layout::database_path(role)],
+            serde_json::json!((1..=version).collect::<Vec<_>>())
+        );
+    }
+    vault.close().unwrap();
+}
+
 /// Use the release's actual encrypted move bundle and its sealed safety copy.
 #[test]
 fn released_schema_23_gets_an_origin_only_when_installed() {
@@ -221,10 +273,8 @@ fn released_schema_23_gets_an_origin_only_when_installed() {
     let preview = vault_worker::preview_import(current.paths(), bundle.clone()).unwrap();
     assert_eq!(preview.manifest.archive_schema_version, 23);
     let current_version = vault_core::store_schema::schema_version(Db::Archive);
-    assert_eq!(
-        preview.schema_up_to_date,
-        current_version == preview.manifest.archive_schema_version
-    );
+    assert!(preview.schema_up_to_date, "the released move file must show no update note");
+    assert!(preview.migrations_to_apply.is_empty());
     let lease = f.session.begin_maintenance().unwrap();
     let password = facts["exportPassword"].as_str().unwrap();
     let (_, installed) = vault_worker::apply_import(
@@ -320,4 +370,102 @@ fn restored_v06_ledger_cannot_reuse_a_qualified_run_link() {
             .to_string(),
         "record-unavailable"
     );
+}
+
+#[test]
+fn a_run_dismissal_follows_its_ledger_through_reopen_restore_and_move() {
+    use serde_json::{from_value, json};
+    use vault_worker::data_kinds::backups;
+    let f = Fixture::new(false);
+    f.vault().store().write(Db::Archive, vault_store::Priority::Interactive, |s| {
+        for id in [971, 972] {
+            s.execute(
+                "INSERT INTO runs(id,run_type,trigger,started_at,finished_at,status)
+                 VALUES(?1,'backup','manual','2026-11-09T10:00:00Z','2026-11-09T10:01:00Z','partial')",
+                [id],
+            )?;
+        }
+        Ok(())
+    }).unwrap();
+    let seed_queue_job = || {
+        f.vault().store().write(Db::Intelligence, vault_store::Priority::Interactive, |s| {
+            s.execute(
+                "INSERT INTO ai_jobs(id,job_type,state,priority,attempt,payload_json,available_at,created_at,updated_at)
+                 VALUES(973,'index-build','failed',100,1,'{}','2026-11-09','2026-11-09','2026-11-10')",
+                (),
+            )?;
+            Ok(())
+        }).unwrap();
+    };
+    seed_queue_job();
+    let dismiss = |task: &str| {
+        backups::control(
+            &f.session,
+            from_value(json!({"taskId":task,"action":"dismiss"})).unwrap(),
+            std::sync::Arc::new(|_, _| {}),
+        )
+        .unwrap();
+    };
+    let assert_saved = |queue_needs_attention: bool| {
+        let rows = backups::tasks(
+            &f.session,
+            from_value(json!({"kind":"browsing","group":"attention","limit":100})).unwrap(),
+        )
+        .unwrap();
+        let rows = rows["items"].as_array().unwrap();
+        assert_eq!(rows.iter().any(|r| r["taskId"] == "browsing:index/973"), queue_needs_attention);
+        assert!(!rows.iter().any(|r| r["taskId"] == "browsing:run/971"), "{rows:?}");
+        assert!(rows.iter().any(|r| r["taskId"] == "browsing:run/972"), "{rows:?}");
+        let count = f
+            .vault()
+            .store()
+            .read(Db::Archive, |s| {
+                s.query_one(
+                    "SELECT count(*) FROM runs WHERE id IN (971,972) AND status='partial'",
+                    (),
+                    |r| Ok(r.get::<i64>(0)?),
+                )
+            })
+            .unwrap();
+        assert_eq!(count, 2);
+    };
+    dismiss("browsing:run/971");
+    dismiss("browsing:index/973");
+    f.session.close_vault().unwrap();
+    f.reopen(false);
+    assert_saved(false);
+    let snapshot = f.root.join("raw-snapshots/maintenance/manual-dismissal");
+    vault_core::maintenance::snapshot(&f.vault(), &snapshot).unwrap();
+    dismiss("browsing:run/972");
+    let restore = vault_core::SnapshotRestoreRequest {
+        snapshot_path: snapshot.to_string_lossy().into_owned(),
+    };
+    vault_worker::run_full_archive_restore(&f.session, None, &restore).unwrap();
+    assert_saved(false);
+    let bundle = f.sandbox.path().join("acknowledged.pathkeep");
+    vault_worker::export_app_data(&f.vault(), bundle.clone(), EXPORT_PASSWORD).unwrap();
+    dismiss("browsing:run/972");
+    let live = f.vault();
+    let lease = f.session.begin_maintenance().unwrap();
+    let (_, installed) = vault_worker::apply_import(
+        live.paths(),
+        Some(&live),
+        f.session.owner(),
+        bundle,
+        vault_core::ApplyImportOptions {
+            confirm_overwrite: true,
+            source_archive_key: Some(EXPORT_PASSWORD.into()),
+        },
+    )
+    .unwrap();
+    f.session
+        .install_archive(
+            installed,
+            Some(EXPORT_PASSWORD.into()),
+            vault_worker::KeychainAfterInstall::AsSaved,
+        )
+        .unwrap();
+    drop(lease);
+    seed_queue_job();
+    assert_saved(true);
 }

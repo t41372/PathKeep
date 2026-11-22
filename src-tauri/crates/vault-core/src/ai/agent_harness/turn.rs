@@ -25,8 +25,8 @@ pub(super) struct PendingToolCall {
 /// Error from streaming one model turn: a cooperative cancel, or a terminal stream failure.
 pub(super) enum TurnError {
     Cancelled,
-    Stream(String),
-    Recoverable { message: String, usage: Option<LlmUsage> },
+    Stream(anyhow::Error),
+    Recoverable { error: anyhow::Error, usage: Option<LlmUsage> },
 }
 
 /// Streams ONE model turn, forwarding token/reasoning chunks and accumulating tool calls + usage.
@@ -46,7 +46,7 @@ where
     S: AgentRunSink,
 {
     if let Some(control) = control {
-        control.before_model_turn().map_err(|e| TurnError::Stream(e.to_string()))?;
+        control.before_model_turn().map_err(TurnError::Stream)?;
     }
     // Open the stream under cancellation (a cancel here is observed as a cancellation error).
     let open = await_with_ai_cancellation(
@@ -58,7 +58,7 @@ where
     let mut stream = match open {
         Ok(stream) => stream,
         Err(error) if is_cancellation(&error) => return Err(TurnError::Cancelled),
-        Err(error) => return Err(TurnError::Stream(error.to_string())),
+        Err(error) => return Err(TurnError::Stream(error)),
     };
 
     let mut accumulated = TurnAccumulator::default();
@@ -73,14 +73,18 @@ where
                 return match accumulated.finish_reason {
                     Some(LlmFinishReason::Stop | LlmFinishReason::ToolCalls) => Ok(accumulated),
                     Some(LlmFinishReason::Length) => Err(TurnError::Recoverable {
-                        message: "The model turn was truncated (finish reason length).".into(),
+                        error: anyhow::anyhow!(
+                            "The model turn was truncated (finish reason length)."
+                        ),
                         usage: accumulated.usage,
                     }),
                     Some(LlmFinishReason::Other(reason)) => {
-                        Err(TurnError::Stream(format!("The model stopped with {reason}.")))
+                        Err(TurnError::Stream(anyhow::anyhow!("The model stopped with {reason}.")))
                     }
                     None => Err(TurnError::Recoverable {
-                        message: "The stream ended without a terminal finish reason.".into(),
+                        error: anyhow::anyhow!(
+                            "The stream ended without a terminal finish reason."
+                        ),
                         usage: accumulated.usage,
                     }),
                 };
@@ -105,16 +109,15 @@ where
             },
             Some(Err(error)) => {
                 return Err(
-                    if matches!(
-                        error.downcast_ref::<LlmStreamError>(),
-                        Some(LlmStreamError::Transport(_))
-                    ) {
-                        TurnError::Stream(error.to_string())
+                    if error.is::<crate::AiRefusal>()
+                        || matches!(
+                            error.downcast_ref::<LlmStreamError>(),
+                            Some(LlmStreamError::Transport(_))
+                        )
+                    {
+                        TurnError::Stream(error)
                     } else {
-                        TurnError::Recoverable {
-                            message: error.to_string(),
-                            usage: accumulated.usage,
-                        }
+                        TurnError::Recoverable { error, usage: accumulated.usage }
                     },
                 );
             }

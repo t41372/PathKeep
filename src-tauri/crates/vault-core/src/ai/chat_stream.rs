@@ -101,7 +101,7 @@ pub async fn drive_chat_stream<P, S>(
     let mut stream = match provider.chat_stream(request).await {
         Ok(stream) => stream,
         Err(error) => {
-            sink(AiChatStreamChunk::Error { message: error.to_string() });
+            sink(AiChatStreamChunk::from_error(&error));
             return;
         }
     };
@@ -124,7 +124,7 @@ pub async fn drive_chat_stream<P, S>(
                 }
             }
             Some(Err(error)) => {
-                sink(AiChatStreamChunk::Error { message: error.to_string() });
+                sink(AiChatStreamChunk::from_error(&error));
                 return;
             }
         }

@@ -97,10 +97,15 @@ fn chosen(cfg: &vault_core::AppConfig) -> Option<&vault_core::AiProviderConfig> 
 pub fn status(s: &VaultSession, _: Empty) -> Result<Value> {
     let (v, here) = backups::admitted(s, true)?;
     let kept = vectors::kept_index(v.agent_history()?.as_ref())?.bytes.to_string();
-    if !here.agent_viewer.build_semantic_index
-        || vault_core::ensure_ai_capability_enabled(&here, AiCapability::SemanticIndex).is_err()
-    {
+    if !here.agent_viewer.build_semantic_index {
         return Ok(json!({"enabled":false,"keptBytes":kept,"serving":null,"job":null}));
+    }
+    if let Err(reason) =
+        vault_core::ensure_ai_capability_enabled(&here, AiCapability::SemanticIndex)
+    {
+        return Ok(
+            json!({"enabled":false,"keptBytes":kept,"serving":null,"job":null,"reason":reason.code()}),
+        );
     }
     let cfg = consent(&v, AiCapability::SemanticIndex)?;
     let Some(provider) = chosen(&cfg) else {

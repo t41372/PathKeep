@@ -39,14 +39,11 @@ pub(super) fn list(session: &VaultSession, req: ListTasks) -> Result<Value> {
         let (predicate, time) = match req.group {
             Group::Running => ("state IN ('running','started')", "created"),
             Group::Waiting => ("state IN ('queued','paused','stale')", "created"),
-            Group::Attention => (
-                "state IN ('failed','partial') AND task_dismissed_for IS NOT stamp",
-                "coalesce(ended,created)",
-            ),
+            Group::Attention => {
+                ("state IN ('failed','partial') AND NOT dismissed", "coalesce(ended,created)")
+            }
             Group::Today => ("ended IS NOT NULL AND ended>=?4 AND ended<?5", "ended"),
         };
-        let sql=format!("SELECT id,operation,state,{time},ended,artifact,stopped,wide,task_dismissed_for IS stamp FROM ({source}) WHERE {predicate}
-            AND ({time},id)<(?1,?2) ORDER BY {time} DESC,id DESC LIMIT ?3");
         let mut args = vec![Sql::Text(before), Sql::Integer(id), Sql::Integer(n + 1)];
         if matches!(req.group, Group::Today) {
             for bound in [lo, hi] {
@@ -57,6 +54,13 @@ pub(super) fn list(session: &VaultSession, req: ListTasks) -> Result<Value> {
                 ));
             }
         }
+        let (source, marker) = if matches!(req.group, Group::Attention | Group::Today) {
+            (with_dismissals(&vault, native, &source, &mut args)?, "dismissed")
+        } else {
+            (source, "0")
+        };
+        let sql=format!("SELECT id,operation,state,{time},ended,artifact,stopped,wide,{marker} FROM ({source}) WHERE {predicate}
+            AND ({time},id)<(?1,?2) ORDER BY {time} DESC,id DESC LIMIT ?3");
         rows.extend(vault.store().read(db, move |s| {
             let origin =
                 if native == "run" { Some(super::browsing_runs::origin(s)?) } else { None };
@@ -95,33 +99,72 @@ fn sources(with_browsing: bool) -> Vec<(&'static str, Db, String)> {
         format!(
             "SELECT id,run_type AS operation,status AS state,started_at AS created,
         finished_at AS ended,NULL AS artifact,0 AS stopped,run_type IN ({WIDE}) AS wide,
-        coalesce(finished_at,started_at) AS stamp,task_dismissed_for FROM runs WHERE {filter}"
+        json_array(id,started_at,coalesce(finished_at,started_at)) AS stamp FROM runs WHERE {filter}"
         ),
     )];
     if with_browsing {
         sources.extend([("intelligence",Db::Intelligence,"SELECT id,job_type AS operation,state,created_at AS created,
             finished_at AS ended,artifact_json AS artifact,stop_requested AS stopped,0 AS wide,
-            printf('%d/%s',attempt,coalesce(finished_at,updated_at)) AS stamp,task_dismissed_for FROM intelligence_jobs".into()),
+            json_array(id,created_at,attempt,coalesce(finished_at,updated_at)) AS stamp FROM intelligence_jobs".into()),
             ("index",Db::Intelligence,"SELECT id,job_type AS operation,state,created_at AS created,finished_at AS ended,
-            NULL AS artifact,0 AS stopped,0 AS wide,printf('%d/%s',attempt,coalesce(finished_at,updated_at)) AS stamp,task_dismissed_for
+            NULL AS artifact,0 AS stopped,0 AS wide,json_array(id,created_at,attempt,coalesce(finished_at,updated_at)) AS stamp
             FROM ai_jobs WHERE job_type IN ('index-build','index-clear')".into())]);
     }
     sources
 }
+// Only explicit dismissals occupy metadata rows. Runs can seek their key in the same
+// database. The queues receive just their family's acknowledgement keys as a bound set.
+fn with_dismissals(v: &Vault, native: &str, source: &str, args: &mut Vec<Sql>) -> Result<String> {
+    let prefix = dismissal_prefix(native);
+    let predicate = if native == "run" {
+        format!("EXISTS(SELECT 1 FROM archive_meta WHERE name='{prefix}' || task.stamp)")
+    } else {
+        let keys = v.store().read(Db::Archive, move |s| {
+            s.query_one("SELECT json_group_array(substr(name,length(?1)+1)) FROM archive_meta WHERE name GLOB ?2",
+                vault_store::params![prefix.as_str(), format!("{prefix}*")], |r| Ok(r.get::<String>(0)?))
+        })?;
+        args.push(Sql::Text(keys));
+        format!("task.stamp IN (SELECT value FROM json_each(?{}))", args.len())
+    };
+    Ok(format!("SELECT task.*, {predicate} AS dismissed FROM ({source}) task"))
+}
+
+fn dismissal_prefix(native: &str) -> String {
+    if native == "run" {
+        "taskDismissal/run/".into()
+    } else {
+        format!("taskDismissal/job/{native}/")
+    }
+}
+
 pub(super) fn summary(v: &Vault, with_browsing: bool) -> Result<(Vec<Value>, i64, i64)> {
     let mut running = Vec::new();
     let mut waiting = 0;
     let mut attention = 0;
     for (table, (native, db, source)) in sources(with_browsing).into_iter().enumerate() {
-        let(active,queued,failed)=v.store().read(db,move|s|{
-            let origin=if native=="run"{Some(super::browsing_runs::origin(s)?)}else{None};
-            let active=s.query(&format!("SELECT id,operation,state,created,ended,artifact,stopped,wide,
-                task_dismissed_for IS stamp FROM ({source}) WHERE state IN ('started','running') ORDER BY created,id"),(),
-                |r|Ok(read_row(r,table,native,origin.as_deref())?.value))?;
-            let counts=s.query_one(&format!("SELECT count(CASE WHEN state IN ('queued','paused','stale') THEN 1 END),
-                count(CASE WHEN state IN ('failed','partial') AND task_dismissed_for IS NOT stamp THEN 1 END)
-                FROM ({source}) WHERE state IN ('queued','paused','stale','failed','partial')"),(),|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?)))?;
-            Ok((active,counts.0,counts.1))
+        let mut args = Vec::new();
+        let counted = with_dismissals(v, native, &source, &mut args)?;
+        let (active, queued, failed) = v.store().read(db, move |s| {
+            let origin =
+                if native == "run" { Some(super::browsing_runs::origin(s)?) } else { None };
+            let active = s.query(
+                &format!(
+                    "SELECT id,operation,state,created,ended,artifact,stopped,wide,
+                0 FROM ({source}) WHERE state IN ('started','running') ORDER BY created,id"
+                ),
+                (),
+                |r| Ok(read_row(r, table, native, origin.as_deref())?.value),
+            )?;
+            let counts = s.query_one(
+                &format!(
+                    "SELECT count(CASE WHEN state IN ('queued','paused','stale') THEN 1 END),
+                count(CASE WHEN state IN ('failed','partial') AND NOT dismissed THEN 1 END)
+                FROM ({counted}) WHERE state IN ('queued','paused','stale','failed','partial')"
+                ),
+                args,
+                |r| Ok((r.get::<i64>(0)?, r.get::<i64>(1)?)),
+            )?;
+            Ok((active, counts.0, counts.1))
         })?;
         running.extend(active);
         waiting += queued;
@@ -144,24 +187,23 @@ pub(super) fn dismiss(session: &VaultSession, task: &str) -> Result<Value> {
         "browsing" => false,
         _ => return Err(Refusal::InvalidRequest.into()),
     };
-    let table = match native {
-        "run" => "runs",
-        "intelligence" => "intelligence_jobs",
-        "index" => "ai_jobs",
-        _ => return Err(Refusal::InvalidRequest.into()),
-    };
     let (_, db, source) = sources(!wide)
         .into_iter()
         .find(|(name, _, _)| *name == native)
         .ok_or(Refusal::InvalidRequest)?;
-    let eligible=v.store().write(db,vault_store::Priority::Interactive,move|s|{
-        let sql=format!("SELECT stamp,task_dismissed_for IS stamp FROM ({source}) WHERE id=?1 AND wide=?2 AND state IN ('failed','partial')");
-        let Some((stamp,already))=s.query_one(&sql,vault_store::params![id,i64::from(wide)],|r|Ok((r.get::<String>(0)?,r.get::<i64>(1)?!=0))).optional()? else{return Ok(false);};
-        if !already {s.execute(&format!("UPDATE {table} SET task_dismissed_for=?2 WHERE id=?1"),vault_store::params![id,stamp])?;}
-        Ok(true)
+    let stamp = v.store().read(db, move |s| {
+        s.query_one(&format!("SELECT stamp FROM ({source}) WHERE id=?1 AND wide=?2 AND state IN ('failed','partial')"),
+            vault_store::params![id,i64::from(wide)], |r| Ok(r.get::<String>(0)?)).optional()
+    })?.ok_or(Refusal::ActionUnavailable)?;
+    let key = format!("{}{stamp}", dismissal_prefix(native));
+    let changed = v.store().write(Db::Archive, vault_store::Priority::Interactive, move |s| {
+        s.execute(
+            "INSERT INTO archive_meta(name,value) VALUES(?1,'1') ON CONFLICT(name) DO NOTHING",
+            [key],
+        )
     })?;
-    if !eligible {
-        return Err(Refusal::ActionUnavailable.into());
+    if changed > 0 {
+        super::notify_browsing_tasks(&session.conversations, v.paths());
     }
     check_reply(&v, session, true)?;
     Ok(json!({"taskId":task,"dismissed":true}))
