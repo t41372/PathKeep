@@ -5,9 +5,14 @@
  * just made (the replaced archive, as big as the archive) can go while older
  * ones stay. Your history itself is never in the list. A conversation file
  * PathKeep kept when it disappeared says what it is, and ticking it warns
- * that it may hold the only saved version of some conversations.
+ * that it may hold the only saved version of some conversations. Folders
+ * kept aside that nothing restores from (an undone import's conversations,
+ * what an undone "Delete all data" left, an archive an earlier version set
+ * aside) are listed the same way, each with the way to it in the file
+ * manager, so they can be looked at before they go.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { FolderOpen } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -29,7 +34,13 @@ import { useFormat, useI18n } from '@/lib/i18n'
 import { queryKeys } from '@/lib/query'
 import type { RetentionCopy } from '@/lib/types'
 import { Notice } from './notice'
-import { copyLabelKey, HELD_COPY } from './copy-label'
+import {
+  copyLabelKey,
+  HELD_COPY,
+  IMPORT_UNDO_COPY,
+  SET_ASIDE_FOLDERS,
+} from './copy-label'
+import { reveal, revealLabelKey } from './reveal'
 
 const bucketIds = ['snapshots', 'exports', 'staging', 'quarantine'] as const
 type BucketId = (typeof bucketIds)[number]
@@ -192,6 +203,7 @@ function FreeSpaceForm({ onClose }: { onClose: () => void }) {
                     )}
                     size={format.bytes(copy.bytes)}
                     description={copyDescription(copy, t, format)}
+                    revealPath={setAside(copy) ? copy.path : undefined}
                   />
                 ))}
               </ul>
@@ -245,6 +257,14 @@ function FreeSpaceForm({ onClose }: { onClose: () => void }) {
   )
 }
 
+/** Kept aside rather than a restore point: shown with the way to it. */
+function setAside(copy: RetentionCopy) {
+  return (
+    copy.sourceOp === IMPORT_UNDO_COPY ||
+    SET_ASIDE_FOLDERS.includes(copy.sourceOp)
+  )
+}
+
 function copyDescription(
   copy: RetentionCopy,
   t: ReturnType<typeof useI18n>['t'],
@@ -261,6 +281,14 @@ function copyDescription(
   // Kept when a conversation file disappeared: it was never meant to restore.
   if (copy.sourceOp === HELD_COPY)
     return [made, t('settingsStorage.freeSpace.conversationsOnly')]
+      .filter(Boolean)
+      .join(' · ')
+  if (copy.sourceOp === IMPORT_UNDO_COPY)
+    return [made, t('settingsStorage.freeSpace.undoneImport')]
+      .filter(Boolean)
+      .join(' · ')
+  if (SET_ASIDE_FOLDERS.includes(copy.sourceOp))
+    return [made, t('settingsStorage.freeSpace.setAside')]
       .filter(Boolean)
       .join(' · ')
   const state = !copy.restorable
@@ -282,6 +310,7 @@ function Row({
   title,
   size,
   description,
+  revealPath,
 }: {
   id: string
   checked: boolean
@@ -290,7 +319,10 @@ function Row({
   title: string
   size: string
   description: string
+  /** A folder to show in the file manager before deciding. */
+  revealPath?: string
 }) {
+  const { t } = useI18n()
   return (
     <li className="flex items-start gap-3 rounded-lg px-1 py-2">
       <Checkbox
@@ -314,6 +346,21 @@ function Row({
           </span>
         )}
       </Label>
+      {revealPath && (
+        <Button
+          type="button"
+          size="icon-xs"
+          variant="ghost"
+          className="text-muted-foreground"
+          aria-label={t(revealLabelKey())}
+          title={t(revealLabelKey())}
+          onClick={() =>
+            void reveal(revealPath, t('settingsStorage.location.failed'))
+          }
+        >
+          <FolderOpen aria-hidden />
+        </Button>
+      )}
     </li>
   )
 }

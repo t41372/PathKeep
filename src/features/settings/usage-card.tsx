@@ -1,18 +1,23 @@
 /**
  * Disk usage: one bar split into the archive, the search indexes, saved
- * snapshots and everything else, from the dashboard's storage summary.
+ * snapshots and copies, downloaded AI models and everything else, from the
+ * dashboard's storage summary. The summary's buckets don't overlap, so each
+ * byte is in exactly one part. Folders kept aside (an undone "Delete all
+ * data", an earlier version's archive) count with the copies; audit files,
+ * the schedule's and the AI integrations' own files with everything else.
  */
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useDashboard } from '@/lib/queries/app'
 import type { StorageSummary } from '@/lib/types'
 
-type Part = 'archive' | 'indexes' | 'snapshots' | 'other'
+type Part = 'archive' | 'indexes' | 'snapshots' | 'models' | 'other'
 
 const colors: Record<Part, string> = {
   archive: 'bg-brand',
   indexes: 'bg-blue',
   snapshots: 'bg-violet',
+  models: 'bg-green',
   other: 'bg-muted-foreground/40',
 }
 
@@ -28,8 +33,15 @@ function split(storage: StorageSummary): Record<Part, number> {
       storage.intelligenceDatabaseBytes +
       storage.semanticSidecarBytes +
       storage.intelligenceBlobBytes,
-    snapshots: storage.snapshotBytes,
-    other: storage.exportBytes + storage.stagingBytes + storage.quarantineBytes,
+    snapshots: storage.snapshotBytes + storage.retainedCopyBytes,
+    models: storage.modelBytes,
+    other:
+      storage.exportBytes +
+      storage.stagingBytes +
+      storage.quarantineBytes +
+      storage.otherAuditBytes +
+      storage.scheduleBytes +
+      storage.integrationBytes,
   }
 }
 

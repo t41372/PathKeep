@@ -17,8 +17,10 @@
  *
  * For v0.5.0's safety copy (from its switch to encryption, before the stars,
  * note and tags): it is listed, restores with the archive's password, and
- * takes the archive back to it. For v0.5.0's file: it opens with its own
- * password and replaces the archive with every visit, star, note and the chat.
+ * takes the archive back to it. For v0.5.0's file: the check says it was made
+ * by PathKeep 0.5 or earlier (not the 0.1.0 it records), it opens with its
+ * own password and replaces the archive with every visit, star, note and the
+ * chat.
  *
  * Runs after upgrade.spec, on the archive its v0.3.0 file left (App Lock
  * passcode 4826), and deletes all data first, as a user does in Settings, so
@@ -384,6 +386,15 @@ test('a file exported by PathKeep 0.5.0 opens and replaces the archive', async (
   await expect(importing).not.toContainText('made by an older PathKeep')
   await expect(importing).toContainText(
     'Files from PathKeep 0.5 and earlier have no Agent conversations.',
+  )
+  // Every file 0.5.0 and earlier made records 0.1.0: the check says which
+  // releases instead, and that the conversations here stay.
+  await expect(importing).toContainText(
+    /PathKeep version\s*PathKeep 0\.5 or earlier/,
+  )
+  await expect(importing).not.toContainText('0.1.0')
+  await expect(importing).toContainText(
+    'The Agent conversations on this computer stay. Only browsing history is replaced.',
   )
   await expect(importing).toContainText(
     'The safety copies already on this computer stay as they are.',

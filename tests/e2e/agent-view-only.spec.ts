@@ -15,6 +15,12 @@
  * - Manage data types says this computer isn't backing them up yet, with
  *   "Set up backup…"; the Agent backup page says nothing here is backed up
  *   and has no "Back up now".
+ * - the import recorded every conversation it brought as added (there were
+ *   none here), Storage lists it, and Undo, after saying what goes to the
+ *   trash and what stays, keeps a copy of them in a folder of their own and
+ *   moves all of them to the trash: none is visible, none is deleted, the
+ *   copy is a conversation archive of its own, and the import is listed as
+ *   taken back.
  *
  * Runs after `onboarding-agent` on the empty data folder it leaves, opens
  * the file move.spec made (the archive as the projects up to `move` left
@@ -31,7 +37,13 @@ import {
   listRows,
   openHistory,
   savedChat,
+  wireCounts,
 } from './support/agent-chats'
+import {
+  conversationImports,
+  safetyCopies,
+  storageRow,
+} from './support/archive-recovery'
 import { backend, fixture } from './support/fixture'
 
 /** move.spec's file and the password it was made with. */
@@ -119,6 +131,8 @@ test('conversations that came with the archive can be read here without turning 
   expect(preview.agentConversations).toEqual({
     carried: true,
     stateIfPresent: 'paused',
+    keepsLocal: true,
+    restoreKeepsAdditions: true,
   })
 
   // The check says it before anything changes.
@@ -217,6 +231,62 @@ test('conversations that came with the archive can be read here without turning 
   ).toBeVisible()
   await expect(page.getByRole('button', { name: 'Back up now' })).toHaveCount(0)
   expect((await agentKindState())?.state, 'still paused').toBe('paused')
+
+  // The import brought every conversation here: undo takes them all back.
+  const [brought] = await conversationImports()
+  expect(brought.added).toBeGreaterThan(0)
+  expect(brought.eligible).toBe(brought.added)
+  const taken = brought.eligible
+  const plural = taken === 1 ? '' : 's'
+  const before = await wireCounts()
+  expect(before.spaceRoots).toBeGreaterThan(0)
+  await page.goto('/#/settings/storage')
+  await unlockMovedArchive(page, page.getByRole('heading', { name: 'Storage' }))
+  await storageRow(page, 'Conversations added by imports')
+    .getByRole('button', { name: 'Review…' })
+    .click()
+  const imports = page.getByRole('dialog')
+  const entry = imports
+    .getByRole('list', { name: 'Conversations added by imports' })
+    .getByRole('listitem')
+  await expect(entry).toHaveCount(1)
+  await expect(entry).toContainText(`Added ${brought.added} conversation`)
+  await entry.getByRole('button', { name: 'Undo…' }).click()
+  await expect(
+    imports.getByRole('heading', {
+      name: `Move ${taken} conversation${plural} to the trash?`,
+    }),
+  ).toBeVisible()
+  await expect(imports).toContainText(
+    'Conversations that were here before, and ones backed up here since the import, aren’t touched.',
+  )
+  await testInfo.attach('undo, before it runs', {
+    body: await imports.screenshot(),
+    contentType: 'image/png',
+  })
+  await imports.getByRole('button', { name: 'Move to the trash' }).click()
+  const done = page
+    .locator('[data-sonner-toast]')
+    .filter({ hasText: `Moved ${taken} conversation${plural} to the trash.` })
+  await expect(done).toBeVisible({ timeout: 120_000 })
+  const said = await done.textContent()
+  const undone = await wireCounts()
+  expect(undone.spaceRoots).toBe(0)
+  expect(undone.savedRoots).toBe(before.savedRoots)
+  expect(await conversationImports()).toEqual([
+    expect.objectContaining({ id: brought.id, eligible: 0 }),
+  ])
+  const copy = (await safetyCopies()).find(
+    (item) => item.sourceOp === 'importUndo',
+  )
+  expect(copy?.dataKinds).toEqual(['agent-history'])
+  expect(existsSync(join(copy!.path, 'agent-history-format'))).toBe(true)
+  // The notice said where that copy is.
+  expect(said).toContain(`A copy of them is kept in ${copy!.path}.`)
+  // Back in the list, which now says so, with nothing left to undo.
+  await expect(imports).toContainText('Already taken back')
+  await expect(imports.getByRole('button', { name: 'Undo…' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
 
   // Leave the data folder empty, the way a user deletes everything.
   await page.goto('/#/settings/storage')

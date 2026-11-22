@@ -10,9 +10,16 @@
  * copy made while saved Agent conversations couldn't be read is marked; for
  * a restore that makes no difference. Copies that hold conversations only
  * (kept when a conversation file disappeared) are not offered here.
+ *
+ * The copy made before an import can also take back what that import added
+ * to Agent conversations (`undoConversations`): offered only for the copy
+ * whose import still has conversations to move (`list_conversation_imports`
+ * names that copy), and only when ticked. A copy that lives outside the data
+ * folder (set aside with the conversations for PathKeep 0.5.0) says where.
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { useSession } from '@/app/session'
 import { MaintenanceProgress } from '@/components/app/maintenance-progress'
 import { Button } from '@/components/ui/button'
@@ -25,10 +32,15 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Skeleton } from '@/components/ui/skeleton'
 import { archiveClient } from '@/lib/backend-client/archive'
+import {
+  migrationClient,
+  type ConversationImport,
+} from '@/lib/backend-client/migration'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
@@ -52,21 +64,68 @@ export function RestoreDialog({
   )
 }
 
+/** Backend warning: the restore finished and the separately asked undo didn't. */
+const UNDO_FAILED = 'conversation-import-undo-failed'
+
+/** The last part of a path, whichever separator it uses. */
+function baseName(path: string) {
+  return path.split(/[\\/]/).pop() ?? path
+}
+
+/**
+ * Whether `path` is in `folder`. A plain prefix test would put the folder
+ * set aside for PathKeep 0.5.0 (`<data folder>.pathkeep-rollback`, next to
+ * the data folder) inside it.
+ */
+function insideFolder(path: string, folder: string) {
+  const trimmed = folder.replace(/[\\/]+$/, '')
+  return (
+    path === trimmed ||
+    path.startsWith(`${trimmed}/`) ||
+    path.startsWith(`${trimmed}\\`)
+  )
+}
+
+/** The import whose before-import copy this is, while it has something to take back. */
+function importOf(
+  copy: RecoverySnapshot | null,
+  imports: ConversationImport[] | undefined,
+) {
+  if (!copy || copy.sourceOp !== 'import' || !imports) return null
+  const name = baseName(copy.path)
+  return (
+    imports.find((item) => item.previousCopy === name && item.eligible > 0) ??
+    null
+  )
+}
+
 function RestoreForm({ onClose }: { onClose: () => void }) {
   const { t } = useI18n()
   const format = useFormat()
   const session = useSession()
-  const archiveEncrypted = useSnapshot().config.archiveMode === 'Encrypted'
+  const snapshot = useSnapshot()
+  const archiveEncrypted = snapshot.config.archiveMode === 'Encrypted'
+  const appRoot = snapshot.directories.appRoot
   const list = useQuery({
     queryKey: ['recovery-snapshots'],
     queryFn: archiveClient.listRecoverySnapshots,
     staleTime: 0,
     gcTime: 0,
   })
+  // Only for the undo offer: a failure here just leaves the offer out.
+  const imports = useQuery({
+    queryKey: ['conversation-imports', 'restore'],
+    queryFn: migrationClient.listConversationImports,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  })
   const [chosenId, setChosenId] = useState<string | null>(null)
   const [password, setPassword] = useState('')
+  const [undoImport, setUndoImport] = useState(false)
   const snapshots = (list.data ?? []).filter((item) => item.verifiedOpenable)
   const chosen = snapshots.find((item) => item.id === chosenId) ?? null
+  const matching = importOf(chosen, imports.data)
 
   const [stopped, setStopped] = useState(false)
   const restore = useMutation({
@@ -74,7 +133,10 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
       setStopped(false)
       return archiveClient.runFullArchiveRestore(
         { snapshotPath: snapshot.path },
-        snapshot.encrypted ? password : null,
+        {
+          key: snapshot.encrypted ? password : null,
+          undoConversations: undoImport && matching !== null,
+        },
       )
     },
     onSuccess: async (report) => {
@@ -83,6 +145,16 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
         t('settingsStorage.restore.done'),
         report.previousCopyUnchecked,
       )
+      const undoFailed = report.warnings.find((warning) =>
+        warning.startsWith(UNDO_FAILED),
+      )
+      if (undoFailed)
+        toast.warning(
+          t('settingsStorage.restore.undoFailed', {
+            message: undoFailed.slice(UNDO_FAILED.length + 1).trim(),
+          }),
+          { duration: Infinity, closeButton: true },
+        )
       onClose()
       // Every cached read described the archive that was just replaced.
       await session.restart()
@@ -126,7 +198,10 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
       ) : (
         <RadioGroup
           value={chosenId ?? ''}
-          onValueChange={setChosenId}
+          onValueChange={(id) => {
+            setChosenId(id)
+            setUndoImport(false)
+          }}
           aria-label={t('settingsStorage.restore.title')}
           className="max-h-64 gap-1 overflow-y-auto"
         >
@@ -157,6 +232,13 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
                   {item.conversationsUnreadable &&
                     ` · ${t('settingsStorage.restore.conversationsUnreadable')}`}
                 </span>
+                {!insideFolder(item.path, appRoot) && (
+                  <span className="text-xs break-all text-muted-foreground">
+                    {t('settingsStorage.restore.outside', {
+                      path: item.path,
+                    })}
+                  </span>
+                )}
               </span>
             </Label>
           ))}
@@ -183,6 +265,32 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
           >
             {t('settingsStorage.restore.passwordHint')}
           </p>
+        </div>
+      )}
+
+      {matching && (
+        <div className="flex items-start gap-2.5">
+          <Checkbox
+            id="restore-undo-import"
+            className="mt-0.5"
+            checked={undoImport}
+            disabled={restore.isPending}
+            aria-describedby="restore-undo-import-hint"
+            onCheckedChange={(value) => setUndoImport(value === true)}
+          />
+          <div className="flex flex-col gap-0.5">
+            <Label htmlFor="restore-undo-import" className="font-normal">
+              {t('settingsStorage.restore.undoImport', {
+                count: matching.eligible,
+              })}
+            </Label>
+            <p
+              id="restore-undo-import-hint"
+              className="text-xs text-muted-foreground"
+            >
+              {t('settingsStorage.restore.undoImportHint')}
+            </p>
+          </div>
         </div>
       )}
 

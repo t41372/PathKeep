@@ -3,8 +3,15 @@
  * file (`export_app_data`), or open such a file here. The file is always
  * encrypted with a password chosen at export, which becomes the archive's
  * password on the computer that opens it. Opening one replaces this
- * computer's archive, so it goes check (`preview_app_data_import`) →
- * confirm → replace (`apply_app_data_import`), then restarts the session.
+ * computer's browsing history, so it goes check (`preview_app_data_import`)
+ * → confirm → replace (`apply_app_data_import`), then restarts the session.
+ * Agent conversations are not replaced: this computer's stay and the file's
+ * are added (user decision 2026-11-15), and the check says so, along with
+ * how to take back what a wrong file added. When the conversations here
+ * can't be read without the archive's own password, the import asks for it
+ * (`agent-history-key-required`) in a field of its own, apart from the
+ * file's password. A file PathKeep 0.5 or earlier made says so instead of
+ * the version it records (they all record 0.1.0).
  * While saved Agent conversations can't be read, both are refused before
  * anything changes; the dialog says so and leads to the repair, or, when
  * the system only refuses access for now, to "Try again".
@@ -75,12 +82,15 @@ export function MoveDialog({
   )
 }
 
-/** Downloads in the desktop app; the app's own exports folder otherwise. */
+/**
+ * Downloads in the desktop app; otherwise the one folder inside the data
+ * folder a move file may be written to (`exports/pathkeep/format-3/`).
+ */
 function useDefaultBundlePath() {
   const exportsDir = useSnapshot().directories.exportsDir
   const date = new Date().toISOString().slice(0, 10)
   const name = `pathkeep-${date}.${BUNDLE_EXTENSION}`
-  const [path, setPath] = useState(`${exportsDir}/${name}`)
+  const [path, setPath] = useState(`${exportsDir}/pathkeep/format-3/${name}`)
   useEffect(() => {
     if (!hasTauriGuestApi()) return
     void import('@tauri-apps/api/path')
@@ -244,11 +254,16 @@ function ExportForm({ onClose }: { onClose: () => void }) {
   )
 }
 
+/** Backend code: the conversations here need the archive's own password to be kept. */
+const NEEDS_CURRENT = 'agent-history-key-required'
+
 function ImportForm({ onClose }: { onClose: () => void }) {
   const { t } = useI18n()
   const session = useSession()
   const [path, setPath] = useState('')
   const [password, setPassword] = useState('')
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [askCurrent, setAskCurrent] = useState(false)
   const [preview, setPreview] = useState<ImportPreview | null>(null)
   const encrypted = preview?.manifest.archiveMode === 'encrypted'
 
@@ -260,10 +275,17 @@ function ImportForm({ onClose }: { onClose: () => void }) {
   const apply = useMutation({
     mutationFn: () => {
       setStopped(false)
-      return migrationClient.applyAppDataImport(path.trim(), {
-        confirmOverwrite: true,
-        sourceArchiveKey: encrypted ? password : undefined,
-      })
+      return migrationClient.applyAppDataImport(
+        path.trim(),
+        {
+          confirmOverwrite: true,
+          sourceArchiveKey: encrypted ? password : undefined,
+        },
+        askCurrent ? currentPassword : null,
+      )
+    },
+    onError: (error) => {
+      if (commandErrorCode(error) === NEEDS_CURRENT) setAskCurrent(true)
     },
     onSuccess: async (result) => {
       announceReplaced(
@@ -280,7 +302,11 @@ function ImportForm({ onClose }: { onClose: () => void }) {
   const wrongPassword =
     apply.error !== null &&
     commandErrorCode(apply.error) === 'archive-password-wrong'
-  const failure = check.error ?? (stopped ? null : apply.error)
+  const applyFailure =
+    stopped || (apply.error && commandErrorCode(apply.error) === NEEDS_CURRENT)
+      ? null
+      : apply.error
+  const failure = check.error ?? applyFailure
   const repairFirst = failure !== null && needsConversationRepair(failure)
   const accessFirst = failure !== null && needsConversationAccess(failure)
   const newerFile =
@@ -295,7 +321,10 @@ function ImportForm({ onClose }: { onClose: () => void }) {
           if (busy) return
           if (!preview) {
             if (path.trim()) check.mutate()
-          } else if (!encrypted || password) {
+          } else if (
+            (!encrypted || password) &&
+            (!askCurrent || currentPassword)
+          ) {
             apply.mutate()
           }
         }}
@@ -350,6 +379,29 @@ function ImportForm({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
+        {preview && askCurrent && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="move-import-current-password">
+              {t('settingsStorage.move.currentPassword')}
+            </Label>
+            <Input
+              id="move-import-current-password"
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              disabled={apply.isPending}
+              aria-describedby="move-import-current-password-hint"
+              onChange={(event) => setCurrentPassword(event.target.value)}
+            />
+            <p
+              id="move-import-current-password-hint"
+              className="text-xs text-muted-foreground"
+            >
+              {t('settingsStorage.move.currentPasswordHint')}
+            </p>
+          </div>
+        )}
+
         {preview?.willOverwriteExisting && (
           <Notice tone="warning">{t('settingsStorage.move.replaces')}</Notice>
         )}
@@ -370,7 +422,11 @@ function ImportForm({ onClose }: { onClose: () => void }) {
         {failure && !repairFirst && !accessFirst && (
           <Refusal error={failure}>
             {wrongPassword
-              ? t('settingsStorage.move.wrongPassword')
+              ? t(
+                  askCurrent
+                    ? 'settingsStorage.move.wrongEitherPassword'
+                    : 'settingsStorage.move.wrongPassword',
+                )
               : newerFile
                 ? t('settingsStorage.move.newerFile')
                 : t(
@@ -399,7 +455,11 @@ function ImportForm({ onClose }: { onClose: () => void }) {
               variant={
                 preview.willOverwriteExisting ? 'destructive' : 'default'
               }
-              disabled={busy || (encrypted && !password)}
+              disabled={
+                busy ||
+                (encrypted && !password) ||
+                (askCurrent && !currentPassword)
+              }
             >
               {t(
                 preview.willOverwriteExisting
@@ -437,7 +497,12 @@ function BundleSummary({ preview }: { preview: ImportPreview }) {
         .filter(Boolean)
         .join(' · '),
     ],
-    [t('settingsStorage.move.summary.version'), manifest.appVersion],
+    [
+      t('settingsStorage.move.summary.version'),
+      preview.versionKnown
+        ? manifest.appVersion
+        : t('settingsStorage.move.summary.versionRange'),
+    ],
     [
       t('settingsStorage.move.summary.encrypted'),
       manifest.archiveMode === 'encrypted'
@@ -479,6 +544,21 @@ function BundleSummary({ preview }: { preview: ImportPreview }) {
       <p className="text-muted-foreground">
         {t(`settingsStorage.move.summary.agentNote.${agent}`)}
       </p>
+      {preview.agentConversations.keepsLocal && (
+        <p data-keeps-local className="text-muted-foreground">
+          {t(
+            preview.agentConversations.carried
+              ? 'settingsStorage.move.summary.keepsLocal'
+              : 'settingsStorage.move.summary.keepsLocalNone',
+          )}
+        </p>
+      )}
+      {preview.agentConversations.carried &&
+        preview.agentConversations.restoreKeepsAdditions && (
+          <p className="text-muted-foreground">
+            {t('settingsStorage.move.summary.undoNote')}
+          </p>
+        )}
     </div>
   )
 }

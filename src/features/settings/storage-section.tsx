@@ -1,7 +1,9 @@
 /**
- * Settings → Storage: where the archive lives and how much space it takes,
- * freeing space, moving to another computer, making and restoring a safety
- * copy, and deleting everything. Exporting the history and the link preview
+ * Settings → Storage: where the archive lives (with a warning when its disk
+ * is FAT32 or exFAT) and how much space it takes, freeing space, moving to
+ * another computer and taking back what an import added to Agent
+ * conversations, making and restoring a safety copy, preparing the archive
+ * for PathKeep 0.5.0, and deleting everything. Exporting the history and the link preview
  * images are browsing history's, in its own settings (`data-spaces.md` §8). Each action that writes opens a
  * dialog that shows what will happen before it runs.
  */
@@ -14,15 +16,19 @@ import {
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
+import { ConversationImportsRow } from './conversation-imports'
+import { FatVolumeNotice } from './fat-volume-notice'
 import { FreeSpaceDialog } from './free-space-dialog'
 import { MoveDialog } from './move-dialogs'
 import { RestoreDialog } from './restore-dialog'
 import { reveal, revealLabelKey } from './reveal'
+import { RollbackDialog } from './rollback-dialog'
 import { SafetyCopyDialog } from './safety-copy-dialog'
 import { UsageCard } from './usage-card'
 import { WipeDialog } from './wipe-dialog'
 
-type Open = 'free' | 'export' | 'import' | 'copy' | 'restore' | 'wipe' | null
+type Open =
+  'free' | 'export' | 'import' | 'copy' | 'restore' | 'rollback' | 'wipe' | null
 
 export function StorageSection() {
   const { t } = useI18n()
@@ -66,6 +72,7 @@ export function StorageSection() {
           </>
         }
       />
+      <ConversationImportsRow />
       <SettingRow
         title={t('settingsStorage.safetyCopy.rowTitle')}
         description={t('settingsStorage.safetyCopy.rowDescription')}
@@ -85,6 +92,19 @@ export function StorageSection() {
             onClick={() => setOpen('restore')}
           >
             {t('settingsStorage.restore.action')}
+          </Button>
+        }
+      />
+      <SettingRow
+        title={t('archiveAccess.rollback.rowTitle')}
+        description={t('archiveAccess.rollback.rowDescription')}
+        control={
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setOpen('rollback')}
+          >
+            {t('archiveAccess.rollback.action')}
           </Button>
         }
       />
@@ -110,6 +130,7 @@ export function StorageSection() {
       />
       <SafetyCopyDialog open={open === 'copy'} onClose={close} />
       <RestoreDialog open={open === 'restore'} onClose={close} />
+      <RollbackDialog open={open === 'rollback'} onClose={close} />
       <WipeDialog open={open === 'wipe'} onClose={close} />
     </SettingsSection>
   )
@@ -133,6 +154,8 @@ function LocationRow() {
           {t(revealLabelKey())}
         </Button>
       }
-    />
+    >
+      <FatVolumeNotice />
+    </SettingRow>
   )
 }

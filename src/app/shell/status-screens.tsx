@@ -322,7 +322,7 @@ export function RecoveryScreen() {
     try {
       const report = await archiveClient.runFullArchiveRestore(
         { snapshotPath },
-        key || null,
+        { key: key || null },
       )
       announceReplaced(
         t,
