@@ -103,6 +103,19 @@ export const archiveAccess = defineMessages({
         'This settings file can’t be rebuilt here. Restore from a safety copy instead.',
       failed: 'The settings file wasn’t rebuilt. {message}',
     },
+    finishWipe: {
+      title: 'Finish deleting',
+      body: 'If you meant that deletion, PathKeep can finish it: it deletes what is still in the data folder above, and what that deletion was still going to remove, such as saved passwords and the automatic backup. Then it starts over with setup. Copy the folder first if you might want anything in it.',
+      action: 'Finish deleting…',
+      confirmTitle: 'Finish deleting everything?',
+      confirmBody:
+        'PathKeep deletes what PathKeep 0.5 left in this folder. This can’t be undone.',
+      running: 'Deleting…',
+      done: 'Everything is deleted. Restart PathKeep to set it up again.',
+      failed: 'PathKeep couldn’t finish deleting. {message}',
+      changed:
+        'That deletion can’t be finished here any more: the folder changed. Check again.',
+    },
     restore: {
       title: 'Restore from a safety copy',
       intro:
@@ -344,6 +357,18 @@ export const archiveAccess = defineMessages({
       unavailable: '这份设置文件不能在这里重新建立。请改从安全副本恢复。',
       failed: '设置文件没有重新建立。{message}',
     },
+    finishWipe: {
+      title: '把删除做完',
+      body: '如果你确实要删除，PathKeep 可以把它做完：删除上面数据文件夹里还剩下的东西，以及那次删除还没移除的东西，例如保存的密码和自动备份。之后 PathKeep 会从设置重新开始。如果里面可能有你想留的东西，请先把文件夹复制一份。',
+      action: '把删除做完…',
+      confirmTitle: '把所有东西都删除？',
+      confirmBody:
+        'PathKeep 会删除 PathKeep 0.5 留在这个文件夹里的东西。这无法撤销。',
+      running: '正在删除…',
+      done: '所有东西都已删除。重新启动 PathKeep 来重新设置。',
+      failed: 'PathKeep 没能把删除做完。{message}',
+      changed: '这次删除已经不能在这里做完了：文件夹变了。请重新检查。',
+    },
     restore: {
       title: '从安全副本恢复',
       intro:
@@ -572,6 +597,18 @@ export const archiveAccess = defineMessages({
       done: '設定檔已重新建立。重新啟動 PathKeep 就能打開存檔。',
       unavailable: '這份設定檔不能在這裡重新建立。請改從安全副本還原。',
       failed: '設定檔沒有重新建立。{message}',
+    },
+    finishWipe: {
+      title: '把刪除做完',
+      body: '如果你確實要刪除，PathKeep 可以把它做完：刪除上面資料夾裡還剩下的東西，以及那次刪除還沒移除的東西，例如儲存的密碼和自動備份。之後 PathKeep 會從設定重新開始。如果裡面可能有你想留的東西，請先把資料夾複製一份。',
+      action: '把刪除做完…',
+      confirmTitle: '把所有東西都刪除？',
+      confirmBody:
+        'PathKeep 會刪除 PathKeep 0.5 留在這個資料夾裡的東西。這無法復原。',
+      running: '正在刪除…',
+      done: '所有東西都已刪除。重新啟動 PathKeep 來重新設定。',
+      failed: 'PathKeep 沒能把刪除做完。{message}',
+      changed: '這次刪除已經不能在這裡做完了：資料夾變了。請重新檢查。',
     },
     restore: {
       title: '從安全副本還原',

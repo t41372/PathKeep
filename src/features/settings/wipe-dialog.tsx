@@ -29,15 +29,15 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { archiveAccessClient } from '@/lib/backend-client/archive-access'
-import { dataWipeClient } from '@/lib/backend-client/data-wipe'
+import {
+  dataWipeClient,
+  WIPE_CONFIRMATION_WORD as CONFIRMATION_WORD,
+} from '@/lib/backend-client/data-wipe'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { commandErrorCode } from '@/lib/ipc/command-error'
 import { announceWipeNotices, WIPE_ROLLED_BACK } from '@/app/wipe-notices'
 import { Notice } from './notice'
-
-/** The backend checks for this exact word, in every language. */
-const CONFIRMATION_WORD = 'DELETE'
 
 /** Backend code: the data was moved out, and a later step failed (`command_error.rs`). */
 const WIPE_UNFINISHED = 'archive-wipe-unfinished'

@@ -1,6 +1,7 @@
 /**
  * When PathKeep won't open the archive in its data folder: the screen says
- * why and offers the action that fixes it, and nothing on it deletes data.
+ * why and offers the action that fixes it. Nothing on it deletes data except
+ * finishing the deletion PathKeep 0.5 started, after the word is typed.
  *
  * Proves:
  * - an archive a newer PathKeep stamped as unreadable for this version
@@ -22,9 +23,18 @@
  *   archive's password, and after a restart the archive is brought up to
  *   this version with every visit and no Ask chats.
  *
+ * - a “Delete all data” PathKeep 0.5 left unfinished (its record, no
+ *   settings file) gets its own words and the advice to copy the folder,
+ *   and nothing else; the start deletes nothing, and neither does opening
+ *   the confirmation and cancelling it, nor a word other than DELETE; with
+ *   DELETE typed it finishes, the record and the archive's files are gone,
+ *   and PathKeep is at setup.
+ *
  * Runs last, after rollback-v05.spec (encrypted with move.spec's file
  * password, App Lock 4826). The third test deletes all data the way a user
- * does and unpacks PathKeep 0.5.0's data folder.
+ * does and unpacks PathKeep 0.5.0's data folder; the fourth turns that into
+ * the folder PathKeep 0.5's own unfinished deletion leaves, and finishes it,
+ * so the run ends at setup.
  */
 import { execFileSync } from 'node:child_process'
 import {
@@ -335,5 +345,91 @@ test('a PathKeep 0.5 archive without its Ask chats file starts them empty and op
   expect(asked.conversations).toEqual([])
   expect(readControl().archiveMode).toMatchObject({
     compatibility: { revision: 1 },
+  })
+})
+
+test('a “Delete all data” PathKeep 0.5 left unfinished is finished only after the word is typed', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(600_000)
+  const expected = v05Expected()
+  await page.goto('/')
+  await enterApp(page, expected.password)
+  const store = path.join(dataRoot(), 'archive', 'history-vault.db')
+  expect(existsSync(store)).toBe(true)
+
+  // What PathKeep 0.5's "Delete all data" leaves when it stops partway: its
+  // record, no settings file (it deletes that first), and the rest.
+  const marker = path.join(dataRoot(), '.pk-wipe-in-progress.json')
+  rmSync(controlPath())
+  writeFileSync(marker, JSON.stringify({ providerIds: [], schedule: null }))
+  await killAndRestartApp()
+  const screen = await openAccessScreen(page)
+  await expect(
+    screen.getByRole('heading', {
+      name: 'A “Delete all data” from PathKeep 0.5 didn’t finish',
+    }),
+  ).toBeVisible()
+  await expect(screen).toContainText(
+    'Copy the data folder somewhere safe before you do anything else.',
+  )
+  expect(await archiveAccess()).toMatchObject({
+    state: 'needsRecovery',
+    code: 'archive-wipe-confirmation-required',
+  })
+  // Nothing else is offered for it, and the start deleted nothing.
+  await expect(
+    screen.getByRole('heading', { name: 'Restore from a safety copy' }),
+  ).toHaveCount(0)
+  const before = folderFingerprint()
+  expect(existsSync(marker)).toBe(true)
+  expect(existsSync(store)).toBe(true)
+  await testInfo.attach('PathKeep 0.5’s unfinished deletion', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  })
+
+  // Asked again, with the folder and the word; anything else isn't enough.
+  await screen.getByRole('button', { name: 'Finish deleting…' }).click()
+  const confirm = page.getByRole('dialog', {
+    name: 'Finish deleting everything?',
+  })
+  await expect(
+    confirm.locator('[data-path]').filter({ hasText: dataRoot() }),
+  ).toHaveCount(1)
+  const deleteForever = confirm.getByRole('button', { name: 'Delete forever' })
+  const word = confirm.getByLabel('Type DELETE to confirm')
+  await expect(deleteForever).toBeDisabled()
+  await word.fill('delete')
+  await expect(deleteForever).toBeDisabled()
+  await testInfo.attach('finishing it, before the word', {
+    body: await confirm.screenshot(),
+    contentType: 'image/png',
+  })
+  await confirm.getByRole('button', { name: 'Cancel' }).click()
+  await expect(confirm).toHaveCount(0)
+  expect(folderFingerprint(), 'cancelling deleted nothing').toEqual(before)
+
+  await screen.getByRole('button', { name: 'Finish deleting…' }).click()
+  await confirm.getByLabel('Type DELETE to confirm').fill('DELETE')
+  await confirm.getByRole('button', { name: 'Delete forever' }).click()
+
+  // Setup again, as after "Delete all data". Where only the recovery
+  // commands answered, the app restarts first (the launcher does it here).
+  const welcome = page.getByRole('heading', {
+    name: 'Keep what gets deleted automatically',
+  })
+  const restart = page.getByRole('button', { name: 'Restart PathKeep' })
+  await expect(welcome.or(restart).first()).toBeVisible({ timeout: 120_000 })
+  if (await restart.isVisible()) {
+    await killAndRestartApp()
+    await loadFresh(page, '/')
+  }
+  await expect(welcome).toBeVisible({ timeout: 60_000 })
+  expect(existsSync(marker)).toBe(false)
+  expect(existsSync(store)).toBe(false)
+  expect(await archiveAccess()).toMatchObject({
+    state: 'notInitialized',
+    recoveryOnly: false,
   })
 })

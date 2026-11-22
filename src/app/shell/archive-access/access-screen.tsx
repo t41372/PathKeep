@@ -4,13 +4,14 @@
  * action that fixes it. Every state the backend can answer has its own
  * words; see `classify.ts`.
  *
- * Nothing on this screen deletes data. The actions are: updating PathKeep
- * (an archive a newer version changed), rebuilding a lost or damaged
- * settings file, making a store a PathKeep 0.5 archive lacks, restoring
- * browsing history from a safety copy (under the archive's own password, or
- * under the copy's on explicit choice when that key is lost), and choosing
- * what happens to the Agent conversations set aside for PathKeep 0.5.0.
- * PathKeep 0.5's unfinished "Delete all data" is described, not finished.
+ * The actions are: updating PathKeep (an archive a newer version changed),
+ * rebuilding a lost or damaged settings file, making a store a PathKeep 0.5
+ * archive lacks, restoring browsing history from a safety copy (under the
+ * archive's own password, or under the copy's on explicit choice when that
+ * key is lost), and choosing what happens to the Agent conversations set
+ * aside for PathKeep 0.5.0. None of them deletes data, except one the person
+ * asked for already: finishing the "Delete all data" PathKeep 0.5 started,
+ * behind the same typed word as that deletion (`finish-wipe.tsx`).
  *
  * The desktop answers only the recovery commands while this screen shows
  * (unless only the opening failed), so the screen uses nothing else: paths
@@ -28,6 +29,7 @@ import { RollbackOffer } from '@/features/settings/rollback-dialog'
 import { useSession } from '../../session'
 import { classify, offersRestore, type AccessKind } from './classify'
 import { CopyRestore } from './copy-restore'
+import { FinishWipe } from './finish-wipe'
 import { HandoffChoice } from './handoff-choice'
 import { AfterRepair, Details, PathLine } from './parts'
 import { RepairAction } from './repair-action'
@@ -142,7 +144,6 @@ function hasPrimary(kind: AccessKind) {
     case 'unreadable':
     case 'installRecord':
     case 'handoffInvalid':
-    case 'legacyWipe':
     case 'unknown':
       return false
     default:
@@ -166,6 +167,8 @@ function Primary({ kind }: { kind: AccessKind }) {
       ) : null
     case 'handoff':
       return <HandoffChoice />
+    case 'legacyWipe':
+      return <FinishWipe />
     case 'interrupted':
     case 'recoveryMode':
       // Starting again runs the ordinary startup, which finishes or undoes
