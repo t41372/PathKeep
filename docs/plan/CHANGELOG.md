@@ -3207,3 +3207,5 @@ Move imports preserve local Agent conversations, saved text locators, site overr
 - 2026-11-22：刪掉 v0.6 的設計原型 `docs/design/prototype-2026-11-agent-history/`，以及 `.prettierignore`、`eslint.config.js` 裡排除它的兩行。Agent 空間的畫面都已做進 `src/`，設計的決定寫在 `docs/features/agent-history.md`、`data-spaces.md` 與 `docs/design/data-spaces-tradeoff.md`，不以原型為準。2026-10 的原型（`WORK-PROTOTYPE-2026-10-REMOVE`）另外處理。
 
 - 2026-11-22：毛玻璃看得出來了。選了毛玻璃後，視窗與面板那兩層照設計降到 14%／42% 的白（深色 18%／30%），不再停在不透明時的 62%／66%。原因是這兩條規則寫在 `@layer base` 裡，而不透明的值寫在 layer 外，layer 外的規則不論選擇器都贏。用戶 2026-11-14 在 macOS 上說毛玻璃「非常，非常不明顯」就是這個。在 Chrome 用建好的樣式表量過淺色、深色與有空間色相的三種情況；桌面視窗上的樣子在發布前 macOS 那一輪看。
+
+- 2026-11-22：自動備份完成後，開著的首頁和備份頁會更新備份時間，歷史紀錄會顯示新造訪。選單列也會立即顯示備份結果。排程失敗或尚未到期時，視窗會更新狀態，不會跳出通知。

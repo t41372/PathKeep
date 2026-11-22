@@ -1,6 +1,6 @@
 /**
  * Events the desktop shell sends that did not start in this window: the menu
- * bar icon's "Search history…", backups it ran, index jobs the background
+ * bar icon's "Search history…", menu-bar and scheduled backups, index jobs the background
  * queue finished, and the question asked when someone quits while work runs.
  * Through the dev bridge they arrive when the bridge runs beside the app
  * (`listenDesktopEvent`).
@@ -10,7 +10,7 @@ import type { BackupReport } from '../types'
 import { listenDesktopEvent } from './events'
 
 export interface BackupFinishedEvent {
-  source: 'app' | 'menu-bar'
+  source: 'app' | 'menu-bar' | 'schedule'
   report?: BackupReport | null
   error?: string | null
 }
