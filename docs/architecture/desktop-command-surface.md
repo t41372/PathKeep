@@ -165,6 +165,21 @@ After a matching `done`, built-in setup submits this `build_ai_index` command pa
 
 The response is the usual `AiIndexReport` with `jobId`. Both transports share the owner's completion record. Only a successful transfer for this archive can authorize this form of the request. The saved selection is checked again at enqueue. A repeated request returns the first job ID even after completion. Ordinary builds omit `transferId`. Wipe clears the archive's records and process exit clears all records.
 
+### Free the browsing semantic index
+
+| Command | Request | Response |
+| --- | --- | --- |
+| `preview_free_semantic_index` | `{"request":{}}` | `{"previewId":"<uuid>","keptBytes":"16384"}` |
+| `free_semantic_index` | `{"request":{"previewId":"<uuid>","confirm":true}}` | `{"freedBytes":"16384","keptBytes":"0"}` |
+
+Settings reads the existing numeric `AiIndexStatus.semanticSidecarBytes` for both the retained size and the model-switch prompt. Storage counts the same regular-file lengths under `derived/vectors/` and `sidecars/semantic-index/`, including every provider, model, lineage, generation and GC leftover. The command receipts encode byte counts as decimal strings. `semanticMetadataBytes` estimates row payload in the shared Intelligence database. Removing provenance and ledger rows releases pages for database reuse, so the receipts exclude those estimates. Directory allocation and the filesystem's free-block count are outside this measure.
+
+Preview and free require an initialized, unlocked archive and effective browsing semantic search off. Both return `task-action-unavailable` while the AI master and semantic search switches are on, or `archive-busy` while an archive operation, backup, index worker, or queued/running browsing build or clear owns the work. App Lock returns `lock-required`, a missing archive unlock can return `archive-password-required`, and an uninitialized archive returns `archive-uninitialized`. The normal root compatibility and recovery refusals apply. An unclassified storage or filesystem failure uses the shared surface error code `kind-unavailable`. Malformed requests, unknown request fields and `confirm:false` return `invalid-request`.
+
+Each successful preview replaces the previous receipt. A valid UUID that was replaced, used, issued to a different archive owner or issued five minutes ago returns `preview-expired`. A change to the reviewed files, archive control, canonical archive or Intelligence data also expires the receipt. Refresh the preview before confirming again.
+
+Free retires the serving pointers in one Intelligence transaction and cancels paused or stale browsing index work. Files held by a query remain readable until it releases its generation lease. On success refresh AI status and Storage. An archive with an available chosen provider and AI enabled reports `empty`. A later build starts from the archive visits with the saved provider and model.
+
 ### Settings save durability
 
 `save_config` returns the applied snapshot. On Unix, if the rename installed the settings but the parent directory flush failed, the response also contains `configDurabilityWarning` (a diagnostic string). Use the returned settings, including the effect on download consent, and show the durability warning separately. The menu-bar icon setting is saved without an open screen, so its durability warning is written to the log. A normal save omits the field. A failure before the rename rejects the command. In a debug desktop, `const clear = injectFault('config-save-parent-sync')` exercises the warning after the live config rename, at the parent-directory sync. Call `clear()` after the save; the marker applies to every live config save while present. Release builds compile out this checkpoint.

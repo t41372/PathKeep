@@ -368,6 +368,8 @@ fn observe(operation: Operation, control: &str) -> Observation {
                 error(backups::tasks(&f.session,from_value(json!({"group":"attention","limit":1})).unwrap())),
                 error(backups::task_summary(&f.session,from_value(json!({})).unwrap())),
                 error(backups::control(&f.session,from_value(json!({"taskId":"task","action":"retry","expectedToken":"old","requestId":"id"})).unwrap(),quiet)),
+                error(kinds::browsing_semantic::preview(&f.session,from_value(json!({})).unwrap())),
+                error(kinds::browsing_semantic::free(&f.session,from_value(json!({"previewId":"f1e73842-94c8-40bd-935d-255e6ace76b3","confirm":true})).unwrap())),
                 error(kinds::semantic::preview_free(&f.session,from_value(json!({})).unwrap())),
                 error(kinds::semantic::free(&f.session,from_value(json!({"previewId":"f1e73842-94c8-40bd-935d-255e6ace76b3","confirm":true})).unwrap())),
                 error(kinds::list(&f.session)),

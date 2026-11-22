@@ -3,7 +3,6 @@
 use super::{Empty, Refusal, backups, job, pages};
 use crate::VaultSession;
 use anyhow::Result;
-use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
@@ -17,12 +16,7 @@ struct Preview {
 }
 static PREVIEW: Mutex<Option<Preview>> = Mutex::new(None);
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Confirm {
-    preview_id: uuid::Uuid,
-    confirm: bool,
-}
+pub use crate::data_kinds::ConfirmFreeIndex as Confirm;
 
 fn check_off(v: &Vault) -> Result<()> {
     let cfg = crate::data_kinds::admitted_config(v.paths())?;

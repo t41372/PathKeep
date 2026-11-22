@@ -113,6 +113,12 @@ logged and cannot undo index success. A crash before the success transaction nev
 intent may later authorize local recovery to publish only incomplete coverage.
 The transaction and version marker use the owner's existing `synchronous=FULL` WAL connection.
 
+Freeing the retained browsing index while semantic search is off uses the same publication
+boundary across all models. One Intelligence transaction retires every ledger pointer. The
+collector waits for existing generation pins, removes lineage provenance in bounded batches
+and reclaims the vector and legacy sidecar files. The one-use receipt binds the on-disk file
+inventory, archive owner and write state to the size shown in Settings.
+
 `generations::resolve` reads the pointer first, briefly locks registry to pin an unreserved name,
 then unlocks and rechecks the pointer. Metadata, plane length/fingerprint and visit projection
 validation happen under the pin, outside registry. A missing or unreadable generation is no index.

@@ -48,7 +48,8 @@ use vault_core::{
 };
 
 // Claims and physical index cleanup share one owner; a queued replacement never writes early.
-static INDEX_EXECUTION: vault_core::ai::SemanticWorkGate = vault_core::ai::SemanticWorkGate::new();
+pub(crate) static INDEX_EXECUTION: vault_core::ai::SemanticWorkGate =
+    vault_core::ai::SemanticWorkGate::new();
 
 type IndexJobEndedListener = Box<dyn Fn(vault_core::AiIndexJobEndedEvent) + Send + Sync>;
 static INDEX_JOB_ENDED_LISTENER: OnceLock<IndexJobEndedListener> = OnceLock::new();

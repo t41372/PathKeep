@@ -70,6 +70,8 @@ continuation fields are listed in the [area-4 contract report](../architecture/r
 
 ## 1. 語義搜尋（Semantic Search）
 
+關閉語意搜尋後，可以在 Settings › AI 查看瀏覽語意索引佔用的空間，預覽後確認釋放所有模型的索引。Settings › Storage › Free up space 也有獨立的「瀏覽語意索引」一列；語意搜尋開啟時，這一列停用並說明要先關閉。切換 embedding 模型的確認視窗顯示目前索引的總大小，並提醒使用者重建期間新舊索引會同時佔用磁碟空間。
+
 2026-11-14 已修復「644 / 94」的進度與續跑範圍，設計及驗證見 [第一輪方案](../architecture/research/2026-11-semantic-progress-round1.md)。畫面區分準備、讀取來源、核對造訪、搜尋詞、建立搜尋資料與發布；比例與速度只表示當前固定範圍的核對進度。新增／更新數量獨立計算，暫停繼續不加入較晚的造訪。這不是完整資料庫的內容快照。
 
 來源映射等獨立發現列 [後續複核](../architecture/research/2026-11-semantic-progress-audit.md)，不將它們寫成本輪已解決事項。

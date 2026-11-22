@@ -90,3 +90,19 @@ fn removing_or_duplicating_any_registration_breaks_parity() {
         assert!(std::panic::catch_unwind(|| compare(&handler, &router, &search)).is_err());
     }
 }
+
+#[test]
+fn browsing_index_removal_is_available_on_both_transports() {
+    for command in ["preview_free_semantic_index", "free_semantic_index"] {
+        assert!(
+            section(HANDLER, "tauri::generate_handler![", "]")
+                .split(',')
+                .any(|s| s.trim() == command),
+            "{command}"
+        );
+        assert!(
+            arms(ROUTER, "match command {", "other =>").any(|name| name == command),
+            "{command}"
+        );
+    }
+}

@@ -221,6 +221,15 @@ impl VaultSession {
         state.last_error.clone()
     }
 
+    /// A space operation must refuse a changing owner instead of waiting for its replacement.
+    pub(crate) fn idle_vault(&self) -> anyhow::Result<Option<Vault>> {
+        let state = self.inner.0.lock().expect("session state");
+        if state.transition != Transition::Idle {
+            return Err(crate::data_kinds::Refusal::Busy.into());
+        }
+        Ok(state.vault.clone().filter(|v| v.store().is_open()))
+    }
+
     /// Status reads inspect an existing handle without opening storage or the keychain.
     pub fn current_vault(&self) -> Option<Vault> {
         let state = self.inner.0.lock().expect("session state");

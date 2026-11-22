@@ -369,3 +369,21 @@ pub(crate) fn enqueue_content_fetch_working_set_impl(
     let limit = limit.map(|value| value as usize).unwrap_or(2_000);
     worker_result(vault_worker::enqueue_content_fetch_working_set(&state.vault()?, limit))
 }
+
+pub(crate) fn preview_free_semantic_index_impl(
+    session: &crate::session::SessionState,
+    request: vault_worker::data_kinds::Empty,
+) -> Result<serde_json::Value, CommandError> {
+    super::super::data_kinds::surface_result(vault_worker::data_kinds::browsing_semantic::preview(
+        session, request,
+    ))
+}
+
+pub(crate) fn free_semantic_index_impl(
+    session: &crate::session::SessionState,
+    request: vault_worker::data_kinds::ConfirmFreeIndex,
+) -> Result<serde_json::Value, CommandError> {
+    super::super::data_kinds::surface_result(vault_worker::data_kinds::browsing_semantic::free(
+        session, request,
+    ))
+}

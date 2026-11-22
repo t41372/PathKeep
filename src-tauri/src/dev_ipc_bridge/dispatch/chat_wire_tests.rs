@@ -412,3 +412,34 @@ fn conversation_screen_wire_opens_a_saved_pi_turn_and_reads_its_image() {
         assert_eq!(examples, expected);
     });
 }
+
+#[test]
+fn browsing_index_removal_uses_the_reviewed_receipt() {
+    let (_guard, _platform) = isolated_env();
+    let root = tempdir().unwrap();
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+    }
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(async {
+        let mut config = test_config();
+        config.ai.semantic_index_enabled = false;
+        dispatch_command(&state, "initialize_archive", json!({"config":config})).await.unwrap();
+        let receipt =
+            dispatch_command(&state, "preview_free_semantic_index", json!({"request":{}}))
+                .await
+                .unwrap();
+        assert_eq!(receipt["keptBytes"], "0");
+        let call = |confirm| {
+            dispatch_command(
+                &state,
+                "free_semantic_index",
+                json!({"request":{"previewId":receipt["previewId"],"confirm":confirm}}),
+            )
+        };
+        assert_eq!(call(false).await.unwrap_err().code.as_deref(), Some("invalid-request"));
+        assert_eq!(call(true).await.unwrap(), json!({"freedBytes":"0","keptBytes":"0"}));
+        assert_eq!(call(true).await.unwrap_err().code.as_deref(), Some("preview-expired"));
+    });
+}

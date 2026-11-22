@@ -269,6 +269,8 @@ fn run_app() -> Result<()> {
             save_onboarding_choices,
             get_agent_viewer_preferences,
             get_agent_semantic_index,
+            preview_free_semantic_index,
+            free_semantic_index,
             preview_free_agent_semantic_index,
             free_agent_semantic_index,
             control_agent_semantic_index,

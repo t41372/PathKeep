@@ -1,6 +1,7 @@
 //! Interactive reads and guarded changes to device capture policy. This module
 //! does not start a backup or grant access to an unreviewed source directory.
 pub mod backups;
+pub mod browsing_semantic;
 pub mod chats;
 pub mod delivery;
 pub mod exports;
@@ -25,6 +26,14 @@ use vault_core::{
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Empty {}
+
+/// Both index removal commands require the receipt the user confirmed on this device.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConfirmFreeIndex {
+    preview_id: uuid::Uuid,
+    confirm: bool,
+}
 
 /// Manage Kinds requests physical sizes after the shell has painted.
 #[derive(Default, Debug, Deserialize)]

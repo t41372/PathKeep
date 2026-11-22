@@ -527,6 +527,32 @@ fn incremental_publication_also_keeps_existing_readers_on_their_generation() {
 }
 
 #[test]
+fn free_all_models_waits_for_the_last_query_lease() {
+    let (_runtime, vault, provider, _archive) = complete_index(DEFAULT_STATIC_MODEL_REPO);
+    let old = lease(&vault, &provider);
+    let path = old.paths().vectors_dir.clone();
+    let kept = crate::ai::kept_browsing_index(&vault).unwrap();
+    let (published, seen) = std::sync::mpsc::channel();
+    vault.vector_generations.set_test_hook("removal_committed", move || {
+        published.send(()).unwrap();
+    });
+    std::thread::scope(|scope| {
+        let old = old;
+        let freeing = scope.spawn(|| {
+            crate::ai::free_browsing_index(&vault, &kept, || {
+                Ok(crate::ControlGate::acquire(vault.paths()))
+            })
+        });
+        seen.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        assert!(path.join("serving.json").exists());
+        assert!(!freeing.is_finished());
+        drop(old);
+        freeing.join().unwrap().unwrap();
+    });
+    assert!(!path.exists());
+}
+
+#[test]
 fn clear_removes_the_pointer_and_keeps_its_leased_generation_until_release() {
     let (runtime, vault, provider, _archive) = complete_index(DEFAULT_STATIC_MODEL_REPO);
     let old = lease(&vault, &provider);

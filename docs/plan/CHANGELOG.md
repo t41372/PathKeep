@@ -3209,3 +3209,5 @@ Move imports preserve local Agent conversations, saved text locators, site overr
 - 2026-11-22：毛玻璃看得出來了。選了毛玻璃後，視窗與面板那兩層照設計降到 14%／42% 的白（深色 18%／30%），不再停在不透明時的 62%／66%。原因是這兩條規則寫在 `@layer base` 裡，而不透明的值寫在 layer 外，layer 外的規則不論選擇器都贏。用戶 2026-11-14 在 macOS 上說毛玻璃「非常，非常不明顯」就是這個。在 Chrome 用建好的樣式表量過淺色、深色與有空間色相的三種情況；桌面視窗上的樣子在發布前 macOS 那一輪看。
 
 - 2026-11-22：把 `docs/design/prototype-2026-11-agent-history/` 與它的兩行排除放回來。上面那一條刪掉它是錯的：Agent 空間還沒經過用戶驗收，原型要留到驗收之後。同時把 `src/` 裡提到設計原型的 11 處註解改成直接說它是什麼（用戶 2026-11-22：程式碼裡不應該有任何地方引用設計原型，因為原型注定會被刪掉）。
+
+- 2026-11-22：新增瀏覽語意索引的預覽與釋放命令。關閉語意搜尋後，一次確認即可清除所有模型的索引。Settings 的 `semanticSidecarBytes` 與 Storage 共用相同的檔案大小口徑；共用資料庫內可重用的頁面不列為已釋放的磁碟空間。[命令與拒絕原因](../architecture/desktop-command-surface.md#free-the-browsing-semantic-index)
