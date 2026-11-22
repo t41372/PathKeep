@@ -92,6 +92,12 @@ Group 5 後端交接（2026-11-20，`track/group5`）。匯入撤回、拒絕與
 
 ### 6. 其他分支留下、還沒做的，與 BACKLOG 其餘每一項
 
+2026-11-22 逐項分了類（95 項；分類表與每項的證據在交接資料夾 `merge-1118/group6-triage.md`）：正常使用會碰到、要修的 3 項，已經修好的 16 項，只記錄的 75 項，要用戶決定的 1 項。
+
+- 要修：毛玻璃幾乎看不出來（905a1009 修了，桌面視窗上的樣子在發布前 macOS 那一輪看）；排程備份跑完，開著的視窗不知道，「上次備份」停在舊的時間、過了兩倍間隔圓點變色（`track/schedule-refresh`，先寫會紅的 E2E 再修）；KDE Plasma 的 Wayland 上可能有兩條標題列（`WORK-WAYLAND-UNDECORATED`，只從 tao 的程式推出來，先在 KWin 上重現再修）。
+- 要用戶決定：`WORK-SEMANTIC-INDEX-CLEAR-ENTRY`，關掉語意搜尋後索引留在磁碟上（14.4M 造訪時 4–59 GB），app 裡沒有刪它的地方；要不要加回來、放在哪裡。
+- 其餘只記錄，留在 BACKLOG，v0.6.0 不做。
+
 合併進來的分支自己記下的：
 
 - [ ] `WORK-SEMANTIC-FOLLOWUP-AUDIT`（semantic 分支）：八條可疑項逐條用正常操作重現、定根因、定方案再修：同一造訪換內容後映射不換 key（即 `WORK-SEMANTIC-REMAP-CHANGED-CONTENT`）、外部備份後畫面用舊 snapshot、延遲的 snapshot 蓋掉新設定（即 `WORK-SNAPSHOT-WRITE-ORDER`）、還原後來源與資料庫年代不一致、還原後 generation 撞名、手動更新全量核對（即 `WORK-INDEX-UPDATE-WALKS-ARCHIVE`）、大型查找快取寫入時程序中止。
