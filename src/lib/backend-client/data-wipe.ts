@@ -1,8 +1,16 @@
 /**
  * "Delete all data": a preview of what would be removed, then the deletion.
- * The execute call requires the confirmation word the user typed.
+ * The execute call requires the confirmation word the user typed. Also the
+ * end of a deletion PathKeep 0.5 started and didn't finish, which the
+ * recovery screen asks the user to confirm again.
  */
 import { call } from './shared'
+
+/**
+ * The word the user types to delete, in every language: the backend accepts
+ * only this exact string, so no translation can make a deletion fail or pass.
+ */
+export const WIPE_CONFIRMATION_WORD = 'DELETE'
 
 export interface WipePreview {
   /** Every path that will be deleted, with its size on disk. */
@@ -29,4 +37,12 @@ export const dataWipeClient = {
   /** `confirmation` must be the literal string "DELETE". */
   execute: (confirmation: string) =>
     call<WipeReport>('wipe_all_data', { confirmation }),
+  /**
+   * Finishes the "Delete all data" PathKeep 0.5 left unfinished
+   * (`archive-wipe-confirmation-required`). Its record doesn't prove it
+   * belongs to this folder, so the backend won't finish it on its own; the
+   * user confirms with the same word. Resolves whether there was one.
+   */
+  finishInterrupted: (confirmation: string) =>
+    call<boolean>('confirm_interrupted_wipe', { confirmation }),
 }

@@ -210,6 +210,16 @@ export interface BackupProgressEvent {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export interface StorageSummary {
+  /** Downloaded AI models. */
+  modelBytes: number
+  /** Audit files outside the run manifests. */
+  otherAuditBytes: number
+  /** The automatic backup's own files. */
+  scheduleBytes: number
+  /** Files of the AI tool integrations (MCP). */
+  integrationBytes: number
+  /** Folders kept aside: what an undone "Delete all data" left, earlier archives. */
+  retainedCopyBytes: number
   archiveDatabaseBytes: number
   sourceEvidenceDatabaseBytes: number
   searchDatabaseBytes: number
@@ -326,7 +336,12 @@ export interface RetentionPruneRequest {
  */
 export interface RetentionCopy {
   path: string
-  /** The operation it was made before, as in `RecoverySnapshot.sourceOp`. */
+  /**
+   * The operation it was made before, as in `RecoverySnapshot.sourceOp`, or
+   * a folder kept aside that nothing restores from: `wipeTrash` (left by a
+   * "Delete all data" that was undone) or `previousArchive` (an archive an
+   * earlier version set aside).
+   */
   sourceOp: string
   createdAt?: string | null
   /** Every file of the copy. */
@@ -632,6 +647,8 @@ export type ConversationRepairSource =
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export interface RecoverySnapshot {
+  /** What it holds: `browsing`, `agent-history`, or both. */
+  dataKinds: string[]
   id: string
   path: string
   createdAt?: string | null
@@ -668,6 +685,9 @@ export interface RecoverySnapshot {
    * `heldGeneration`: kept on its own when a conversation file disappeared while
    * PathKeep still had it open. It holds saved conversations only, no browsing
    * history, so it is never `verifiedOpenable` and only a repair can use it.
+   * `importUndo`: the conversations an undone import added, kept as a
+   * conversation archive of their own; never restored from, only shown and
+   * freed.
    */
   sourceOp: string
   label: string

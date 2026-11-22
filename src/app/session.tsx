@@ -2,8 +2,12 @@
  * Boot sequence and session state.
  *
  * Responsibilities:
- * - Decide which full-screen state the app is in: locked, archive locked,
- *   recovery, upgrade, onboarding or ready.
+ * - Ask first whether this build may open the archive at all
+ *   (`get_archive_access`). A refused or damaged archive, and a desktop
+ *   started for recovery only, go to the `access` screen before anything
+ *   else is read: in that mode only the recovery commands answer.
+ * - Decide which full-screen state the app is in otherwise: locked, archive
+ *   locked, recovery, upgrade, onboarding or ready.
  * - Unlock (app passcode, Touch ID or archive password), lock, and idle
  *   auto-lock.
  * - Seed the query cache with the snapshot so screens never fetch it again.
@@ -25,6 +29,10 @@ import {
 } from 'react'
 import { appClient } from '@/lib/backend-client/app'
 import { archiveClient } from '@/lib/backend-client/archive'
+import {
+  archiveAccessClient,
+  type ArchiveAccess,
+} from '@/lib/backend-client/archive-access'
 import { securityClient } from '@/lib/backend-client/security'
 import { parseRecoveryReport } from './recovery-report'
 import { describeError } from '@/lib/errors'
@@ -43,10 +51,12 @@ import type {
   ArchiveUpgradeAssessment,
 } from '@/lib/types'
 import { prefetchInsightsZone } from '@/features/insights/zone'
+import { announceWipeNotices } from './wipe-notices'
 
 export type SessionPhase =
   | 'booting'
   | 'error'
+  | 'access'
   | 'app-locked'
   | 'archive-locked'
   | 'recovery'
@@ -60,6 +70,15 @@ interface SessionValue {
   buildInfo: AppBuildInfo | null
   recovery: ArchiveRecoveryReport | null
   upgrade: ArchiveUpgradeAssessment | null
+  /** Why the archive was not opened, for the `access` screen. */
+  access: ArchiveAccess | null
+  /**
+   * The package the archive was just prepared into for PathKeep 0.5.0. The
+   * app is recovery-only from then on, so it leaves the ordinary screens.
+   */
+  prepared: string | null
+  /** Called once preparing for PathKeep 0.5.0 succeeded. */
+  showPrepared: (packageFolder: string) => Promise<void>
   refresh: () => Promise<void>
   /** Resolves to false when there is no passcode, so nothing was locked. */
   lock: () => Promise<boolean>
@@ -77,6 +96,16 @@ interface SessionValue {
 }
 
 const SessionContext = createContext<SessionValue | null>(null)
+
+/** States the ordinary screens can't start from: the archive was not opened. */
+function refused(access: ArchiveAccess) {
+  return (
+    access.recoveryOnly ||
+    access.state === 'refusedRead' ||
+    access.state === 'refusedWrite' ||
+    access.state === 'needsRecovery'
+  )
+}
 
 /** A plaintext archive that is configured but will not open is damaged. */
 function needsLaunchRecovery(snapshot: AppSnapshot) {
@@ -100,12 +129,18 @@ function canAutoUnlock(snapshot: AppSnapshot) {
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const { setPreference, preference } = useI18n()
+  const { setPreference, preference, t } = useI18n()
+  const tRef = useRef(t)
+  useLayoutEffect(() => {
+    tRef.current = t
+  }, [t])
   const [phase, setPhase] = useState<SessionPhase>('booting')
   const [error, setError] = useState<string | null>(null)
   const [buildInfo, setBuildInfo] = useState<AppBuildInfo | null>(null)
   const [recovery, setRecovery] = useState<ArchiveRecoveryReport | null>(null)
   const [upgrade, setUpgrade] = useState<ArchiveUpgradeAssessment | null>(null)
+  const [access, setAccess] = useState<ArchiveAccess | null>(null)
+  const [prepared, setPrepared] = useState<string | null>(null)
   const triedKeyring = useRef(false)
   // What the upgrade check found; 'pending' until the upgrade screen enters
   // the converted archive.
@@ -145,6 +180,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const gate = useCallback(async () => {
     setError(null)
     try {
+      // First of all: may this build open the archive? When it may not, the
+      // desktop answers only the recovery commands, so nothing below may run.
+      const archiveAccess = await archiveAccessClient.get()
+      if (refused(archiveAccess)) {
+        setBuildInfo(await appClient.getBuildInfo())
+        // App Lock still guards the recovery actions when its status can be
+        // read; with the settings file missing or unreadable it can't be.
+        const lockStatus = await appClient.getLockStatus().catch(() => null)
+        if (lockStatus)
+          queryClient.setQueryData(queryKeys.lockStatus, lockStatus)
+        if (lockStatus?.locked) return toLocked()
+        setAccess(archiveAccess)
+        setPhase('access')
+        return
+      }
+      setAccess(null)
+
       const [lockStatus, info] = await Promise.all([
         appClient.getLockStatus(),
         appClient.getBuildInfo(),
@@ -231,6 +283,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
 
       enter(snapshot)
+      // Said once, after the archive is open: a "Delete all data" that was
+      // undone at startup, files it moved aside, a disk worth checking.
+      void archiveAccessClient
+        .takeWipeNotices()
+        .then((notices) => announceWipeNotices(tRef.current, notices))
+        .catch(() => undefined)
     } catch (bootError) {
       if (isLockRequiredError(bootError)) return toLocked()
       setError(describeError(bootError, 'boot'))
@@ -324,6 +382,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [refresh],
   )
 
+  const showPrepared = useCallback(
+    async (packageFolder: string) => {
+      // Every cached read described an archive this app no longer opens.
+      queryClient.clear()
+      setPrepared(packageFolder)
+      setPhase('booting')
+      await refresh()
+    },
+    [refresh],
+  )
+
   const restart = useCallback(async () => {
     // Nothing cached may survive: it describes an archive that is gone.
     queryClient.clear()
@@ -344,6 +413,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       buildInfo,
       recovery,
       upgrade,
+      access,
+      prepared,
+      showPrepared,
       refresh,
       lock,
       unlockApp,
@@ -358,6 +430,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       buildInfo,
       recovery,
       upgrade,
+      access,
+      prepared,
+      showPrepared,
       refresh,
       lock,
       unlockApp,

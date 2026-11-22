@@ -415,5 +415,21 @@ export default defineConfig({
     project('upgrade', ['upgrade.spec.ts'], 'view-only'),
     // Deletes the archive upgrade.spec's file left, then opens v0.5.0's data.
     project('upgrade-v05', ['upgrade-v05.spec.ts'], 'upgrade'),
+    // Group 5: an import keeps this computer's conversations and can be undone,
+    // an undone wipe tells you once, PathKeep 0.5.0 can be prepared for and
+    // taken back from, and an archive that can't open gets its recovery screen.
+    project(
+      'import-keeps-conversations',
+      ['import-keeps-conversations.spec.ts'],
+      'upgrade-v05',
+    ),
+    project(
+      'wipe-notice',
+      ['wipe-notice.spec.ts'],
+      'import-keeps-conversations',
+    ),
+    project('rollback-v05', ['rollback-v05.spec.ts'], 'wipe-notice'),
+    // Must stay last: leaves PathKeep 0.5 data behind.
+    project('archive-refusal', ['archive-refusal.spec.ts'], 'rollback-v05'),
   ],
 })

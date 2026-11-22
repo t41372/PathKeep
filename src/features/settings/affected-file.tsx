@@ -19,6 +19,7 @@ import {
   isArchiveFileWriteFailed,
 } from '@/lib/ipc/command-error'
 import { revealFile, revealLabelKey } from './reveal'
+import { snapshotFolderWords } from './snapshot-folder-words'
 
 /** A role a later backend adds is said as a file of the archive. */
 const roles: Record<string, MessageKey> = {
@@ -66,7 +67,8 @@ export function AffectedFile({ error }: { error: unknown }) {
 /**
  * `children` are the dialog's words; a failed write is said the same way
  * everywhere, followed by the system's reason (a full disk and a refused
- * permission are fixed differently).
+ * permission are fixed differently). A `raw-snapshots/` linked to another
+ * disk is also said the same way everywhere.
  */
 export function Refusal({
   error,
@@ -87,7 +89,7 @@ export function Refusal({
       >
         {isArchiveFileWriteFailed(error)
           ? `${t('maintenance.writeFailed')} ${describeError(error)}`
-          : children}
+          : (snapshotFolderWords(t, error) ?? children)}
       </p>
       <AffectedFile error={error} />
     </div>

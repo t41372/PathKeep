@@ -6,6 +6,7 @@ import type { MessagePath, ResolvedLanguage } from '../define'
 import { agentBackup } from './agent-backup'
 import { agentChats } from './agent-chats'
 import { aiRefusals } from './ai-refusals'
+import { archiveAccess } from './archive-access'
 import { agentInfo } from './agent-info'
 import { agentProjects } from './agent-projects'
 import { agentReader } from './agent-reader'
@@ -43,6 +44,7 @@ import { tasks } from './tasks'
 const namespaces = {
   common,
   shell,
+  archiveAccess,
   spaces,
   tasks,
   dataKinds,

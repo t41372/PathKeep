@@ -38,6 +38,8 @@ export const maintenance = defineMessages({
     },
     writeFailed:
       'PathKeep couldn’t write one of the files it was making. Check that the disk has free space and that PathKeep can write to that folder, then try again.',
+    snapshotCrossDevice:
+      'The raw-snapshots folder inside the data folder is a link to another disk. PathKeep keeps safety copies there by moving files, which can’t cross disks, so it stopped before changing anything. Put raw-snapshots back inside the data folder, or on the same disk, then try again.',
   },
   'zh-CN': {
     phases: {
@@ -70,6 +72,8 @@ export const maintenance = defineMessages({
     },
     writeFailed:
       'PathKeep 没能写入它正在生成的一个文件。请确认磁盘还有空间、PathKeep 可以写入那个文件夹，然后再试一次。',
+    snapshotCrossDevice:
+      '数据文件夹里的 raw-snapshots 文件夹是一个指向另一个磁盘的链接。PathKeep 靠移动文件把安全副本放进去，而移动没办法跨磁盘，所以在改动任何东西之前就停下了。请把 raw-snapshots 放回数据文件夹里，或放在同一个磁盘上，再试一次。',
   },
   'zh-TW': {
     phases: {
@@ -102,5 +106,7 @@ export const maintenance = defineMessages({
     },
     writeFailed:
       'PathKeep 沒能寫入它正在產生的一個檔案。請確認磁碟還有空間、PathKeep 可以寫入那個資料夾，然後再試一次。',
+    snapshotCrossDevice:
+      '資料夾裡的 raw-snapshots 資料夾是一個指向另一顆磁碟的連結。PathKeep 靠移動檔案把安全副本放進去，而移動沒辦法跨磁碟，所以在更動任何東西之前就停下了。請把 raw-snapshots 放回資料夾裡，或放在同一顆磁碟上，再試一次。',
   },
 })

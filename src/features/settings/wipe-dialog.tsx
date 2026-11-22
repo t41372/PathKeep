@@ -7,7 +7,10 @@
  * next setup), or stopped where it could not tell whether it had finished
  * moving (`archive-wipe-stopped`, which the next start finishes or undoes),
  * the dialog says so first and restarts when the user continues. Any other
- * failure deleted nothing: the backend put everything back.
+ * failure deleted nothing: the backend put everything back. Putting things
+ * back can leave a one-time notice (files it moved aside, a disk worth
+ * checking); the dialog drains those right away, so the "didn't finish"
+ * notice the session would show later isn't said a second time.
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -25,14 +28,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
-import { dataWipeClient } from '@/lib/backend-client/data-wipe'
+import { archiveAccessClient } from '@/lib/backend-client/archive-access'
+import {
+  dataWipeClient,
+  WIPE_CONFIRMATION_WORD as CONFIRMATION_WORD,
+} from '@/lib/backend-client/data-wipe'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { commandErrorCode } from '@/lib/ipc/command-error'
+import { announceWipeNotices, WIPE_ROLLED_BACK } from '@/app/wipe-notices'
 import { Notice } from './notice'
-
-/** The backend checks for this exact word, in every language. */
-const CONFIRMATION_WORD = 'DELETE'
 
 /** Backend code: the data was moved out, and a later step failed (`command_error.rs`). */
 const WIPE_UNFINISHED = 'archive-wipe-unfinished'
@@ -70,6 +75,17 @@ function WipeForm({ onClose }: { onClose: () => void }) {
     // A failed schedule removal is shown first; the user restarts from there.
     onSuccess: (report) =>
       report.scheduleError ? undefined : session.restart(),
+    // This dialog already says that nothing was deleted.
+    onError: () =>
+      void archiveAccessClient
+        .takeWipeNotices()
+        .then((notices) =>
+          announceWipeNotices(
+            t,
+            notices.filter((notice) => notice.code !== WIPE_ROLLED_BACK),
+          ),
+        )
+        .catch(() => undefined),
   })
 
   const ready = preview.isSuccess && typed === CONFIRMATION_WORD

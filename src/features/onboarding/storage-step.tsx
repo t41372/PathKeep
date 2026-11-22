@@ -3,7 +3,8 @@
  *
  * The location comes from the app's data folder and can't be changed from
  * the UI, so the step offers to show the folder instead of a dead "Change"
- * button. With only browsing history chosen, three numbers: the browsers'
+ * button. A folder on a FAT32 or exFAT disk gets the same warning as in
+ * Settings › Storage, before anything is written there. With only browsing history chosen, three numbers: the browsers'
  * history files, the archive's size after the first backup, and how many
  * browsers. With more kinds, the same three numbers per kind and a total.
  *
@@ -19,6 +20,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAgentPreview } from '@/features/enable-agent/use-agent-preview'
+import { FatVolumeNotice } from '@/features/settings/fat-volume-notice'
 import { wire } from '@/features/enable-agent/preview-model'
 import { supportClient } from '@/lib/backend-client/support'
 import type {
@@ -120,6 +122,7 @@ export function StorageStep({
             detail={revealError}
           />
         )}
+        <FatVolumeNotice />
       </section>
       {onlyBrowsing ? (
         <dl className="grid grid-cols-3 gap-2.5">

@@ -59,6 +59,17 @@ export interface ImportAgentConversations {
   /** The file has the conversations' storage (PathKeep 0.6 and later), even an empty one. */
   carried: boolean
   /**
+   * This computer's conversations stay; the file's are added beside them.
+   * Browsing history is still replaced by the file's.
+   */
+  keepsLocal: boolean
+  /**
+   * Restoring the copy made before the import brings browsing back and
+   * leaves the added conversations, unless the restore is asked to move
+   * them to the trash too.
+   */
+  restoreKeepsAdditions: boolean
+  /**
    * How they show here afterwards: `paused` (readable, nothing backed up)
    * on a computer that never chose; otherwise this computer's own choice.
    * `null` when the file carries none.
@@ -74,6 +85,11 @@ export interface ImportPreview {
   exclusionNotes: ImportExclusionNote[]
   /** True when the live project already has an initialized archive. */
   willOverwriteExisting: boolean
+  /**
+   * False for files PathKeep 0.5 and earlier made: they all record 0.1.0 as
+   * their version, so the version they were made with is unknown.
+   */
+  versionKnown: boolean
   agentConversations: ImportAgentConversations
 }
 
@@ -102,12 +118,53 @@ export interface ImportResult {
   previousCopyUnchecked: string | null
 }
 
+/**
+ * One import that added conversations this computer didn't have. The list
+ * lives in the archive, so it stays after the copy made before the import
+ * is freed.
+ */
+export interface ConversationImport {
+  id: string
+  importedAt: string
+  /** Conversations the import added. */
+  added: number
+  /** Of those, how many an undo would still move to the trash. */
+  eligible: number
+  /** The folder name of the copy made before the import, while it exists. */
+  previousCopy: string | null
+}
+
+export interface ConversationImportUndo {
+  /** Conversations moved to the trash. */
+  moved: number
+  /** The copy of them kept first; null when there was nothing to move. */
+  copyPath: string | null
+}
+
 export const migrationClient = {
   /** The bundle is always encrypted with `exportPassword`; on import it becomes the archive's password. */
   exportAppData: (targetPath: string, exportPassword: string) =>
     call<ExportedBundle>('export_app_data', { targetPath, exportPassword }),
   previewAppDataImport: (bundlePath: string) =>
     call<ImportPreview>('preview_app_data_import', { bundlePath }),
-  applyAppDataImport: (bundlePath: string, options: ApplyImportOptions) =>
-    call<ImportResult>('apply_app_data_import', { bundlePath, options }),
+  /**
+   * `currentPassword` is this archive's own password, asked for only when
+   * the import answers `agent-history-key-required`: the conversations here
+   * must be read to be kept.
+   */
+  applyAppDataImport: (
+    bundlePath: string,
+    options: ApplyImportOptions,
+    currentPassword: string | null = null,
+  ) =>
+    call<ImportResult>('apply_app_data_import', {
+      bundlePath,
+      options,
+      currentPassword,
+    }),
+  listConversationImports: () =>
+    call<ConversationImport[]>('list_conversation_imports', {}),
+  /** Keeps a copy of what the import added, then moves it to the trash. */
+  undoConversationImport: (importId: string) =>
+    call<ConversationImportUndo>('undo_conversation_import', { importId }),
 }

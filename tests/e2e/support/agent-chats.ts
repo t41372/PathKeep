@@ -108,6 +108,8 @@ export async function wireCounts(request: Record<string, unknown> = {}) {
     matchingRoots: number
     spaceRoots: number
     spaceOnlyInPathKeep: number
+    /** Everything saved, the trash included. */
+    savedRoots: number
     folderCount: number
   }>('get_agent_conversation_counts', {
     request: { timeZone: await shownZone(), ...request },

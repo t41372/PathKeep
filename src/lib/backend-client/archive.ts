@@ -66,10 +66,35 @@ export const archiveClient = {
     call<RecoverySnapshot[]>('list_recovery_snapshots'),
   runFullArchiveRestore: (
     request: SnapshotRestoreRequest,
-    key?: string | null,
+    options: FullArchiveRestoreOptions = {},
   ) =>
     call<FullArchiveRestoreReport>('run_full_archive_restore', {
       request,
-      key,
+      key: options.key ?? null,
+      currentPassword: options.currentPassword ?? null,
+      undoConversations: options.undoConversations ?? false,
+      useCopyEncryption: options.useCopyEncryption ?? false,
     }),
+}
+
+/**
+ * The two passwords a restore can need are different things: `key` opens
+ * the copy (the password the archive had when the copy was made);
+ * `currentPassword` opens the archive itself when it could not be opened,
+ * so the restored browsing history keeps the archive's password.
+ */
+export interface FullArchiveRestoreOptions {
+  key?: string | null
+  currentPassword?: string | null
+  /**
+   * With the copy made before an import: also move the conversations that
+   * import added to the trash, after keeping a copy of them.
+   */
+  undoConversations?: boolean
+  /**
+   * Only for an encrypted archive whose key can't be read at all: restore
+   * under the copy's own encryption. The current files are kept aside as a
+   * copy, and Agent conversations start empty.
+   */
+  useCopyEncryption?: boolean
 }

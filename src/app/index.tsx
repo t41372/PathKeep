@@ -25,6 +25,7 @@ import { useConfigDurabilityNotice } from './config-durability'
 import { useIndexJobEvents } from './index-job-events'
 import { createAppRouter, createOnboardingRouter } from './router'
 import { SessionProvider, useSession } from './session'
+import { AccessScreen } from './shell/archive-access/access-screen'
 import { LockScreen } from './shell/lock-screen'
 import { QuitPrompt } from './shell/quit-prompt'
 import { RenderErrorBoundary } from './shell/route-error'
@@ -71,6 +72,8 @@ function SessionGate() {
       return <BootScreen />
     case 'error':
       return <BootErrorScreen message={error ?? ''} />
+    case 'access':
+      return <AccessScreen />
     case 'app-locked':
       return <LockScreen kind="app" />
     case 'archive-locked':

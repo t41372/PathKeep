@@ -17,6 +17,7 @@ export const settingsStorage = defineMessages({
       archive: 'Archive',
       indexes: 'Search indexes',
       snapshots: 'Snapshots',
+      models: 'AI models',
       other: 'Other',
       failed: 'Could not measure disk usage right now.',
     },
@@ -53,6 +54,9 @@ export const settingsStorage = defineMessages({
       notRestorable: 'Can’t be restored from',
       copyWarning: 'You can’t restore from a safety copy once it’s deleted.',
       conversationsOnly: 'Saved Agent conversations only, for a repair',
+      undoneImport:
+        'Agent conversations an undone import added, kept before they went to the trash',
+      setAside: 'Kept aside; nothing restores from it',
       heldWarning:
         'A copy kept when a conversation file went missing may hold the only saved version of some conversations. Once it’s deleted, a repair can’t bring them back from it.',
       noCopyLeft:
@@ -93,7 +97,12 @@ export const settingsStorage = defineMessages({
         'This file was made by PathKeep 0.3: its password is the archive password you used on that computer.',
       wrongPassword: 'That password doesn’t open this file.',
       replaces:
-        'This replaces the archive on this computer. The current one is kept as a safety copy you can go back to. It takes about as much disk space as the archive; Free up space can delete it. The safety copies already on this computer stay as they are.',
+        'This replaces the browsing history on this computer with the file’s. The current archive is kept as a safety copy you can restore browsing history from. It takes about as much disk space as the archive; Free up space can delete it. The safety copies already on this computer stay as they are.',
+      currentPassword: 'This archive’s current password',
+      currentPasswordHint:
+        'PathKeep needs it to keep the Agent conversations on this computer while it adds the file’s.',
+      wrongEitherPassword:
+        'One of the two passwords doesn’t open it. Check this file’s password and this archive’s current password.',
       replace: 'Replace my archive',
       import: 'Import',
       imported: 'Import finished.',
@@ -114,6 +123,13 @@ export const settingsStorage = defineMessages({
         copies:
           'Files from PathKeep 0.5 and earlier also hold the safety copies of the computer they were made on. Any in this file are added to the ones here.',
         agent: 'Agent conversations',
+        versionRange: 'PathKeep 0.5 or earlier',
+        keepsLocal:
+          'The Agent conversations on this computer stay. The file’s are added beside them, and a conversation both have is kept once. Only browsing history is replaced.',
+        keepsLocalNone:
+          'The Agent conversations on this computer stay. Only browsing history is replaced.',
+        undoNote:
+          'If it turns out to be the wrong file, Conversations added by imports in Storage moves what it added to the trash. Restoring the copy made before the import brings browsing history back and leaves those conversations, unless you tick the box for them.',
         agentState: {
           paused: 'Readable, not backed up',
           on: 'On',
@@ -148,6 +164,9 @@ export const settingsStorage = defineMessages({
         manual: 'Made by you',
         agentRepair: 'Before a conversation repair',
         heldGeneration: 'Kept when a conversation file went missing',
+        importUndo: 'Conversations taken back from an import',
+        wipeTrash: 'Left by an undone “Delete all data”',
+        previousArchive: 'Archive set aside by an earlier version',
         unknown: 'Safety copy',
       },
       password: 'Password of this copy',
@@ -168,6 +187,15 @@ export const settingsStorage = defineMessages({
         'Saved Agent conversations couldn’t be read when this copy was made. That doesn’t matter here: a restore brings back browsing history only.',
       checkedFirst:
         'This copy hasn’t been checked yet. It’s checked before the restore; if it can’t be read, your archive stays as it is.',
+      outside: 'Kept in {path}',
+      undoImport_one:
+        'Also move the {count} conversation this import added to the trash',
+      undoImport_other:
+        'Also move the {count} conversations this import added to the trash',
+      undoImportHint:
+        'A copy of them is kept first. Conversations that were here before the import, and ones backed up here since, stay.',
+      undoFailed:
+        'Browsing history was restored, but the conversations the import added weren’t moved to the trash. Try again in Conversations added by imports. {message}',
     },
     safetyCopy: {
       rowTitle: 'Make a safety copy',
@@ -236,6 +264,7 @@ export const settingsStorage = defineMessages({
       archive: '存档',
       indexes: '搜索索引',
       snapshots: '快照',
+      models: 'AI 模型',
       other: '其他',
       failed: '暂时无法计算磁盘用量。',
     },
@@ -270,6 +299,9 @@ export const settingsStorage = defineMessages({
       notRestorable: '无法用来恢复',
       copyWarning: '安全副本删除后就不能再用来恢复。',
       conversationsOnly: '只有已存的 Agent 对话，供修复使用',
+      undoneImport:
+        '撤销导入时，那次导入加进来的 Agent 对话在移到垃圾桶之前留的副本',
+      setAside: '放在一旁，不能用来恢复',
       heldWarning:
         '对话文件不见时保留的副本，可能存着某些对话唯一的已存版本。删除之后，修复就没法从它找回这些对话。',
       noCopyLeft: '删完就没有可以用来恢复的安全副本了。你的历史本身不受影响。',
@@ -307,7 +339,12 @@ export const settingsStorage = defineMessages({
         '这个文件由 PathKeep 0.3 导出：它的密码就是你在那台电脑上用的存档密码。',
       wrongPassword: '这个密码打不开这个文件。',
       replaces:
-        '这会替换这台电脑上的存档。当前的存档会保留为一份安全副本，之后还能恢复回来；它占用的空间和存档差不多，可以在“释放空间”删除。这台电脑原有的安全副本保持不变。',
+        '这会用文件里的浏览记录替换这台电脑上的浏览记录。当前的存档会保留为一份安全副本，之后还能从它恢复浏览记录；它占用的空间和存档差不多，可以在“释放空间”删除。这台电脑原有的安全副本保持不变。',
+      currentPassword: '这份存档现在的密码',
+      currentPasswordHint:
+        'PathKeep 要用它来保留这台电脑上的 Agent 对话，同时加进文件里的对话。',
+      wrongEitherPassword:
+        '有一个密码打不开。请检查这个文件的密码和这份存档现在的密码。',
       replace: '替换我的存档',
       import: '导入',
       imported: '导入完成。',
@@ -327,6 +364,12 @@ export const settingsStorage = defineMessages({
         copies:
           'PathKeep 0.5 及更早版本导出的文件还带着原来那台电脑的安全副本；这个文件里的会加到这台电脑的安全副本中。',
         agent: 'Agent 对话',
+        versionRange: 'PathKeep 0.5 或更早',
+        keepsLocal:
+          '这台电脑上的 Agent 对话会留着。文件里的对话会加进来，两边都有的同一段对话只留一份。只有浏览记录会被替换。',
+        keepsLocalNone: '这台电脑上的 Agent 对话会留着。只有浏览记录会被替换。',
+        undoNote:
+          '如果导入错了文件，“存储”里的“导入时加进来的对话”可以把它加进来的对话移到垃圾桶。从导入之前的那份副本恢复，会带回浏览记录、留着这些对话，除非你勾选那一项。',
         agentState: {
           paused: '可以看，不备份',
           on: '开着',
@@ -360,6 +403,9 @@ export const settingsStorage = defineMessages({
         manual: '你创建的副本',
         agentRepair: '修复对话之前',
         heldGeneration: '对话文件不见时保留的',
+        importUndo: '从一次导入撤回的对话',
+        wipeTrash: '撤销的“删除所有数据”留下的',
+        previousArchive: '较早版本放在一旁的存档',
         unknown: '安全副本',
       },
       password: '这份副本的密码',
@@ -379,6 +425,13 @@ export const settingsStorage = defineMessages({
         '创建这份副本时，已存的 Agent 对话读不了。这在这里没有影响：恢复只会带回浏览记录。',
       checkedFirst:
         '这份副本还没检查过。恢复之前会先检查；读不出来的话，你的存档保持原样。',
+      outside: '放在 {path}',
+      undoImport_one: '同时把这次导入加进来的 {count} 段对话移到垃圾桶',
+      undoImport_other: '同时把这次导入加进来的 {count} 段对话移到垃圾桶',
+      undoImportHint:
+        '会先复制一份。导入之前就在这里的对话，以及之后在这里备份过的对话，都会留着。',
+      undoFailed:
+        '浏览记录已恢复，但导入加进来的对话没有移到垃圾桶。请在“导入时加进来的对话”再试一次。{message}',
     },
     safetyCopy: {
       rowTitle: '创建安全副本',
@@ -441,6 +494,7 @@ export const settingsStorage = defineMessages({
       archive: '存檔',
       indexes: '搜尋索引',
       snapshots: '快照',
+      models: 'AI 模型',
       other: '其他',
       failed: '暫時無法計算磁碟用量。',
     },
@@ -475,6 +529,9 @@ export const settingsStorage = defineMessages({
       notRestorable: '無法用來還原',
       copyWarning: '安全副本刪除後就不能再拿來還原。',
       conversationsOnly: '只有已存的 Agent 對話，供修復使用',
+      undoneImport:
+        '撤銷匯入時，那次匯入加進來的 Agent 對話在移到垃圾桶之前留的副本',
+      setAside: '放在一旁，不能用來還原',
       heldWarning:
         '對話檔案不見時留下的副本，可能存著某些對話唯一的已存版本。刪除之後，修復就沒辦法從它救回這些對話。',
       noCopyLeft: '刪完就沒有可以用來還原的安全副本了。你的歷史本身不受影響。',
@@ -512,7 +569,12 @@ export const settingsStorage = defineMessages({
         '這個檔案由 PathKeep 0.3 匯出：它的密碼就是你在那台電腦上用的存檔密碼。',
       wrongPassword: '這組密碼打不開這個檔案。',
       replaces:
-        '這會取代這台電腦上的存檔。目前的存檔會保留為一份安全副本，之後還能還原回來；它佔用的空間和存檔差不多，可以在「釋放空間」刪除。這台電腦原有的安全副本維持原樣。',
+        '這會用檔案裡的瀏覽紀錄取代這台電腦上的瀏覽紀錄。目前的存檔會保留為一份安全副本，之後還能從它還原瀏覽紀錄；它佔用的空間和存檔差不多，可以在「釋放空間」刪除。這台電腦原有的安全副本維持原樣。',
+      currentPassword: '這份存檔現在的密碼',
+      currentPasswordHint:
+        'PathKeep 要用它來保留這台電腦上的 Agent 對話，同時加進檔案裡的對話。',
+      wrongEitherPassword:
+        '有一組密碼打不開。請檢查這個檔案的密碼和這份存檔現在的密碼。',
       replace: '取代我的存檔',
       import: '匯入',
       imported: '匯入完成。',
@@ -532,6 +594,12 @@ export const settingsStorage = defineMessages({
         copies:
           'PathKeep 0.5 及更早版本匯出的檔案還帶著原來那台電腦的安全副本；這個檔案裡的會加到這台電腦的安全副本裡。',
         agent: 'Agent 對話',
+        versionRange: 'PathKeep 0.5 或更早',
+        keepsLocal:
+          '這台電腦上的 Agent 對話會留著。檔案裡的對話會加進來，兩邊都有的同一段對話只留一份。只有瀏覽紀錄會被取代。',
+        keepsLocalNone: '這台電腦上的 Agent 對話會留著。只有瀏覽紀錄會被取代。',
+        undoNote:
+          '如果匯入錯了檔案，「儲存」裡的「匯入時加進來的對話」可以把它加進來的對話移到垃圾桶。從匯入之前的那份副本還原，會帶回瀏覽紀錄、留著這些對話，除非你勾選那一項。',
         agentState: {
           paused: '可以看，不備份',
           on: '開著',
@@ -565,6 +633,9 @@ export const settingsStorage = defineMessages({
         manual: '你建立的副本',
         agentRepair: '修復對話之前',
         heldGeneration: '對話檔案不見時留下的',
+        importUndo: '從一次匯入撤回的對話',
+        wipeTrash: '撤銷的「刪除所有資料」留下的',
+        previousArchive: '較早版本放在一旁的存檔',
         unknown: '安全副本',
       },
       password: '這份副本的密碼',
@@ -584,6 +655,13 @@ export const settingsStorage = defineMessages({
         '建立這份副本時，已存的 Agent 對話讀不了。這在這裡沒有影響：還原只會帶回瀏覽紀錄。',
       checkedFirst:
         '這份副本還沒檢查過。還原之前會先檢查；讀不出來的話，你的存檔保持原樣。',
+      outside: '放在 {path}',
+      undoImport_one: '同時把這次匯入加進來的 {count} 段對話移到垃圾桶',
+      undoImport_other: '同時把這次匯入加進來的 {count} 段對話移到垃圾桶',
+      undoImportHint:
+        '會先複製一份。匯入之前就在這裡的對話，以及之後在這裡備份過的對話，都會留著。',
+      undoFailed:
+        '瀏覽紀錄已還原，但匯入加進來的對話沒有移到垃圾桶。請在「匯入時加進來的對話」再試一次。{message}',
     },
     safetyCopy: {
       rowTitle: '建立安全副本',
