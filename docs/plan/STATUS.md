@@ -122,7 +122,7 @@ BACKLOG 原有的，依領域：
 
 - [ ] 全部工作做完後，照 BACKLOG 的 `WORK-V060-REVIEW-BLOCKS` 分範圍審查（用戶 2026-11-20：做完一塊就審查一次的做法取消，之後的審查全部等到最後）。
 - [ ] landing page：補 Agent 空間的介紹、圖片，重錄 demo 加上 Agent 空間（`WORK-SITE-DEMO-V060`），網站的檢查進 CI，合併 PR #25；Cloudflare Pages 與網域要用用戶的帳號。
-- [ ] 在 macOS 上完整跑一次 E2E（用戶 2026-11-18：至少一次，放在最後，開發過程中不在這台電腦上跑）。Linux 的 gate 看不到只在 macOS 才有的行為（鑰匙圈、排程、檔案系統）。更正（2026-11-18）：之前寫「Platform Native 只跑 Rust 測試」是錯的，它的 macOS 工作在 GitHub 的 macOS 機器上跑整套 E2E（`bun run test:e2e`），每次觸發都跑；2026-11-18 那次就抓到一個只在慢機器上出現的 spec 等待寫法（`semantic-progress.spec.ts`，已修，等下一次 macOS 執行證實）。所以 macOS 的 E2E 平常由 Platform Native 看，用戶電腦上的這一次是發布前在真的鑰匙圈與排程上的最後確認。先做完 `WORK-E2E-WINDOW-OFF-THE-DESKTOP`。
+- [ ] 在 macOS 上完整跑一次 E2E（用戶 2026-11-18：至少一次，放在最後，開發過程中不在這台電腦上跑）。同一輪在桌面視窗上看毛玻璃的深淺兩種主題（2026-11-22 修了毛玻璃幾乎看不出來，E2E 的頁面不是桌面視窗，選不到毛玻璃）。Linux 的 gate 看不到只在 macOS 才有的行為（鑰匙圈、排程、檔案系統）。更正（2026-11-18）：之前寫「Platform Native 只跑 Rust 測試」是錯的，它的 macOS 工作在 GitHub 的 macOS 機器上跑整套 E2E（`bun run test:e2e`），每次觸發都跑；2026-11-18 那次就抓到一個只在慢機器上出現的 spec 等待寫法（`semantic-progress.spec.ts`，已修，等下一次 macOS 執行證實）。所以 macOS 的 E2E 平常由 Platform Native 看，用戶電腦上的這一次是發布前在真的鑰匙圈與排程上的最後確認。先做完 `WORK-E2E-WINDOW-OFF-THE-DESKTOP`。
 - [ ] 發布流程實跑一次（`WORK-RELEASE-REHEARSAL-V06`，動 GitHub 前問用戶）。
 - [ ] 在真的 Windows 電腦上（Defender、OneDrive）跑一次還原、匯入、刪除所有資料、Agent 對話備份。
 - [ ] 發布說明：改了儲存格式後舊版打不開；從 v0.6.0 裝回 v0.5.0，v0.5.0 啟動時就結束、沒有說明。

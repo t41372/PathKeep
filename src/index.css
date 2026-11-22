@@ -181,6 +181,20 @@ html.dark[data-space-hue] {
     oklch(0.26 0.045 calc(var(--space-h) + 25)) 100%
   );
 }
+/* Glass: the system material already blurs and tints; the window and panel
+   layers only need enough tint to keep text readable, or the glass barely
+   shows. These sit outside any layer like the solid values above: a layered
+   rule loses to an unlayered one whatever its selector, so inside
+   `@layer base` they never applied. A space's own hue tints the window
+   (next rule). */
+html[data-window-material='glass'] {
+  --window: rgb(250 250 252 / 0.14);
+  --panel: rgb(255 255 255 / 0.42);
+}
+html.dark[data-window-material='glass'] {
+  --window: rgb(24 24 34 / 0.18);
+  --panel: rgb(30 30 42 / 0.3);
+}
 html[data-window-material='glass'][data-space-hue] {
   --window: oklch(0.96 0.035 var(--space-h) / 0.3);
 }
@@ -327,16 +341,6 @@ html.dark[data-window-material='glass'][data-space-hue] {
      no wallpaper of its own and its translucent layers sit on the real one. */
   html[data-window-material='glass'] body {
     background: transparent;
-  }
-  /* The system material already blurs and tints; the window and panel layers
-     only need enough tint to keep text readable, or the glass barely shows. */
-  html[data-window-material='glass'] {
-    --window: rgb(250 250 252 / 0.14);
-    --panel: rgb(255 255 255 / 0.42);
-  }
-  html.dark[data-window-material='glass'] {
-    --window: rgb(24 24 34 / 0.18);
-    --panel: rgb(30 30 42 / 0.3);
   }
   /* A space's own tile in the switcher and its menu: always that space's
      hue (`--tile-h`), whichever space is current. */
