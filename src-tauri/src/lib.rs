@@ -17,6 +17,8 @@
 //! - App Lock session setup happens before the renderer starts issuing archive
 //!   reads.
 
+#[cfg(any(not(test), feature = "devtools-bridge"))]
+mod archive_access;
 mod command_error;
 mod commands;
 #[cfg_attr(test, allow(dead_code))]
@@ -100,19 +102,35 @@ fn run_app() -> Result<()> {
     // folder. An archive this build may not use is left exactly as it was found: started in the
     // background the process exits with the reason, started by a person it says why and quits.
     let refusal = vault_core::admission::inspect(&paths.app_root).err();
-    if let Some(refusal) = &refusal {
-        if background {
-            return Err(refusal.clone().into());
+    let handoff = vault_core::maintenance::rollback::pending(&paths.app_root);
+    let missing = if refusal.is_none() {
+        vault_core::maintenance::control_recovery::missing_released_store(&paths)?
+    } else {
+        None
+    };
+    let restricted = missing.is_some()
+        || refusal.is_some()
+        || !matches!(handoff, Ok(None))
+        || std::env::args().any(|a| a == "--archive-recovery")
+        || vault_worker::legacy_wipe_needs_confirmation(&paths);
+    if restricted && background {
+        if let Some(file) = &missing {
+            anyhow::bail!("archive-store-missing: {}", file.display());
         }
-        for window in &mut context.config_mut().app.windows {
-            window.create = false;
+        if handoff?.is_some() {
+            anyhow::bail!(
+                "archive-handoff-choice-required: choose whether to rejoin saved conversations"
+            );
         }
+        return Err(refusal.map(anyhow::Error::from).unwrap_or_else(|| {
+            anyhow::anyhow!("archive-wipe-confirmation-required: confirm the unfinished deletion")
+        }));
     }
     context.config_mut().identifier = vault_owner_ipc::instance_identifier(&paths.app_root);
     let builder = tauri::Builder::default().manage(launches.clone());
     // A refused start is not "the running PathKeep" for this data folder. If it were, a newer
     // build started while the dialog is still open would hand over to it and show nothing.
-    let builder = if refusal.is_none() {
+    let builder = if !restricted {
         builder.plugin(tauri_plugin_single_instance::init(owner::handoff))
     } else {
         builder
@@ -134,8 +152,15 @@ fn run_app() -> Result<()> {
     );
     builder
         .setup(move |app| {
-            if let Some(refusal) = &refusal {
-                desktop_integration::refused_start(app.handle(), refusal, false);
+            if vault_build::CURRENT.is_distribution() {
+                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
+            if restricted {
+                desktop_integration::enter_recovery(app.handle());
+                #[cfg(feature = "devtools-bridge")]
+                if let Some(bridge) = dev_ipc_bridge::maybe_launch(dev_bridge_state.clone())? {
+                    bridge.attach_app(app.handle().clone()).map_err(tauri::Error::Anyhow)?;
+                }
                 return Ok(());
             }
             let paths = vault_core::project_paths().map_err(tauri::Error::Anyhow)?;
@@ -181,7 +206,8 @@ fn run_app() -> Result<()> {
                 Ok(config) => config,
                 Err(error) => match error.downcast::<vault_core::admission::Refusal>() {
                     Ok(refusal) => {
-                        desktop_integration::refused_start(app.handle(), &refusal, background);
+                        if background { return Err(Box::new(refusal)); }
+                        desktop_integration::enter_recovery(app.handle());
                         return Ok(());
                     }
                     Err(error) => return Err(tauri::Error::Anyhow(error).into()),
@@ -191,9 +217,6 @@ fn run_app() -> Result<()> {
                 .map_err(tauri::Error::Anyhow)?;
             vault_core::initialize_app_lock_session(&paths, &config)
                 .map_err(tauri::Error::Anyhow)?;
-            if vault_build::CURRENT.is_distribution() {
-                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
-            }
             if config.initialized { opening_session.begin_startup(); }
             use tauri::Manager;
             // Bind before opening databases. Connected clients wait on the session,
@@ -229,7 +252,8 @@ fn run_app() -> Result<()> {
         })
         .manage(session_state)
         .on_window_event(desktop_integration::on_window_event)
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler({
+            let dispatch: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
             enable_agent_history,
             start_backup,
             list_archive_runs,
@@ -280,6 +304,9 @@ fn run_app() -> Result<()> {
             detect_data_sources,
             preview_agent_sources,
             cancel_agent_read,
+            repair_archive_control, restart_after_archive_recovery,
+            preview_archive_rollback, prepare_archive_rollback, resolve_archive_handoff,
+            get_archive_access, get_storage_volume, take_wipe_notice, confirm_interrupted_wipe,
             app_build_info,
             app_snapshot,
             app_lock_status,
@@ -328,6 +355,7 @@ fn run_app() -> Result<()> {
             get_star_status,
             list_stars,
             get_star_counts,
+            list_conversation_imports, undo_conversation_import,
             export_app_data,
             get_maintenance_progress,
             cancel_maintenance,
@@ -474,7 +502,14 @@ fn run_app() -> Result<()> {
             set_menu_bar_icon,
             get_quit_request,
             answer_quit_request
-        ])
+        ];
+            move |invoke: tauri::ipc::Invoke<tauri::Wry>| {
+                if desktop_integration::start_was_refused() && !archive_access::recovery_command(invoke.message.command()) {
+                    invoke.resolver.reject(command_error::CommandError::recovery_only());
+                    true
+                } else { dispatch(invoke) }
+            }
+        })
         .build(context)?
         .run(|app, event| match event {
             // Every `AppHandle::exit` (the menu bar icon's and ⌘Q's Quit) and the last window

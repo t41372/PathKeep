@@ -21,6 +21,52 @@ use std::{
 };
 use vault_store::{CancelToken, Db, Priority, params};
 
+pub(crate) fn retained_bytes(path: &Path) -> Result<u64> {
+    Ok(measure(path)?.0)
+}
+
+// A wipe's displaced files and pre-conversion settings have no restore action. List them
+// only for individually selected cleanup. An active install still owns its backup.
+fn retained_folders(paths: &ProjectPaths) -> Result<Vec<RecoverySnapshot>> {
+    let mut rows = Vec::new();
+    if !paths.app_root.exists()
+        || super::install::pending(paths)
+        || crate::data_wipe_interrupted(paths)
+    {
+        return Ok(rows);
+    }
+    for entry in fs::read_dir(&paths.app_root)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let kind = [
+            (vault_layout::ArtifactId::WipeTrash, "wipeTrash"),
+            (vault_layout::ArtifactId::PreviousArchives, "previousArchive"),
+        ]
+        .into_iter()
+        .find(|(id, _)| vault_layout::family_pattern(*id).matches(&name));
+        if let Some((_, op)) = kind {
+            let path = entry.path().display().to_string();
+            rows.push(RecoverySnapshot {
+                id: path.clone(),
+                path,
+                source_op: op.into(),
+                created_at: entry
+                    .metadata()?
+                    .modified()
+                    .ok()
+                    .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339()),
+                ..Default::default()
+            });
+        }
+    }
+    rows.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(rows)
+}
+
 /// Filesystem sizing remains available before opening an archive. `copies` are the safety copies
 /// the restore list offers: each is a row of its own, and the snapshots bucket is what the
 /// snapshots folder holds besides them.
@@ -46,8 +92,10 @@ pub fn preview_retention(
             paths: vec![directory.display().to_string()],
         });
     }
+    let extras = retained_folders(paths)?;
     let copies = copies
         .iter()
+        .chain(extras.iter())
         .map(|copy| {
             let bytes =
                 members(copy).iter().map(|member| Ok(measure(member)?.0)).sum::<Result<u64>>()?;
@@ -91,7 +139,9 @@ pub fn prune(
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     let _producer = vault.begin_backup()?;
     let paths = vault.paths();
-    let copies = list_copies()?;
+    let listed = list_copies()?;
+    let mut copies = listed.clone();
+    copies.extend(retained_folders(paths)?);
     let picked = request
         .copies
         .iter()
@@ -103,7 +153,7 @@ pub fn prune(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    let preview = preview_retention(paths, &copies)?;
+    let preview = preview_retention(paths, &listed)?;
     let selected = preview
         .buckets
         .into_iter()
@@ -202,7 +252,14 @@ fn every_member(copies: &[RecoverySnapshot]) -> Vec<PathBuf> {
 
 /// What a bucket leaves in place: the snapshots bucket the listed copies, the others nothing.
 fn bucket_keeps(kind: vault_layout::RetentionBucket, kept: &[PathBuf]) -> &[PathBuf] {
-    if kind == vault_layout::RetentionBucket::Snapshots { kept } else { &[] }
+    if matches!(
+        kind,
+        vault_layout::RetentionBucket::Snapshots | vault_layout::RetentionBucket::Quarantine
+    ) {
+        kept
+    } else {
+        &[]
+    }
 }
 
 /// Runs `each` on every entry of the folder `root` that holds none of `keep`, and goes into those
@@ -227,14 +284,17 @@ fn walk_except(
         // A sole-handle copy can be published without waiting for browsing
         // maintenance. Bulk pruning never owns this family, even if it appeared
         // after enumeration. An explicit copy selection still removes the row.
-        if root == native_copies && super::snapshot::is_held_copy(&path) {
+        if (root == native_copies || root == native_copies.join("v06"))
+            && super::snapshot::is_held_copy(&path)
+        {
             continue;
         }
         if keep.contains(&path) || (staging && super::conversation_repair::cache::is_preview(&path))
         {
             continue;
         }
-        let (bytes, files) = if (path == native_copies && entry.file_type()?.is_dir())
+        let (bytes, files) = if ((path == native_copies || path == native_copies.join("v06"))
+            && entry.file_type()?.is_dir())
             || keep.iter().any(|kept| kept.starts_with(&path))
         {
             walk_except(&path, keep, false, native_copies, each)?

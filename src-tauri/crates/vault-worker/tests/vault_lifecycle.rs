@@ -6,6 +6,8 @@
 mod contracts;
 #[path = "vault_lifecycle/conversations.rs"]
 mod conversations;
+#[path = "vault_lifecycle/group5.rs"]
+mod group5;
 #[path = "vault_lifecycle/index.rs"]
 mod index;
 #[path = "vault_lifecycle/opening.rs"]

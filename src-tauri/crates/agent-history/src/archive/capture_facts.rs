@@ -159,6 +159,9 @@ impl Archive {
             let novel_digest = tx.execute(
                 "INSERT OR IGNORE INTO ah_conversation_digests(conversation_id,digest)
                  SELECT ?1,digest FROM ah_revisions WHERE id=?2",params![id.clone(),revision])?>0;
+            if changed && novel_digest {
+                tx.execute("UPDATE ah_import_conversations SET eligible=0 WHERE conversation_id=?1 AND eligible=1", [id.as_str()])?;
+            }
             let outcome=match (known,changed && novel_digest,child) {
                 (false,_,true)=>"new-child",
                 (false,_,false)=>"new-root",

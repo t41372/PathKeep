@@ -78,6 +78,8 @@
 
 ### 5. 保護資料與能退回
 
+Group 5 後端交接（2026-11-20，`track/group5`）。匯入撤回、拒絕與復原、降版交接、跨磁碟限制和儲存空間的指令與欄位見 [desktop-command-surface](../architecture/desktop-command-surface.md#group-5-archive-recovery-commands)。畫面接好且使用者流程通過 E2E 再勾選。新增的極端情況列在 BACKLOG 的「Group 5 — Recorded, not handled」。
+
 - [ ] 匯入搬家檔時保留這台的對話，匯錯可以撤回（`WORK-IMPORT-KEEPS-CONVERSATIONS`）。
 - [ ] 從安全副本修復對話（`WORK-AH-REPAIR-FROM-COPY`）。包含 2026-11-18 補上的兩件：對話讀不了的期間安全副本與還原照樣能做（現在會拒絕）；沒有可用副本時把壞掉的對話資料收成副本、從空的重新開始。
 - [ ] 存檔打不開時的拒絕畫面（`WORK-ARCHIVE-REFUSAL-SCREEN`）。

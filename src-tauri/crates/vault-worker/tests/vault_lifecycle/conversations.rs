@@ -7,7 +7,7 @@ use std::{fs, io::Read, sync::Arc};
 use vault_core::{ArchiveMode, Vault};
 
 #[path = "conversations/corpus.rs"]
-mod corpus;
+pub(super) mod corpus;
 #[path = "conversations/receipts.rs"]
 mod receipts;
 use corpus::{Corpus, fixtures, query, sessions};
@@ -166,7 +166,7 @@ fn move_to_empty_and_populated_destinations() {
         let original = browsing_ref(&fixture.session);
         let corpus = Corpus::seed(&fixture);
         let vault = fixture.vault();
-        let bundle = fixture.root.join("exports/real-conversations.pathkeep");
+        let bundle = fixture.root.join("exports/pathkeep/format-3/real-conversations.pathkeep");
         vault_worker::export_app_data(&vault, bundle.clone(), EXPORT_PASSWORD).unwrap();
         corpus.check(&vault, encrypted.then_some(PASSWORD));
         for populated in [false, true] {
@@ -243,7 +243,123 @@ fn move_to_empty_and_populated_destinations() {
                 .to_string(),
                 "record-unavailable"
             );
-            corpus.check(&session.vault().unwrap(), Some(EXPORT_PASSWORD));
+            let vault = session.vault().unwrap();
+            if populated {
+                corpus.check_merged(&vault);
+                let archive = vault.agent_history().unwrap();
+                let rows = ["only", "exclude"]
+                    .into_iter()
+                    .flat_map(|trash| {
+                        archive
+                            .list_sessions(&agent_history::query::SessionQuery {
+                                trash: trash.into(),
+                                put_away: "include".into(),
+                                ..Default::default()
+                            })
+                            .unwrap()
+                            .items
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(rows.len(), 5);
+                let local = rows.iter().find(|r| r.native_id == "destination-session").unwrap();
+                let continued = rows
+                    .iter()
+                    .find(|r| r.harness == agent_history::Harness::Pi && r.id != local.id)
+                    .unwrap();
+                let root = fixture.sandbox.path().join("continued-pi");
+                fixtures::pi(
+                    &root,
+                    continued.project_path.as_deref().unwrap(),
+                    &continued.native_id,
+                    "new content backed up here",
+                );
+                archive
+                    .backup(
+                        &[SourceRoot { root, harness: agent_history::Harness::Pi }],
+                        &BackupOptions { read_git: false, ..Default::default() },
+                    )
+                    .unwrap();
+                let imports = vault_core::migration::conversations::imports(&vault).unwrap();
+                assert_eq!(imports.len(), 1);
+                assert_eq!(imports[0]["added"], 4);
+                let copy = target
+                    .join(vault_layout::PREVIOUS_GENERATIONS_V06)
+                    .join(imports[0]["previousCopy"].as_str().unwrap());
+                let undo_path = if encrypted {
+                    let report = vault_worker::restore_with_current_password(
+                        &session,
+                        Some(PASSWORD),
+                        None,
+                        true,
+                        false,
+                        &vault_core::SnapshotRestoreRequest {
+                            snapshot_path: copy.display().to_string(),
+                        },
+                    )
+                    .unwrap();
+                    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+                    let copies = vault_worker::list_recovery_snapshots().unwrap();
+                    std::path::PathBuf::from(
+                        &copies.iter().find(|c| c.source_op == "importUndo").unwrap().path,
+                    )
+                } else {
+                    vault_worker::run_retention_plan(
+                        &vault,
+                        &vault_core::RetentionPruneRequest {
+                            copies: vec![copy.display().to_string()],
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                    assert!(!copy.exists());
+                    let undo = vault_core::migration::conversations::undo(
+                        &vault,
+                        imports[0]["id"].as_str().unwrap().into(),
+                    )
+                    .unwrap();
+                    assert_eq!(undo["moved"], 3);
+                    std::path::PathBuf::from(undo["copyPath"].as_str().unwrap())
+                };
+                let archive = session.vault().unwrap().agent_history().unwrap();
+                assert!(!archive.session(&continued.id).unwrap().trashed);
+                let saved =
+                    agent_history::Archive::open(&undo_path, EXPORT_PASSWORD.as_bytes()).unwrap();
+                assert!(saved.session(&local.id).is_err() && saved.session(&continued.id).is_err());
+                assert!(!undo_path.join("archive/history-vault.db").exists());
+                for row in rows.iter().filter(|r| r.id != local.id && r.id != continued.id) {
+                    assert_eq!(saved.session(&row.id).unwrap().native_id, row.native_id);
+                }
+                drop(saved);
+                assert!(!archive.session(&local.id).unwrap().trashed);
+                assert!(
+                    rows.iter()
+                        .filter(|r| r.id != local.id && r.id != continued.id)
+                        .all(|r| archive.session(&r.id).unwrap().trashed)
+                );
+                if !encrypted {
+                    let (_, repeated) = vault_worker::apply_import(
+                        vault.paths(),
+                        Some(&vault),
+                        session.owner(),
+                        bundle.clone(),
+                        vault_core::ApplyImportOptions {
+                            confirm_overwrite: true,
+                            source_archive_key: Some(EXPORT_PASSWORD.into()),
+                        },
+                    )
+                    .unwrap();
+                    let receipts =
+                        vault_core::migration::conversations::imports(&repeated.vault).unwrap();
+                    assert_eq!(receipts.len(), 1);
+                    assert_eq!(receipts[0]["eligible"], 0);
+                    let again = repeated.vault.agent_history().unwrap();
+                    assert!(!again.session(&local.id).unwrap().trashed);
+                    assert!(!again.session(&continued.id).unwrap().trashed);
+                    repeated.vault.close().unwrap();
+                }
+            } else {
+                corpus.check(&vault, Some(EXPORT_PASSWORD));
+            }
             session.close_vault().unwrap();
         }
     }

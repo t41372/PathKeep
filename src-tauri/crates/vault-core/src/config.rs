@@ -77,6 +77,16 @@ impl ProjectPaths {
         self.artifact_path(vault_layout::db_artifact(vault_layout::primary_database()))
     }
 
+    /// Native copy discovery includes the released 0.5 folder and both 0.6 families.
+    pub fn native_copy_folders(&self) -> [PathBuf; 3] {
+        let older = self.artifact_path(A::NativeSnapshots);
+        [
+            older.clone(),
+            older.join("v06"),
+            self.app_root.join(vault_layout::PREVIOUS_GENERATIONS_V06),
+        ]
+    }
+
     /// Old-format recovery keeps its own primary instead of borrowing the native role set.
     pub fn legacy_archive_path(&self) -> PathBuf {
         self.artifact_path(vault_layout::legacy_primary())

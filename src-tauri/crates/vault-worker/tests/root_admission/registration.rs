@@ -23,8 +23,7 @@ fn literal(words: &str) -> BTreeSet<String> {
 fn every_desktop_registration_has_a_reviewed_inventory_row() {
     let source =
         fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/lib.rs")).unwrap();
-    let body =
-        source.split("tauri::generate_handler![").nth(1).unwrap().split("])").next().unwrap();
+    let body = source.split("tauri::generate_handler![").nth(1).unwrap().split(']').next().unwrap();
     let actual: BTreeSet<_> =
         body.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned).collect();
     let expected = super::support::fixture("desktop-operations.txt");

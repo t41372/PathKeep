@@ -578,7 +578,7 @@ fn conversation_repair_screen_wire_contract() {
             json!({"request":{"previewToken":healthy["previewToken"]}}),
             true
         );
-        let bundle = root.path().join("exports/demo.pathkeep");
+        let bundle = root.path().join("exports/pathkeep/format-3/demo.pathkeep");
         dispatch_command(
             &state,
             "export_app_data",
@@ -866,4 +866,43 @@ fn browsing_queue_commits_reach_the_tasks_event_stream() {
         vault_core::ai_queue::cancel_ai_job(&vault, queued.id).unwrap();
         assert!(observed().iter().any(|(n, _)| *n == "pathkeep://background-tasks-changed"));
     });
+}
+
+#[test]
+fn archive_access_reports_read_and_write_floors_without_opening_the_root() {
+    let (_guard, _platform) = isolated_env();
+    let root = tempdir().unwrap();
+    unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path()) };
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    let read =
+        || ready_block_on(dispatch_command(&state, "get_archive_access", json!({}))).unwrap();
+    assert_eq!(read()["state"], "notInitialized");
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+    let path = root.path().join("config.json");
+    for (reader, writer, expected) in [(2, 2, "refusedRead"), (1, 2, "refusedWrite")] {
+        let control=json!({"archiveMode":{"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":2,"minReader":reader,"minWriter":writer}}}).to_string();
+        std::fs::write(&path, &control).unwrap();
+        let report = read();
+        assert_eq!(report["state"], expected);
+        assert_eq!(report["archive"]["minWriter"], writer);
+        assert_eq!(report["buildLevel"], 1);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), control);
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+    std::fs::write(&path, b"broken settings").unwrap();
+    assert_eq!(read()["state"], "needsRecovery");
+    assert_eq!(read()["code"], "archive-control-invalid");
+    std::fs::remove_file(path).unwrap();
+    ready_block_on(dispatch_command(&state, "initialize_archive", json!({"config":test_config()})))
+        .unwrap();
+    assert_eq!(read()["state"], "open");
+    let volume = ready_block_on(dispatch_command(
+        &state,
+        "get_storage_volume",
+        json!({"folder":root.path().join("new")}),
+    ))
+    .unwrap();
+    assert!(volume["fat"].is_boolean());
+    assert!(!root.path().join("new").exists());
 }

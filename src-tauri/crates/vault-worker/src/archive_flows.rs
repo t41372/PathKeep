@@ -76,6 +76,7 @@ pub fn list_recovery_snapshots() -> Result<Vec<vault_core::RecoverySnapshot>> {
     vault_core::admission::refuse_newer(&paths.app_root)?;
     let mut snapshots = vault_core::maintenance::list_snapshots(&paths)?;
     snapshots.extend(vault_convert_sqlcipher::list_legacy_snapshots(&paths)?);
+    snapshots.extend(vault_core::maintenance::rollback::detached_snapshots(&paths)?);
     snapshots.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| b.path.cmp(&a.path)));
     Ok(snapshots)
 }
@@ -89,6 +90,19 @@ pub fn list_recovery_snapshots() -> Result<Vec<vault_core::RecoverySnapshot>> {
 pub fn run_full_archive_restore(
     session: &crate::VaultSession,
     password: Option<&str>,
+    request: &vault_core::SnapshotRestoreRequest,
+) -> Result<vault_core::FullArchiveRestoreReport> {
+    restore_with_current_password(session, password, None, false, false, request)
+}
+
+/// A damaged live control can prevent a session from opening. Authenticate the live envelope
+/// directly so the installed generation retains its encryption and password.
+pub fn restore_with_current_password(
+    session: &crate::VaultSession,
+    password: Option<&str>,
+    current_password: Option<&str>,
+    undo_conversations: bool,
+    use_copy_encryption: bool,
     request: &vault_core::SnapshotRestoreRequest,
 ) -> Result<vault_core::FullArchiveRestoreReport> {
     // Until the restored archive is installed and its key stored, not only while the copy
@@ -116,11 +130,33 @@ pub fn run_full_archive_restore(
         listed && source.exists(),
         "snapshot-not-listed: restore only from a safety snapshot PathKeep lists"
     );
-    let live_key = session.data_key();
+    let undo_id =
+        if undo_conversations {
+            let vault = current
+                .as_ref()
+                .context("agent-history-key-required: unlock conversations before undo")?;
+            let name =
+                source.file_name().and_then(|n| n.to_str()).context("invalid safety copy name")?;
+            Some(vault_core::migration::conversations::imports(vault)?.into_iter()
+            .find(|batch|batch["previousCopy"].as_str()==Some(name))
+            .and_then(|batch|batch["id"].as_str().map(str::to_owned))
+            .context("conversation-import-not-found: no conversation import belongs to this copy")?)
+        } else {
+            None
+        };
+    let live_key = match current_password {
+        Some(password) => Some(std::sync::Arc::new(Vault::unlock_data_key(&paths, password)?)),
+        None => session.data_key(),
+    };
     // The archive keeps its password (`restore_snapshot_to`); `password` opens only the copy.
-    let archive_password = session.get_key().map_err(anyhow::Error::msg)?;
+    let archive_password =
+        current_password.map(str::to_owned).or(session.get_key().map_err(anyhow::Error::msg)?);
     let legacy = source.is_file();
     // Nothing opens the archive while it is replaced, until the restored one is published.
+    anyhow::ensure!(
+        !use_copy_encryption || (!legacy && live_key.is_none() && !undo_conversations),
+        "archive-copy-protection-unavailable: requires a native safety copy and a closed archive"
+    );
     let lease = session.begin_maintenance().map_err(anyhow::Error::msg)?;
     let installed = crate::maintenance_jobs::run(
         &paths.app_root,
@@ -139,13 +175,17 @@ pub fn run_full_archive_restore(
                     progress,
                 );
             }
-            vault_core::maintenance::restore_snapshot_to(
+            vault_core::maintenance::restore_with_protection(
                 &paths,
                 current.as_ref(),
                 session.owner(),
                 source,
                 password,
-                live_key.as_deref(),
+                if use_copy_encryption {
+                    vault_core::maintenance::RestoreProtection::FromCopy
+                } else {
+                    vault_core::maintenance::RestoreProtection::Current(live_key.as_deref())
+                },
                 cancel,
             )
         },
@@ -160,7 +200,7 @@ pub fn run_full_archive_restore(
             )],
         ),
     };
-    let report = vault_core::FullArchiveRestoreReport {
+    let mut report = vault_core::FullArchiveRestoreReport {
         run_id,
         restored_snapshot_path: request.snapshot_path.clone(),
         restored_mode: installed.vault.config().archive_mode.clone(),
@@ -182,6 +222,12 @@ pub fn run_full_archive_restore(
         crate::session::KeychainAfterInstall::AsSaved,
     )?;
     drop(lease);
+    if let Some(id) = undo_id {
+        let restored = session.vault().map_err(anyhow::Error::msg)?;
+        if let Err(e) = vault_core::migration::conversations::undo(&restored, id) {
+            report.warnings.push(format!("conversation-import-undo-failed: {e:#}"));
+        }
+    }
     Ok(report)
 }
 

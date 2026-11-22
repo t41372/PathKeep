@@ -10,7 +10,7 @@ use std::{
 
 #[allow(dead_code)]
 #[path = "../../../../agent-history/tests/support/fixtures.rs"]
-pub(super) mod fixtures;
+pub(crate) mod fixtures;
 
 fn write(path: &Path, bytes: &[u8]) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -274,6 +274,52 @@ impl Corpus {
                 }
             }
         }
+    }
+
+    /// Merge can allocate new storage-local revision IDs. Compare the retained bytes, marks,
+    /// source observations, ledger and searchable conversations by their public identities.
+    pub(super) fn check_merged(&self, vault: &Vault) {
+        let archive = vault.agent_history().unwrap();
+        let mut found = BTreeSet::new();
+        for src in archive.list_sources(&Default::default()).unwrap().items {
+            let path = Path::new(&src.root).join(&src.relative_path);
+            let Some(expected) = self.revisions.get(&path) else { continue };
+            assert!(found.insert(path.clone()));
+            assert_eq!(src.missing_since.is_some(), path == self.removed);
+            let revisions = archive.revisions(&src.id, 100, None).unwrap();
+            assert_eq!(revisions.items.len(), expected.len());
+            for (revision, bytes) in revisions.items.iter().zip(expected) {
+                let mut actual = Vec::new();
+                archive.write_raw(revision.id, &mut actual).unwrap();
+                assert_eq!(actual.len(), bytes.len());
+                assert!(actual == *bytes);
+            }
+        }
+        assert_eq!(found.len(), self.revisions.len());
+        for expected in self.sessions.values() {
+            let actual =
+                serde_json::to_value(archive.session(expected["id"].as_str().unwrap()).unwrap())
+                    .unwrap();
+            for field in ["native_id", "project_path", "title", "starred", "put_away", "trashed"] {
+                assert_eq!(actual[field], expected[field], "{field}");
+            }
+        }
+        let hits = archive
+            .search(&query())
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|h| h.session_id)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            hits,
+            ["claude-code", "deepseek", "pi"]
+                .map(|h| self.sessions[h]["id"].as_str().unwrap().to_owned())
+                .into()
+        );
+        let captured = captured_units(vault);
+        assert!(self.capture_facts.iter().all(|f| captured.contains(f)));
+        assert_eq!(receipts::fingerprint(vault), self.receipt_fingerprint);
     }
 
     pub(super) fn retitle(&mut self, vault: &Vault) {

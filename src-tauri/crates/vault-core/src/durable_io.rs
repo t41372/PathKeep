@@ -439,8 +439,17 @@ fn exclusive_rename(_from: &Path, _to: &Path) -> Option<io::Result<()>> {
 /// time. Returns the number removed. A missing `dir` is not an error (nothing to sweep). Nothing
 /// sweeps the archive directory at startup yet; history export sweeps its own directory by age.
 pub fn sweep_temps_older_than(dir: &Path, min_age: Duration) -> Result<usize> {
+    sweep_aged(dir, min_age, false)
+}
+
+/// Export destinations can contain the published twin of a durable temporary file.
+pub fn sweep_export_temps(dir: &Path, min_age: Duration) -> Result<usize> {
+    sweep_aged(dir, min_age, true)
+}
+
+fn sweep_aged(dir: &Path, min_age: Duration, preserve_twins: bool) -> Result<usize> {
     let now = SystemTime::now();
-    sweep_temps_matching(dir, |entry| {
+    sweep_temps_matching(dir, preserve_twins, |entry| {
         entry
             .metadata()
             .and_then(|metadata| metadata.modified())
@@ -450,7 +459,11 @@ pub fn sweep_temps_older_than(dir: &Path, min_age: Duration) -> Result<usize> {
     })
 }
 
-fn sweep_temps_matching(dir: &Path, stale: impl Fn(&fs::DirEntry) -> bool) -> Result<usize> {
+fn sweep_temps_matching(
+    dir: &Path,
+    preserve_twins: bool,
+    stale: impl Fn(&fs::DirEntry) -> bool,
+) -> Result<usize> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
@@ -464,6 +477,7 @@ fn sweep_temps_matching(dir: &Path, stale: impl Fn(&fs::DirEntry) -> bool) -> Re
         if vault_layout::family_pattern(vault_layout::ArtifactId::AtomicTemps)
             .matches(&entry.file_name().to_string_lossy())
             && stale(&entry)
+            && (!preserve_twins || !has_published_twin(dir, &entry)?)
         {
             let temp = entry.path();
             vault_fs::remove_file(&temp)
@@ -472,6 +486,30 @@ fn sweep_temps_matching(dir: &Path, stale: impl Fn(&fs::DirEntry) -> bool) -> Re
         }
     }
     Ok(removed)
+}
+
+// A non-journaling volume can retain both names of a published file. Length eliminates
+// unrelated files without opening them. Hash the temp only if there is a candidate.
+fn has_published_twin(dir: &Path, temp: &fs::DirEntry) -> Result<bool> {
+    let length = temp.metadata()?.len();
+    let mut digest = None;
+    for sibling in fs::read_dir(dir)? {
+        let sibling = sibling?;
+        if !sibling.file_type()?.is_file()
+            || vault_layout::family_pattern(vault_layout::ArtifactId::AtomicTemps)
+                .matches(&sibling.file_name().to_string_lossy())
+            || sibling.metadata()?.len() != length
+        {
+            continue;
+        }
+        if digest.is_none() {
+            digest = Some(crate::file_sha256_hex(&temp.path())?);
+        }
+        if digest.as_ref() == Some(&crate::file_sha256_hex(&sibling.path())?) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 #[cfg(test)]

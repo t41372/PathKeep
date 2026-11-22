@@ -127,6 +127,9 @@ pub fn preview_rekey_archive(request: &RekeyRequest) -> Result<vault_core::Rekey
     );
     crate::current_password::verified_current_key(&paths, &config, request)?;
     let rewrap = config.archive_mode == request.new_mode;
+    if !rewrap {
+        vault_core::storage_volume::require_snapshot_volume(&paths)?;
+    }
     let copy = rekey_copy(&config.preferred_language);
     let mut preview = vault_core::RekeyPreview {
         current_mode: config.archive_mode,
@@ -135,7 +138,7 @@ pub fn preview_rekey_archive(request: &RekeyRequest) -> Result<vault_core::Rekey
         snapshot_path: if rewrap {
             String::new()
         } else {
-            paths.raw_snapshots_dir.join("maintenance/rekey-<id>").display().to_string()
+            paths.raw_snapshots_dir.join("maintenance/v06/rekey-<id>").display().to_string()
         },
         temp_database_path: if rewrap {
             String::new()

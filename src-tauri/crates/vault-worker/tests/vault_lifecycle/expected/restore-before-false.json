@@ -32,14 +32,14 @@
     "derived/search-index/<generation-1>/meta.json",
     "derived/search-index/current",
     "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/agent-history.db",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/history-vault.db",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/source-evidence.db",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/config.json",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent-history-read-model.db",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent.db",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/intelligence.db",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/snapshot.json",
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/archive/agent-history.db",
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/archive/history-vault.db",
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/archive/source-evidence.db",
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/config.json",
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/derived/agent-history-read-model.db",
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/derived/agent.db",
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/derived/intelligence.db",
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/snapshot.json",
     "sidecars/intelligence-blobs/89/ad/89add169a6847800eba8346ee2fe0a64abcd0f6aff31fd91d347c8136c5d873f.txt"
   ],
   "markers": {
@@ -52,38 +52,38 @@
       "derived/intelligence.db"
     ],
     "pkagentdenim": [
-      "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent.db"
+      "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/derived/agent.db"
     ],
     "pkagenthistoryivory": [
       "archive/agent-history.db",
-      "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/agent-history.db"
+      "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/archive/agent-history.db"
     ],
     "pkarchiveamber": [
-      "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/history-vault.db"
+      "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/archive/history-vault.db"
     ],
     "pkaskhazel": [
       "derived/agent.db",
-      "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent.db"
+      "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/derived/agent.db"
     ],
     "pkcheckpointgold": [
       "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History"
     ],
     "pkevidencebirch": [
-      "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/source-evidence.db"
+      "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/archive/source-evidence.db"
     ],
     "pkintelligencecoral": [
       "derived/intelligence.db",
-      "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/intelligence.db"
+      "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/derived/intelligence.db"
     ],
     "pkreadmodeljade": [
-      "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent-history-read-model.db"
+      "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/derived/agent-history-read-model.db"
     ],
     "pksearchelm": [
       "archive/history-vault.db",
       "archive/source-evidence.db",
       "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History",
-      "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/history-vault.db",
-      "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/source-evidence.db"
+      "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/archive/history-vault.db",
+      "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/archive/source-evidence.db"
     ],
     "pktextfuchsia": [
       "sidecars/intelligence-blobs/89/ad/89add169a6847800eba8346ee2fe0a64abcd0f6aff31fd91d347c8136c5d873f.txt"
@@ -116,12 +116,12 @@
     "derived/agent.db": "sqlite",
     "derived/intelligence.db": "sqlite",
     "derived/scratch.db": "empty",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/agent-history.db": "sqlite",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/history-vault.db": "sqlite",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/source-evidence.db": "sqlite",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent-history-read-model.db": "sqlite",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent.db": "sqlite",
-    "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/intelligence.db": "sqlite"
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/archive/agent-history.db": "sqlite",
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/archive/history-vault.db": "sqlite",
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/archive/source-evidence.db": "sqlite",
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/derived/agent-history-read-model.db": "sqlite",
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/derived/agent.db": "sqlite",
+    "raw-snapshots/maintenance/v06/<rekey-maintenance-1>/derived/intelligence.db": "sqlite"
   },
   "configMode": "Plaintext",
   "plaintextGapFamilies": [

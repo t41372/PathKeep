@@ -165,7 +165,7 @@ fn startup_rolls_back_interrupted_bundle_import_and_snapshot_restore() {
         let paths = vault.paths().clone();
         let config = vault.config().clone();
         let snapshot_path = paths.raw_snapshots_dir.join("maintenance/restore-test");
-        let bundle_path = paths.app_root.join("portable.pathkeep");
+        let bundle_path = paths.app_root.join("exports/pathkeep/format-3/portable.pathkeep");
         snapshot(&vault, &snapshot_path).unwrap();
         if bundle {
             crate::migration::native::export(

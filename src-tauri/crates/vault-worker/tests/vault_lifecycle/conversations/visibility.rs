@@ -114,7 +114,7 @@ fn move_preview_and_install_follow_destination_visibility_without_granting_roots
     let f = Fixture::new(false);
     f.create_browser();
     seed(&f.vault(), &f.sandbox.path().join("native-pi"));
-    let bundle = f.root.join("exports/visible.pathkeep");
+    let bundle = f.root.join("exports/pathkeep/format-3/visible.pathkeep");
     vault_worker::export_app_data(&f.vault(), bundle.clone(), EXPORT_PASSWORD).unwrap();
     for populated in [false, true] {
         for hidden in [false, true] {

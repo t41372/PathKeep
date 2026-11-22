@@ -118,6 +118,13 @@ pub struct CommandError {
 }
 
 impl CommandError {
+    #[cfg(any(not(test), feature = "devtools-bridge"))]
+    pub(crate) fn recovery_only() -> Self {
+        Self::classified(
+            "archive-recovery-only: the archive is open for recovery commands only".into(),
+        )
+    }
+
     /// Wraps an infrastructure failure (thread-pool join, payload parse) that
     /// carries no user remediation — no code, hints, or classification.
     pub fn internal(message: impl Into<String>) -> Self {
@@ -207,7 +214,7 @@ impl CommandError {
 
 /// Codes the backend writes as the first word of a failure (`code: detail`). The archive
 /// refusals (`vault_core::admission::Reason`) are classified the same way, from their own list.
-const CODED_FAILURES: [&str; 24] = [
+const CODED_FAILURES: &[&str] = &[
     "envelope-missing",
     "archive-password-wrong",
     "archive-busy",
@@ -225,11 +232,30 @@ const CODED_FAILURES: [&str; 24] = [
     "archive-installed-keychain-unavailable",
     "archive-conversion-required",
     "export-target-is-managed",
+    "snapshot-folder-cross-device",
+    "archive-current-password-required",
+    "agent-history-key-required",
+    "archive-schema-too-new",
+    "archive-handoff-choice-required",
+    "archive-handoff-cross-device",
+    "archive-handoff-invalid",
+    "archive-copy-protection-unavailable",
+    "archive-control-recovery-unavailable",
+    "archive-store-recovery-unavailable",
+    "conversation-import-not-found",
+    "archive-handoff-incomplete",
+    "archive-handoff-destination-occupied",
+    "archive-rollback-unsupported",
+    "archive-wipe-confirmation-required",
     "snapshot-not-listed",
     "not-in-history",
     "backup-no-profiles",
     "archive-wipe-unfinished",
     "archive-wipe-stopped",
+    "archive-operation-interrupted",
+    "archive-recovery-required",
+    "archive-recovery-only",
+    "archive-wipe-rolled-back",
     "move-file-too-new",
     "archive-store-missing",
 ];

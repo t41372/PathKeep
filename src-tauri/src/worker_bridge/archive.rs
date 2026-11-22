@@ -149,10 +149,20 @@ pub(crate) fn list_recovery_snapshots_impl()
 pub(crate) fn run_full_archive_restore_impl(
     request: vault_core::SnapshotRestoreRequest,
     key: Option<String>,
+    current_password: Option<String>,
+    undo_conversations: bool,
+    use_copy_encryption: bool,
     state: &SessionState,
 ) -> Result<vault_core::FullArchiveRestoreReport, CommandError> {
     let effective_key = key.or(session_key(state)?);
-    worker_result(vault_worker::run_full_archive_restore(state, effective_key.as_deref(), &request))
+    worker_result(vault_worker::restore_with_current_password(
+        state,
+        effective_key.as_deref(),
+        current_password.as_deref(),
+        undo_conversations,
+        use_copy_encryption,
+        &request,
+    ))
 }
 
 #[cfg_attr(test, allow(dead_code))]

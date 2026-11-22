@@ -6,15 +6,18 @@ use super::support::*;
 use vault_store::Db;
 
 #[test]
-fn move_export_contains_five_databases_and_encrypted_portable_artifacts() {
+fn move_export_contains_databases_and_encrypted_portable_artifacts() {
     for encrypted in [false, true] {
         let fixture = Fixture::new(encrypted);
         fixture.seed();
-        let bundle = fixture.root.join("exports/lifecycle.pathkeep");
+        let bundle = fixture.root.join("exports/pathkeep/format-3/lifecycle.pathkeep");
         vault_worker::export_app_data(&fixture.vault(), bundle.clone(), EXPORT_PASSWORD).unwrap();
         let actual = observe(&fixture.root, Some(&fixture.vault()), &format!("export-{encrypted}"));
         assert_eq!(actual["unknown"], serde_json::json!([]));
         assert_eq!(actual, expected(&format!("export-{encrypted}")));
+        let preview =
+            vault_worker::preview_import(fixture.vault().paths(), bundle.clone()).unwrap();
+        assert_eq!(preview.manifest.app_version, vault_core::APP_VERSION);
         let entries = zip_entries(&bundle);
         std::fs::write(
             fixture.sandbox.path().join("zip-entries.json"),
@@ -28,6 +31,7 @@ fn move_export_contains_five_databases_and_encrypted_portable_artifacts() {
                 "archive/agent-history.db",
                 "archive/agent.db",
                 "archive/history-vault.db",
+                "archive/intelligence-originals.pkf",
                 "archive/keys.envelope",
                 "archive/portable-artifacts.pkf",
                 "archive/source-evidence.db",
@@ -40,11 +44,11 @@ fn move_export_contains_five_databases_and_encrypted_portable_artifacts() {
 }
 
 #[test]
-fn empty_root_import_preserves_evidence_and_ask_but_loses_intelligence_metadata() {
+fn empty_root_import_preserves_originals_and_their_saved_text() {
     for encrypted in [false, true] {
         let fixture = Fixture::new(encrypted);
         fixture.seed();
-        let bundle = fixture.root.join("exports/lifecycle.pathkeep");
+        let bundle = fixture.root.join("exports/pathkeep/format-3/lifecycle.pathkeep");
         vault_worker::export_app_data(&fixture.vault(), bundle.clone(), EXPORT_PASSWORD).unwrap();
         let source = observe(
             &fixture.root,
@@ -97,8 +101,24 @@ fn empty_root_import_preserves_evidence_and_ask_but_loses_intelligence_metadata(
             store_marker(&vault, Db::AgentHistoryReadModel).as_deref(),
             Some("pkreadmodeljade")
         );
-        // Discrepancy I1 / Q1: format 2 drops original Intelligence choices and the saved
-        // text locator even though the blob bytes themselves travel in the artifact TAR.
+        assert_eq!(
+            vault
+                .store()
+                .read(Db::Intelligence, |s| s.query_one(
+                    "SELECT query_param_key FROM search_engine_rules WHERE rule_id='local-engine'",
+                    (),
+                    |r| Ok(r.get::<String>(0)?)
+                ))
+                .unwrap(),
+            "term"
+        );
+        let relative = vault.store().read(Db::Intelligence,|s|s.query_one(
+            "SELECT readable_text_blob_path FROM page_content_enrichments WHERE canonical_url='https://lifecycle.example.test/page'",(),|r|Ok(r.get::<String>(0)?))).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(paths.intelligence_blobs_dir.join(relative)).unwrap(),
+            "pktextfuchsia"
+        );
+        // Rebuildable tables stay behind. The user’s rules and saved text travel together.
         assert_eq!(store_marker(&vault, Db::Intelligence), None);
         assert_eq!(
             vault
@@ -109,7 +129,7 @@ fn empty_root_import_preserves_evidence_and_ask_but_loses_intelligence_metadata(
                     |r| Ok(r.get::<i64>(0)?)
                 ))
                 .unwrap(),
-            0
+            1
         );
         assert_eq!(
             vault
@@ -120,7 +140,7 @@ fn empty_root_import_preserves_evidence_and_ask_but_loses_intelligence_metadata(
                     |r| Ok(r.get::<i64>(0)?)
                 ))
                 .unwrap(),
-            0
+            1
         );
         assert_eq!(
             vault_worker::load_ai_conversation(&vault, "lifecycle-chat").unwrap().unwrap().messages
@@ -143,7 +163,7 @@ fn populated_root_import_replaces_derived_and_keeps_the_previous_archive() {
     for encrypted in [false, true] {
         let fixture = Fixture::new(encrypted);
         fixture.seed();
-        let bundle = fixture.root.join("exports/lifecycle.pathkeep");
+        let bundle = fixture.root.join("exports/pathkeep/format-3/lifecycle.pathkeep");
         vault_worker::export_app_data(&fixture.vault(), bundle.clone(), EXPORT_PASSWORD).unwrap();
         let source = observe(
             &fixture.root,
@@ -235,14 +255,30 @@ fn populated_root_import_replaces_derived_and_keeps_the_previous_archive() {
         assert_eq!(store_marker(&vault, Db::Agent).as_deref(), Some("pkagentdenim"));
         assert_eq!(
             store_marker(&vault, Db::AgentHistoryEvidence).as_deref(),
-            Some("pkagenthistoryivory")
+            Some("targetagenthistory")
         );
         assert_eq!(
             store_marker(&vault, Db::AgentHistoryReadModel).as_deref(),
-            Some("pkreadmodeljade")
+            Some("targetreadmodel")
         );
-        // Discrepancy I1 / Q1: format 2 drops original Intelligence choices and the saved
-        // text locator even though the blob bytes themselves travel in the artifact TAR.
+        assert_eq!(
+            vault
+                .store()
+                .read(Db::Intelligence, |s| s.query_one(
+                    "SELECT query_param_key FROM search_engine_rules WHERE rule_id='local-engine'",
+                    (),
+                    |r| Ok(r.get::<String>(0)?)
+                ))
+                .unwrap(),
+            "term"
+        );
+        let relative = vault.store().read(Db::Intelligence,|s|s.query_one(
+            "SELECT readable_text_blob_path FROM page_content_enrichments WHERE canonical_url='https://lifecycle.example.test/page'",(),|r|Ok(r.get::<String>(0)?))).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(paths.intelligence_blobs_dir.join(relative)).unwrap(),
+            "pktextfuchsia"
+        );
+        // Rebuildable tables stay behind. The user’s rules and saved text travel together.
         assert_eq!(store_marker(&vault, Db::Intelligence), None);
         assert_eq!(
             vault
@@ -253,7 +289,7 @@ fn populated_root_import_replaces_derived_and_keeps_the_previous_archive() {
                     |r| Ok(r.get::<i64>(0)?)
                 ))
                 .unwrap(),
-            0
+            1
         );
         assert_eq!(
             vault
@@ -264,7 +300,7 @@ fn populated_root_import_replaces_derived_and_keeps_the_previous_archive() {
                     |r| Ok(r.get::<i64>(0)?)
                 ))
                 .unwrap(),
-            0
+            1
         );
         assert_eq!(
             vault_worker::load_ai_conversation(&vault, "lifecycle-chat").unwrap().unwrap().messages

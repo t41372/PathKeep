@@ -79,6 +79,7 @@ pub(super) fn open(
 ) -> anyhow::Result<(Vault, DataKey)> {
     // Before the owner lock and before an envelope can be created.
     crate::admission::require_control(&paths.app_root)?;
+    crate::maintenance::rollback::require_resolved(&paths.app_root)?;
     let owner = match owner {
         Some(owner) => owner,
         None => Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)?),

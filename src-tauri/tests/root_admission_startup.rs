@@ -150,3 +150,65 @@ fn what_a_first_start_creates_still_reads_as_a_first_run() {
         after.entries.keys().collect::<Vec<_>>()
     );
 }
+
+#[cfg(all(target_os = "linux", feature = "devtools-bridge"))]
+#[test]
+fn dev_ipc_bridge_foreground_refusal_exposes_only_recovery_without_touching_the_archive() {
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::time::Instant;
+
+    struct App(std::process::Child);
+    impl Drop for App {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("root");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("config.json"), FUTURE).unwrap();
+    let before = tree::census(&root, vault_core::utils::sha256_hex);
+    let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let mut app = App(Command::new(env!("CARGO_BIN_EXE_pathkeep-desktop"))
+        .current_dir(temp.path())
+        .env("CHB_PROJECT_ROOT", &root)
+        .env("PATHKEEP_ENABLE_DEV_IPC_BRIDGE", "1")
+        .env("PATHKEEP_DEV_IPC_PORT", port.to_string())
+        .env("PATHKEEP_PLATFORM_TEST_SANDBOX_DIR", temp.path().join("os"))
+        .env("PATHKEEP_TEST_BLOCK_NETWORK", "1")
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap());
+    let post = |command: &str, body: &str| -> std::io::Result<serde_json::Value> {
+        let mut stream = TcpStream::connect(("127.0.0.1", port))?;
+        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+        write!(
+            stream,
+            "POST /commands/{command} HTTP/1.0\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )?;
+        let mut reply = String::new();
+        stream.read_to_string(&mut reply)?;
+        Ok(serde_json::from_str(reply.split_once("\r\n\r\n").expect("HTTP response").1)?)
+    };
+    let start = Instant::now();
+    let report = loop {
+        if let Ok(report) = post("get_archive_access", "{}") {
+            break report;
+        }
+        assert!(app.0.try_wait().unwrap().is_none(), "refusal closed the desktop");
+        assert!(start.elapsed() < Duration::from_secs(30), "recovery bridge did not open");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(report["state"], "refusedRead");
+    assert_eq!(report["recoveryOnly"], true);
+    assert_eq!(report["code"], "archive-reader-too-old");
+    assert_eq!(
+        post("wipe_all_data", r#"{"confirmation":"DELETE"}"#).unwrap()["code"],
+        "archive-recovery-only"
+    );
+    assert_eq!(before, tree::census(&root, vault_core::utils::sha256_hex));
+}

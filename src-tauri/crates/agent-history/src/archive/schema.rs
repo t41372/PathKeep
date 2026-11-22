@@ -22,7 +22,7 @@ pub fn schema_steps(db: Db) -> Vec<Migration> {
             67,
             // Project choices and Insights preferences.
             &[(64, " ON CONFLICT(singleton) DO NOTHING"), (66, " ON CONFLICT(id) DO NOTHING")],
-            &[],
+            super::move_import::SCHEMA,
         ),
         Db::AgentHistoryReadModel => current_steps(
             &[

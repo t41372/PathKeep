@@ -3195,3 +3195,7 @@ that held up when checked against the code.
 - 2026-11-20：Claude 子代理自己的紀錄沒寫類型時，閱讀器從派出它的 Task 或 Agent 呼叫補上，收合列和子代理側欄都能顯示。已備份的對話從存檔更新。
 
   此輪 Linux gate 的 lifecycle 測試有 93 項通過、4 項失敗。四項在原版 `5ea342eb` 也失敗：三項歷史版本測試仍預期 Archive 23、Intelligence 2 或 0.5.0 搬移檔不需升級，另一項是前述舊安全副本 fixture。子代理的 17 項畫面資料測試與桌面收合列、側欄情境通過。
+
+### 2026-11-20 — Group 5 backend handoff
+
+Move imports preserve local Agent conversations, saved text locators, site overrides and engine rules. Undo creates a safety copy and moves eligible imported conversations to Trash. Recovery and previous-version handoff are available through the desktop and development bridge. Storage reports local model, audit, schedule, integration and retained-copy bytes. Wipe waits for the browsing producer. The UI contract lists the confirmation steps, return fields, notice codes and paths. [Archive recovery commands](../architecture/desktop-command-surface.md#group-5-archive-recovery-commands)

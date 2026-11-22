@@ -9,36 +9,27 @@ use vault_store::{Db, Priority, params};
 
 /// Review remains separate from verification of the copied source rows.
 pub fn record_restore(vault: &Vault, snapshot: &str) -> Result<i64> {
-    record(vault, "archive_restore", snapshot, "restored-archive-safety-snapshot")
+    record(vault, "archive_restore", snapshot)
 }
 
 /// Mode changes retain a snapshot in the destination mode. Rewrap writes no run.
 pub fn record_mode_change(vault: &Vault, snapshot: &str) -> Result<i64> {
-    record(vault, "rekey", snapshot, "before-rekey")
+    record(vault, "rekey", snapshot)
 }
 
-fn record(vault: &Vault, kind: &'static str, snapshot: &str, reason: &'static str) -> Result<i64> {
+fn record(vault: &Vault, kind: &'static str, snapshot: &str) -> Result<i64> {
     let snapshot = snapshot.to_owned();
-    let bytes = walkdir::WalkDir::new(&snapshot)
-        .into_iter()
-        .map(|entry| {
-            let entry = entry?;
-            Ok(if entry.file_type().is_file() { entry.metadata()?.len() } else { 0 })
-        })
-        .collect::<Result<Vec<u64>>>()?
-        .into_iter()
-        .sum::<u64>();
     let mode = vault.config().archive_mode.clone();
     let stored_snapshot = snapshot.clone();
     let id = vault.write(Db::Archive, Priority::Batch, move |s| {
         let id = write_runs::start_in(s, kind, "manual", &[])?;
-        s.execute(
-            "INSERT INTO snapshots(run_id,file_path,file_size,reason,created_at) VALUES(?1,?2,?3,?4,?5)",
-            params![id, stored_snapshot.as_str(), bytes as i64, reason, crate::utils::now_rfc3339()],
-        )?;
-        crate::archive::totals::add(s, "snapshots", 1)?;
+        // Native safety copies can leave with a handoff. Old readers inspect every path
+        // in the browser checkpoint ledger. Keep this path in the review run and manifest.
         write_runs::complete_in(
-            s, id, serde_json::json!({"snapshotPath":stored_snapshot,"targetMode":mode}), serde_json::json!([]),
+            s,
+            id,
+            serde_json::json!({"snapshotPath":stored_snapshot,"targetMode":mode}),
+            serde_json::json!([]),
         )?;
         Ok(id)
     })?;

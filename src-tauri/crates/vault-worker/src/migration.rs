@@ -37,6 +37,7 @@ fn made_by_v0_3(bundle: &std::path::Path) -> Result<bool> {
 pub struct DeviceImportPreview {
     #[serde(flatten)]
     pub archive: ImportPreview,
+    pub version_known: bool,
     pub agent_conversations: AgentImportFacts,
 }
 
@@ -45,6 +46,8 @@ pub struct DeviceImportPreview {
 pub struct AgentImportFacts {
     /// Format 3 carries the conversation role even when it is empty.
     pub carried: bool,
+    pub keeps_local: bool,
+    pub restore_keeps_additions: bool,
     pub state_if_present: Option<vault_core::KindState>,
 }
 
@@ -66,8 +69,14 @@ pub fn preview_import(paths: &ProjectPaths, bundle: PathBuf) -> Result<DeviceImp
     let state_if_present =
         carried.then_some(vault_core::migration::native::imported_agent_state_if_present(paths)?);
     Ok(DeviceImportPreview {
+        version_known: archive.manifest.format_version > 2,
         archive,
-        agent_conversations: AgentImportFacts { carried, state_if_present },
+        agent_conversations: AgentImportFacts {
+            carried,
+            state_if_present,
+            keeps_local: true,
+            restore_keeps_additions: true,
+        },
     })
 }
 

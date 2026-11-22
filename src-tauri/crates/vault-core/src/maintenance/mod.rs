@@ -4,7 +4,11 @@
 //! cancelled copy replacing originals, mixed generations or old-key search after a swap.
 //! Tests: maintenance::tests and install_tests on real plaintext/encrypted roots.
 mod audit;
+pub mod control_recovery;
+pub mod notices;
 mod retention;
+pub mod rollback;
+pub(crate) use retention::retained_bytes;
 pub use retention::{preview_retention, prune};
 pub(crate) mod creation;
 pub mod install;
@@ -17,8 +21,9 @@ pub use conversation_repair::{
     verify_conversation_repair,
 };
 pub use snapshot::{
-    SnapshotMemberFailure, list_snapshots, manual_snapshot, recover_native_maintenance,
-    restore_snapshot, restore_snapshot_to, snapshot,
+    RestoreProtection, SnapshotMemberFailure, list_snapshots, manual_snapshot,
+    recover_native_maintenance, restore_snapshot, restore_snapshot_to, restore_with_protection,
+    snapshot,
 };
 #[cfg(test)]
 mod install_tests;
@@ -122,6 +127,7 @@ pub fn switch_mode(
 ) -> Result<InstalledArchive> {
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     vault.recheck_root()?;
+    crate::storage_volume::require_snapshot_volume(vault.paths())?;
     vault.require_complete()?;
     cancel.check()?;
     if vault.config().archive_mode == ArchiveMode::Encrypted {
@@ -181,10 +187,8 @@ pub fn switch_mode(
         processed: 0,
         total: 0,
     });
-    let snapshot_relative = PathBuf::from(
-        vault_layout::spec(vault_layout::ArtifactId::NativeSnapshots).path.relative(),
-    )
-    .join(format!("rekey-{}", stage.path().file_name().unwrap().to_string_lossy()));
+    let snapshot_relative = PathBuf::from(vault_layout::NATIVE_COPIES_V06)
+        .join(format!("rekey-{}", stage.path().file_name().unwrap().to_string_lossy()));
     snapshot(&staged, &stage.path().join(&snapshot_relative))?;
     staged.close()?;
     cancel.check()?;

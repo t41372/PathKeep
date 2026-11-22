@@ -160,7 +160,8 @@ impl fmt::Display for Refusal {
 impl std::error::Error for Refusal {}
 
 /// The three numbers of a stamp, for reports.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Stamp {
     pub revision: u64,
     pub min_reader: u64,

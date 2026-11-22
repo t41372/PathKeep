@@ -160,12 +160,18 @@ fn intact_stores_without_control_are_not_initialized_over() {
 // "Delete all data" removes `config.json` first, so a wipe a crash cut short always looks like
 // this: the marker, no control, and whatever was not yet deleted. The user confirmed it.
 #[test]
-fn a_wipe_cut_short_after_removing_the_control_is_finished() {
+fn a_released_wipe_without_its_control_requires_confirmation() {
     let f = Fixture::new(false);
     f.write(".pk-wipe-in-progress.json", r#"{"providerIds":[],"schedule":null}"#);
     f.write("archive/source-evidence.db", "not deleted yet");
     f.write("derived/agent.db", "not deleted yet");
-    assert!(vault_worker::finish_interrupted_data_wipe().unwrap());
+    let before = f.observe();
+    assert!(
+        error(vault_worker::finish_interrupted_data_wipe())
+            .contains("archive-wipe-confirmation-required")
+    );
+    assert_eq!(before, f.observe());
+    assert!(vault_worker::confirm_interrupted_wipe("DELETE").unwrap());
     assert!(!f.root.join("archive/source-evidence.db").exists());
     assert!(!f.root.join("derived/agent.db").exists());
     assert!(!f.root.join(".pk-wipe-in-progress.json").exists());
@@ -367,6 +373,9 @@ fn an_import_settles_a_pending_wipe_before_it_installs() {
     )
     .unwrap();
     installed.vault.close().unwrap();
+    let notices = vault_core::maintenance::notices::take(&f.root);
+    assert!(notices.iter().any(|n| n.code == "wipe-rolled-back"));
+    assert!(vault_core::maintenance::notices::take(&f.root).is_empty());
     assert!(!f.root.join(".pk-wipe-v2.json").exists());
     assert!(!f.root.join("wipe-trash-fixture").exists(), "what the wipe moved is back");
     assert_eq!(fs::read_to_string(f.root.join("exports/moved.csv")).unwrap(), "moved by the wipe");

@@ -81,6 +81,8 @@ impl Vault {
     ) -> Result<Self> {
         crate::admission::require_control(&paths.app_root)
             .map_err(|refusal| vault_store::Error::Operation(Box::new(refusal)))?;
+        crate::maintenance::rollback::require_resolved(&paths.app_root)
+            .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
         Self::open_database(paths, config, key, owner, Some(vault_layout::ArtifactId::Envelope))
     }
 
@@ -208,7 +210,8 @@ impl Vault {
             .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?,
         );
         let search_sessions = Arc::default();
-        live::register(&paths.app_root, &store);
+        let backup = Arc::default();
+        live::register(&paths.app_root, &store, &backup);
         live::register_search(&paths.app_root, &search, &search_sessions);
         let lifetime = Arc::new(Lifetime {
             conversations: Arc::default(),
@@ -232,7 +235,7 @@ impl Vault {
             }),
             generation_lease: None,
             vector_generations: Arc::default(),
-            backup: Arc::default(),
+            backup,
             intelligence: Arc::default(),
             site_days: Arc::default(),
             _temporary_root: None,

@@ -31,7 +31,7 @@
     "derived/search-index/<generation-1>/<segment-1>.term",
     "derived/search-index/<generation-1>/meta.json",
     "derived/search-index/current",
-    "exports/lifecycle.pathkeep",
+    "exports/pathkeep/format-3/lifecycle.pathkeep",
     "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History",
     "sidecars/intelligence-blobs/89/ad/89add169a6847800eba8346ee2fe0a64abcd0f6aff31fd91d347c8136c5d873f.txt"
   ],

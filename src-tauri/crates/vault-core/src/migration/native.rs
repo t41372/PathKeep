@@ -3,11 +3,11 @@
 //! Failure modes: wrong key, omitted agent/evidence data, derived leakage, tampered
 //! files, partial install, fresh-root refusal or App Lock without its local secret.
 //! Tests: migration::native_tests.
-use super::portable_artifacts;
 use super::{
     ApplyImportOptions, ExportManifest, ExportManifestFile, ExportedBundle, ImportExclusionNote,
     ImportPreview, ImportResult,
 };
+use super::{intelligence_originals, portable_artifacts};
 use crate::{
     AppConfig, ArchiveMode, ProjectPaths, Vault,
     maintenance::{self, InstalledArchive, Progress},
@@ -132,6 +132,17 @@ pub fn export(
         };
         super::add_file_to_zip_cancel(&mut zip, &source, name, options, &mut files, &cancel)?;
     }
+    if vault.layout() != vault_layout::ArchiveLayout::BrowsingV1 {
+        intelligence_originals::pack(vault, &sealed, &key, &cancel)?;
+        super::add_file_to_zip_cancel(
+            &mut zip,
+            &sealed.join(intelligence_originals::ENTRY),
+            intelligence_originals::ENTRY,
+            options,
+            &mut files,
+            &cancel,
+        )?;
+    }
     let artifacts = portable_artifacts::pack(vault.paths(), &sealed, &key, &cancel)?;
     super::add_file_to_zip_cancel(
         &mut zip,
@@ -143,7 +154,7 @@ pub fn export(
     )?;
     let manifest = ExportManifest {
         format_version: format_of(vault.layout())?,
-        app_version: env!("CARGO_PKG_VERSION").into(),
+        app_version: crate::APP_VERSION.into(),
         archive_schema_version: crate::store_schema::schema_version(vault_store::Db::Archive),
         archive_mode: "encrypted".into(),
         exported_at: crate::utils::now_rfc3339(),
@@ -179,8 +190,10 @@ fn validate_target(paths: &ProjectPaths, target: &Path) -> Result<()> {
             .as_os_str()
             .to_string_lossy();
         anyhow::ensure!(
-            !vault_layout::export_target_is_managed(&first),
-            "export-target-is-managed: choose an export file outside the archive's managed data"
+            relative.parent() == Some(Path::new(vault_layout::MOVE_FILES_V3))
+                && relative.components().count() > 1
+                && !vault_layout::export_target_is_managed(&first),
+            "export-target-is-managed: choose a location outside the archive or in exports/pathkeep/format-3/"
         );
     }
     Ok(())
@@ -189,6 +202,7 @@ fn validate_target(paths: &ProjectPaths, target: &Path) -> Result<()> {
 /// Preview authenticates the file inventory before asking for the export password.
 pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
     crate::admission::refuse_newer(&paths.app_root)?;
+    crate::storage_volume::require_snapshot_volume(paths)?;
     let manifest = super::read_and_validate_manifest(bundle)?;
     let layout = layout_of(manifest.format_version)?;
     let newest_schema = crate::store_schema::schema_version(vault_store::Db::Archive);
@@ -237,19 +251,19 @@ pub fn will_overwrite(paths: &ProjectPaths) -> bool {
 pub fn exclusion_notes(paths: &ProjectPaths) -> Vec<ImportExclusionNote> {
     let copy = match crate::load_config(paths).unwrap_or_default().preferred_language {
         crate::LanguagePreference::ZhCn => [
-            "搜索索引和智能分析数据将在此设备上重建。",
+            "将在此设备上重建搜索和分析索引。新版搬家文件还会带上自定义网站分类、搜索引擎规则和已存网页文字的位置。",
             "App Lock 的密码和设置保留在各自设备上；新设备需重新设置。",
             "自动备份排程需在此设备上重新安装。",
             "安全副本留在创建它们的那台电脑上；这台电脑的安全副本保持不变。",
         ],
         crate::LanguagePreference::ZhTw => [
-            "搜尋索引和智慧分析資料將在此裝置上重建。",
+            "會在這台裝置上重建搜尋與分析索引。新版搬家檔也會帶上自訂網站分類、搜尋引擎規則與已存網頁文字的位置。",
             "App Lock 的密碼和設定保留在各自裝置上；新裝置需重新設定。",
             "自動備份排程需在此裝置上重新安裝。",
             "安全副本留在做出它們的那台電腦上；這台電腦的安全副本維持原樣。",
         ],
         _ => [
-            "Search and intelligence are rebuilt on this machine.",
+            "Search and analysis indexes are rebuilt here. New move files also carry your site categories, search rules and saved page text locations.",
             "App Lock secrets and settings stay on each machine; configure it again on a new machine.",
             "Install the automatic backup schedule again on this machine.",
             "Safety copies stay on the computer that made them; the ones on this computer stay as they are.",
@@ -294,6 +308,7 @@ pub fn import(
     let password =
         options.source_archive_key.as_deref().context(super::IMPORT_SOURCE_KEY_REQUIRED_PREFIX)?;
     crate::admission::refuse_newer(&paths.app_root)?;
+    crate::maintenance::rollback::require_resolved(&paths.app_root)?;
     if let Some(vault) = current {
         vault.require_complete()?;
     }
@@ -357,6 +372,10 @@ pub fn import(
     let stamp = crate::config::replacement_compatibility(paths, stage.path())?;
     crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
     let staged = Vault::open_staged(staged_paths, config.clone(), Some(&key))?;
+    if preview.manifest.files.iter().any(|f| f.path == intelligence_originals::ENTRY) {
+        intelligence_originals::unpack(&staged, stage.path(), &key, &cancel)?;
+        fs::remove_file(stage.path().join(intelligence_originals::ENTRY))?;
+    }
     staged.renew_browsing_run_origin()?;
     // The run ledger travels. The intelligence queues start fresh on this computer.
     staged.store().write(vault_store::Db::Archive, vault_store::Priority::Interactive, |s| {
@@ -373,13 +392,6 @@ pub fn import(
     }
     portable_artifacts::relocate(&staged, &origin.source_root, &paths.app_root, &cancel)?;
     staged.search().rebuild_with_control(cancel.clone(), |_| {})?;
-    // Move files omit indexes. Build the incoming visible conversations in the
-    // private stage so an interrupted import cannot publish an unsearchable copy.
-    if config.capture_policy.agent_state_if_present(true) != crate::KindState::Off
-        && staged.has_saved_transcripts()?
-    {
-        staged.agent_history()?.synchronize_search_with_cancel(&|| cancel.check().is_err())?;
-    }
     staged.close()?;
     let installed =
         install_staged(paths, current, owner, stage.path(), config, Some(key), &cancel)?;
@@ -420,11 +432,28 @@ pub fn install_staged(
     key: Option<vault_crypto::DataKey>,
     cancel: &CancelToken,
 ) -> Result<InstalledArchive> {
+    crate::storage_volume::require_snapshot_volume(paths)?;
     cancel.check()?;
+    let _backup = current.map(Vault::begin_backup).transpose()?;
+    let _producers = current.map(Vault::pause_conversations);
+    let stamp = crate::config::replacement_compatibility(paths, stage)?;
+    crate::config::write_staged_control(
+        &crate::project_paths_with_root(stage),
+        &config,
+        Some(&stamp),
+    )?;
+    let combined =
+        super::conversations::combine(paths, current, stage, &config, key.as_ref(), cancel)?;
     // The replacement's control is written and installed under one hold of the control's gate,
     // with this machine's settings as they are now: one changed while the import ran is kept.
-    let control =
-        super::import_policy::for_install(paths, current, stage, &mut config, key.as_ref())?;
+    let control = super::import_policy::for_install(
+        paths,
+        current,
+        combined.incoming.as_ref().map_or(stage, |d| d.path()),
+        &mut config,
+        key.as_ref(),
+    )?;
+    drop(combined.incoming);
     // Whoever built the stage, it replaces this archive: it keeps this archive's stamp unless its
     // own is newer and lowers neither floor.
     let stamp = crate::config::replacement_compatibility(paths, stage)?;
@@ -454,6 +483,9 @@ pub fn install_staged(
     )?;
     drop(control);
     let vault = Vault::open_owned(paths.clone(), config, key.as_ref(), Some(owner))?;
+    if replaced.kept.is_dir() {
+        super::conversations::bind_previous(&vault, combined.batch_id, &replaced.kept)?;
+    }
     Ok(InstalledArchive {
         vault,
         data_key: key,

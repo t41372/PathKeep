@@ -12,15 +12,15 @@ fn metadata(path: &Path, role: ArchiveFileRole) -> Result<fs::Metadata> {
 }
 
 fn header_binding(vault: &Vault, root: &Path) -> Result<String> {
-    let parent = vault.paths().artifact_path(ArtifactId::NativeSnapshots);
-    ensure!(
-        root.parent() == Some(parent.as_path())
-            && metadata(root, ArchiveFileRole::Browsing)?.is_dir(),
-        "conversation-copy-not-listed"
-    );
-    for dir in [vault.paths().artifact_path(ArtifactId::RawSnapshots), parent] {
+    let folders = vault.paths().native_copy_folders();
+    let parent = root
+        .parent()
+        .filter(|p| folders.iter().any(|f| f == p))
+        .context("conversation-copy-not-listed")?;
+    ensure!(metadata(root, ArchiveFileRole::Browsing)?.is_dir(), "conversation-copy-not-listed");
+    for dir in parent.ancestors().take_while(|d| *d != vault.paths().app_root) {
         ensure!(
-            metadata(&dir, ArchiveFileRole::Browsing)?.is_dir(),
+            metadata(dir, ArchiveFileRole::Browsing)?.is_dir(),
             "conversation-copy-unsafe-path"
         );
     }
@@ -124,18 +124,6 @@ pub(super) struct CopySource<'a> {
 impl<'a> CopySource<'a> {
     pub fn open(vault: &Vault, source: &'a Path, password: Option<&str>) -> Result<Self> {
         let header = header_binding(vault, source)?;
-        let parent = vault.paths().artifact_path(ArtifactId::NativeSnapshots);
-        ensure!(
-            source.parent() == Some(parent.as_path())
-                && metadata(source, ArchiveFileRole::Browsing)?.is_dir(),
-            "conversation-copy-not-listed"
-        );
-        for part in [vault.paths().artifact_path(ArtifactId::RawSnapshots), parent.clone()] {
-            ensure!(
-                metadata(&part, ArchiveFileRole::Browsing)?.is_dir(),
-                "conversation-copy-unsafe-path"
-            );
-        }
         for file in ["config.json", snapshot::SEAL] {
             ensure!(
                 metadata(&source.join(file), ArchiveFileRole::Browsing)?.is_file(),

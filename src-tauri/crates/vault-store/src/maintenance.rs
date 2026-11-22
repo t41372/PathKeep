@@ -439,6 +439,25 @@ impl Maintenance<'_> {
         Ok(originals)
     }
 
+    /// Exposes a closed, privately staged database as `incoming` while its owner merges
+    /// canonical rows. The attachment and its key live only on this maintenance connection.
+    pub fn with_staged_input<T: Send + 'static>(
+        &self,
+        db: Db,
+        input: PathBuf,
+        key: Option<[u8; 32]>,
+        work: impl FnOnce(&crate::Session<'_>) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let key = zeroize::Zeroizing::new(key);
+        self.worker(db)?.maintenance(move |engine| {
+            let uri = crate::engine::scratch_uri(&input, key.as_ref());
+            engine.rt.block_on(engine.conn.execute("ATTACH ?1 AS incoming", [uri.as_str()]))?;
+            let result = crate::session::catch_job(|| work(&engine.session(false)));
+            engine.rt.block_on(engine.conn.execute("DETACH incoming", ()))?;
+            result
+        })
+    }
+
     /// Clones one complete database through an explicitly keyed ATTACH. The
     /// returned proofs compare source and destination values, not physical bytes.
     /// An unselected database returns `Error::Closed`, as regular reads/writes do.

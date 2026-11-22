@@ -1,7 +1,10 @@
 //! Exercises the repair preview and its irreversible boundary on synthetic archives.
 //! Corpus and browser fixtures retain the independent expected data.
 
+#[path = "pre_pair_copy.rs"]
+mod legacy_copy;
 use super::*;
+use legacy_copy::LegacyCopy;
 use vault_core::maintenance::{preview_conversation_repair, repair_conversations};
 use vault_store::Db;
 
@@ -391,15 +394,28 @@ fn encrypted_copy_requires_its_own_password_and_keeps_the_live_key() {
 
 #[test]
 fn legacy_sealed_copy_rebuilds_from_verified_evidence() {
+    repair_legacy_copy(LegacyCopy::PendingSeeds);
+}
+
+#[test]
+fn pre_pair_sealed_copy_rebuilds_from_verified_evidence() {
+    repair_legacy_copy(LegacyCopy::BeforePairSeal);
+}
+
+fn repair_legacy_copy(kind: LegacyCopy) {
     let f = Fixture::new(false);
     let corpus = Corpus::seed(&f);
-    f.vault()
-        .agent_history()
-        .unwrap()
-        .update_insight_preferences(
-            serde_json::from_value(serde_json::json!({"showCost":false})).unwrap(),
-        )
-        .unwrap();
+    // The pre-seal schema predates this preference. The later copy already holds a user choice.
+    let expected_show_cost = matches!(kind, LegacyCopy::BeforePairSeal);
+    if !expected_show_cost {
+        f.vault()
+            .agent_history()
+            .unwrap()
+            .update_insight_preferences(
+                serde_json::from_value(serde_json::json!({"showCost":false})).unwrap(),
+            )
+            .unwrap();
+    }
     let good = f
         .vault()
         .paths()
@@ -408,16 +424,10 @@ fn legacy_sealed_copy_rebuilds_from_verified_evidence() {
     vault_core::maintenance::snapshot(&f.vault(), &good).unwrap();
     let seal = good.join("snapshot.json");
     let mut proofs: serde_json::Value = serde_json::from_slice(&fs::read(&seal).unwrap()).unwrap();
+    kind.replace_roles(&good);
     for db in [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel] {
         let role = vault_layout::database_path(db);
         let path = good.join(role);
-        let conn = rusqlite::Connection::open(&path).unwrap();
-        // Reproduce the reported copy exactly: the evidence preference already exists,
-        // but its seed (66) is pending. Keep this boundary fixed as the registry grows.
-        let last_recorded = if db == Db::AgentHistoryEvidence { 65 } else { 187 };
-        conn.execute_batch("DROP TABLE ah_pair_seal").unwrap();
-        conn.execute("DELETE FROM __pk_migrations WHERE version > ?1", [last_recorded]).unwrap();
-        drop(conn);
         let digest = vault_core::utils::sha256_hex(&fs::read(path).unwrap());
         proofs.as_array_mut().unwrap().iter_mut().find(|p| p["path"] == role).unwrap()["sha256"] =
             digest.into();
@@ -430,7 +440,10 @@ fn legacy_sealed_copy_rebuilds_from_verified_evidence() {
     let installed =
         repair_conversations(&vault, Some(&good), None, &plan.token, Default::default()).unwrap();
     corpus.check_rebuilt(&installed.vault, None);
-    assert!(!installed.vault.agent_history().unwrap().insight_preferences().unwrap().show_cost);
+    assert_eq!(
+        installed.vault.agent_history().unwrap().insight_preferences().unwrap().show_cost,
+        expected_show_cost
+    );
 }
 
 #[test]

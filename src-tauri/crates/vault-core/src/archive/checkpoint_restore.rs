@@ -13,6 +13,7 @@ pub fn run_snapshot_restore(
     request: &SnapshotRestoreRequest,
 ) -> Result<BackupReport> {
     let _backup = vault.begin_backup()?;
+    anyhow::ensure!(vault.store().is_open(), "archive-uninitialized: archive has been closed");
     vault.recheck_root()?;
     anyhow::ensure!(vault.config().initialized, "archive has not been initialized");
     let path = PathBuf::from(&request.snapshot_path);

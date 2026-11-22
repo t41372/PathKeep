@@ -21,6 +21,7 @@ mod lineage;
 mod maintenance;
 #[cfg(test)]
 mod membership_tests;
+pub mod move_import;
 mod observations;
 mod parse_gaps;
 pub(crate) mod projection;

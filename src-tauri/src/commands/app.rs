@@ -64,12 +64,15 @@ pub(crate) async fn preview_wipe_all_data() -> Result<vault_core::WipePreview, C
 /// The next `app_snapshot` reports the app as not initialized. The report says whether an
 /// installed automatic backup was removed, or why it could not be.
 pub(crate) async fn wipe_all_data(
+    app: tauri::AppHandle,
     confirmation: String,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::WipeReport, CommandError> {
     let session = state.inner().clone();
     run_blocking_command("wipe_all_data", move || {
-        worker_bridge::wipe_all_data_impl(&confirmation, &session)
+        let report = worker_bridge::wipe_all_data_impl(&confirmation, &session)?;
+        crate::desktop_integration::archive_wiped(&app);
+        Ok(report)
     })
     .await
 }
@@ -155,4 +158,62 @@ pub(crate) async fn unlock_app_session(
         worker_bridge::unlock_app_session_impl(request)
     })
     .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) async fn get_archive_access(
+    state: State<'_, SessionState>,
+) -> Result<crate::archive_access::Access, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("get_archive_access", move || crate::archive_access::access(&session))
+        .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) async fn get_storage_volume(
+    folder: Option<std::path::PathBuf>,
+) -> Result<serde_json::Value, CommandError> {
+    run_blocking_command("get_storage_volume", move || {
+        crate::archive_access::storage_volume(folder)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) async fn confirm_interrupted_wipe(confirmation: String) -> Result<bool, CommandError> {
+    run_blocking_command("confirm_interrupted_wipe", move || {
+        vault_worker::confirm_interrupted_wipe(&confirmation)
+            .map_err(|e| CommandError::from_backend(&e))
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn take_wipe_notice()
+-> Result<Vec<vault_core::maintenance::notices::RecoveryNotice>, CommandError> {
+    crate::archive_access::notices()
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) async fn repair_archive_control(
+    state: State<'_, SessionState>,
+    repair: crate::archive_access::Repair,
+    current_password: Option<String>,
+) -> Result<(), CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("repair_archive_control", move || {
+        crate::archive_access::repair(&session, repair, current_password)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) fn restart_after_archive_recovery(app: tauri::AppHandle) {
+    app.request_restart();
 }
