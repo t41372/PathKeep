@@ -12,8 +12,8 @@
  *   PATHKEEP_E2E_NOW=<now from fixture.json> bun run test:e2e
  *
  * Projects run in order, because they share one backend and one archive:
- * first-run (onboarding) → read (history, insights; nothing changes) →
- * change (background work, new visits, schedule, imports, lock, archive
+ * first-run (onboarding) → schedule-refresh (two new visits) → read (history,
+ * insights; nothing changes) → change (background work, new visits, schedule, imports, lock, archive
  * password) → agent (Agent conversations backed up; they stay on, with
  * conversations in the archive, for every project after it) → restart …
  * → repair (saved conversations damaged on disk and repaired) → wipe
@@ -194,6 +194,7 @@ export default defineConfig({
       'first-run-window.spec.ts',
       'first-run.spec.ts',
     ]),
+    project('schedule-refresh', ['schedule-refresh.spec.ts'], 'first-run'),
     project(
       'read',
       [
@@ -212,7 +213,7 @@ export default defineConfig({
         'home.spec.ts',
         'clock.spec.ts',
       ],
-      'first-run',
+      'schedule-refresh',
     ),
     // A project runs its files in name order, so what must come first or
     // last gets a project of its own.

@@ -223,8 +223,10 @@ fn run_app() -> Result<()> {
             // so the client's connection deadline never limits a slow first open.
             let startup_windows = if background || launched_at_login {0} else {app.webview_windows().len()};
             let activity = std::sync::Arc::new(idle_exit::Activity::default());
-            let idle_session = owner_session.clone();
-            match owner::OwnerService::start(&paths.app_root,owner_lock,owner_session,launches,background,startup_windows,activity.clone()) {
+            match owner::OwnerService::start(
+                app.handle().clone(), &paths.app_root, owner_lock, launches,
+                background, startup_windows, activity.clone(),
+            ) {
                 Ok(service) => { app.manage(service); }
                 Err(error) => {
                     opening_session.abort_startup(format!("owner-endpoint-unavailable: {error:#}"));
@@ -240,7 +242,7 @@ fn run_app() -> Result<()> {
             desktop_integration::setup(app.handle(), &config, launched_at_login, background);
             // Started by a scheduled backup, the CLI or MCP: leave once that work is done.
             if background {
-                idle_exit::watch(app.handle().clone(), idle_session, activity);
+                idle_exit::watch(app.handle().clone(), owner_session, activity);
             }
             #[cfg(feature = "devtools-bridge")]
             let dev_bridge_handle = dev_ipc_bridge::maybe_launch(dev_bridge_state.clone())?;

@@ -32,10 +32,10 @@ pub(crate) struct OwnerService {
     _lock: Arc<vault_store::OwnerLock>,
 }
 impl OwnerService {
-    pub(crate) fn start(
+    pub(crate) fn start<R: Runtime>(
+        app: AppHandle<R>,
         root: &Path,
         lock: Arc<vault_store::OwnerLock>,
-        session: SessionState,
         launches: LaunchState,
         background: bool,
         startup_windows: usize,
@@ -46,8 +46,15 @@ impl OwnerService {
             let _ownership = &operation_lock;
             let _request = activity.begin();
             let ping = request.method == "ping";
-            let mut result =
-                vault_worker::owner_requests::dispatch_with_session(request, progress, &session)?;
+            let scheduled = request.method == "backup"
+                && request.params == serde_json::json!({ "dueOnly": true });
+            let session = app.state::<SessionState>();
+            let result =
+                vault_worker::owner_requests::dispatch_with_session(request, progress, &session);
+            if scheduled {
+                crate::desktop_integration::scheduled_backup_finished(&app, result.as_ref().err());
+            }
+            let mut result = result?;
             if ping {
                 result["background"] = background.into();
                 result["startupWindows"] = startup_windows.into();

@@ -58,6 +58,8 @@ pub(crate) use login_item::LAUNCHED_AT_LOGIN_ARG;
 // For the app's commands (not built under test) and the dev bridge.
 #[cfg(feature = "devtools-bridge")]
 pub(crate) use status::BACKUP_PROGRESS_EVENT;
+#[cfg(not(test))]
+pub(crate) use status::scheduled_backup_finished;
 #[cfg(any(not(test), feature = "devtools-bridge"))]
 pub(crate) use status::{BackupSource, run_backup};
 #[cfg_attr(test, allow(unused_imports))]
@@ -81,8 +83,7 @@ pub(crate) use window::MAIN_WINDOW;
 
 /// How often the "12 min ago" text is redrawn (no I/O).
 const RELABEL_INTERVAL: Duration = Duration::from_secs(60);
-/// Every this many relabels, re-read the scheduled-backup ledger, which the
-/// worker sidecar updates from another process.
+/// Periodically reconcile the menu with the persisted schedule ledger.
 const LEDGER_EVERY_N_RELABELS: u32 = 5;
 
 /// State of the two Settings toggles, as the OS has it.

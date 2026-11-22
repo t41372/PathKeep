@@ -1,14 +1,9 @@
-//! What the menu bar knows about backups, and the one path every in-app
-//! backup takes.
+//! Backup status for the menu bar and completion events for the window.
 //!
-//! The status line has three sources: backups run by this process (through
-//! [`run_backup`], whether started from the window or the menu), the archive's
-//! runs (read at launch until the archive opens), and the scheduled-backup
-//! ledger (re-read every few minutes: scheduled backups never reach
-//! [`run_backup`]). From the last two it takes the last success and the newest
-//! backup that ended without saving everything, so after a restart, or after a
-//! scheduled backup, the menu says a backup was incomplete or failed as it does
-//! right after one in the window.
+//! Window and menu backups update the status through [`run_backup`]. When a
+//! scheduled request finishes in the owner, the menu reads the outcome from
+//! the schedule ledger and the window is notified, including on a due skip.
+//! At launch, the archive and ledger restore the last known backup status.
 //!
 //! ## Responsibilities
 //! - Keep the backup status the menu shows.
@@ -26,8 +21,7 @@ use crate::{command_error::CommandError, worker_bridge};
 
 /// Event carrying backup progress (existing contract, see `backup-progress.ts`).
 pub(crate) const BACKUP_PROGRESS_EVENT: &str = "pathkeep://backup-progress";
-/// Event sent when any in-app backup ends, so the window can refresh after a
-/// backup it did not start (e.g. "Back up now" in the menu bar).
+/// Lets a window refresh when a backup finishes elsewhere in the app.
 pub(crate) const BACKUP_FINISHED_EVENT: &str = "pathkeep://backup-finished";
 
 /// Who started a backup.
@@ -38,6 +32,8 @@ pub(crate) enum BackupSource {
     App,
     /// "Back up now" in the menu bar menu.
     MenuBar,
+    /// The OS scheduler woke the worker with `backup --due-only`.
+    Schedule,
 }
 
 /// Payload of [`BACKUP_FINISHED_EVENT`].
@@ -221,6 +217,28 @@ pub(crate) fn read_backup_status_from_disk(
 
 fn parse_time(value: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value).ok().map(|time| time.with_timezone(&Utc))
+}
+
+/// Called on the owner request thread after the worker has finalized the attempt.
+/// The ledger accounts for both browsing and conversation backups. An error
+/// can precede even the ledger write, so show it directly in the menu.
+pub(crate) fn scheduled_backup_finished<R: Runtime>(
+    app: &AppHandle<R>,
+    error: Option<&vault_owner_ipc::RpcError>,
+) {
+    if error.is_some() {
+        super::update_status(app, |status| status.record_incomplete(Utc::now(), false));
+    } else {
+        super::refresh_status_from_disk(app);
+    }
+    let _ = app.emit(
+        BACKUP_FINISHED_EVENT,
+        BackupFinished {
+            source: BackupSource::Schedule,
+            report: None,
+            error: error.map(|e| CommandError::classified(e.message.clone())),
+        },
+    );
 }
 
 /// Runs one backup with progress events, updates the menu bar status, and

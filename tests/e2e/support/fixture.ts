@@ -24,6 +24,7 @@ export type ProfileId = SyntheticProfileId
 interface Fixture {
   root: string
   now: number
+  counts: { total: number; personal: number; work: number; firefox: number }
   seed: number
   visitsByProfile: Record<ProfileId, SyntheticVisit[]>
   files: Record<ProfileId, string>
@@ -63,6 +64,15 @@ export function replaceAgents(next: SyntheticAgents) {
   const current = fixture()
   cached = { ...current, agents: next }
   writeFileSync(file, JSON.stringify(cached))
+}
+
+/** The read projects count the visits added to Personal by the scheduled backup too. */
+export function recordPersonalVisits(visits: SyntheticVisit[]) {
+  const current = fixture()
+  current.visitsByProfile['chrome:Default'].push(...visits)
+  current.counts.personal += visits.length
+  current.counts.total += visits.length
+  writeFileSync(process.env.PATHKEEP_E2E_FIXTURE!, JSON.stringify(current))
 }
 
 /**

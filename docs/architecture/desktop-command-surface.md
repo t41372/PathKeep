@@ -74,7 +74,7 @@
 - `launchAtLogin` 讀 OS 的登入項目，不存在 config。macOS 用 PathKeep 自己的 LaunchAgent（`vault_platform::login_item`，經 `/usr/bin/open` 啟動，避開 macOS 26 的 Launch Constraint kill）；Windows / Linux 用 `tauri-plugin-autostart`。webview 不再有 `autostart:*` capability，只能走這三個命令。
 - `menuBarIcon` 是「圖示現在在不在」；偏好存 `AppConfig.menuBarIcon`。`set_menu_bar_icon` 先改圖示再存 config，存失敗就把圖示改回去並回錯。`save_config` 存完也會讓圖示與選單語言跟上 config。
 - `menuBarIconSupported`：macOS / Windows 恆為 true；Linux 需要能載入 libappindicator，且 session bus 上有 `org.kde.StatusNotifierWatcher`（問不到時不擋）。不支援時 `set_menu_bar_icon(true)` 回錯。
-- 事件：`pathkeep://open-command-palette`（選單「搜尋歷史…」，無 payload）；`pathkeep://backup-finished`（任何 app 內備份結束，`{ source: "app" | "menu-bar", report?, error? }`）。`run_backup_now` 與選單的「立即備份」走同一條 `desktop_integration::run_backup`，`pathkeep://backup-progress` 不變。dev bridge 的 `run_backup_now` 在 app 已啟動時也走這條路徑。
+- 事件：`pathkeep://open-command-palette`（選單「搜尋歷史…」，無 payload）；`pathkeep://backup-finished`（`{ source: "app" | "menu-bar" | "schedule", report?, error? }`）。`run_backup_now` 與選單的「立即備份」走同一條 `desktop_integration::run_backup`，`pathkeep://backup-progress` 不變。dev bridge 的 `run_backup_now` 在 app 已啟動時也走這條路徑。owner 處理完排程的 `backup --due-only` 就更新選單列並送出 `schedule` 事件，包含失敗與尚未到期的檢查。視窗靜默重讀存檔與排程狀態；選單列手動發起的備份照常顯示結果通知。
 - 登入啟動帶 `--launched-at-login`。主視窗在 `tauri.conf.json` 設為 `visible: false`，由 setup 決定：一般啟動顯示；登入啟動時保持隱藏（圖示開著，或 macOS 有 Dock 可叫回），Windows / Linux 沒圖示時以最小化開啟。圖示開著時關視窗只是隱藏；圖示關著時關視窗就是結束，有工作在跑時先問（見下節）。細節與理由見 `docs/features/archive.md` §2「開機啟動與選單列圖示」。
 
 ## 結束時還有工作在跑（2026-10 / `WORK-QUIT-DURING-WORK`）

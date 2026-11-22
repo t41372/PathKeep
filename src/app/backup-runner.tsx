@@ -131,16 +131,18 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
     [failureCopy, t],
   )
 
-  // A backup started from the menu bar icon: show it like our own runs.
+  // Scheduled checks refresh silently. Menu-bar runs also announce their result.
   useEffect(() => {
     const unsubscribe = subscribeToBackupFinished((event) => {
-      if (event.source !== 'menu-bar') return
-      if (event.report) {
-        setLastReport(event.report)
-        if (event.report.dueSkipped) announceSkipped(event.report)
-        else announceDone(event.report)
-      } else {
-        announceFailed(event.error)
+      if (event.source === 'app') return
+      if (event.source === 'menu-bar') {
+        if (event.report) {
+          setLastReport(event.report)
+          if (event.report.dueSkipped) announceSkipped(event.report)
+          else announceDone(event.report)
+        } else {
+          announceFailed(event.error)
+        }
       }
       void refreshAfterArchiveChange().catch(() => undefined)
     })
