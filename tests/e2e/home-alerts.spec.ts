@@ -107,8 +107,10 @@ test('Home shows what needs fixing and where, and nothing once it is fixed', asy
   await openHome(page)
   await expect(alerts(page)).toHaveCount(0)
 
-  // A scheduled backup that failed an hour ago.
-  recordScheduledRun('e2e-1', new Date(Date.now() - 3_600_000), 'failed')
+  // A scheduled backup that just failed. Home reports the newest run, and
+  // schedule-refresh has already put a real successful one in the ledger,
+  // so this failure has to come after it.
+  recordScheduledRun('e2e-1', new Date(Date.now() - 2_000), 'failed')
   await openHome(page)
   const failed = alerts(page).getByRole('listitem').filter({
     hasText: 'The last automatic backup failed',
@@ -120,7 +122,7 @@ test('Home shows what needs fixing and where, and nothing once it is fixed', asy
   await expect(page).toHaveURL(/#\/settings\/background$/)
 
   // The next run went through.
-  recordScheduledRun('e2e-2', new Date(Date.now() - 60_000), 'success')
+  recordScheduledRun('e2e-2', new Date(Date.now() - 1_000), 'success')
   await openHome(page)
   await expect(alerts(page)).toHaveCount(0)
 
