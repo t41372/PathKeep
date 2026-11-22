@@ -35,7 +35,12 @@ const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',
 )
-const demoRoot = path.join(repoRoot, 'var', 'demo')
+// PATHKEEP_DEMO_ROOT moves the demo's data out of a deep checkout: the app's
+// owner socket lives in the data folder, and a Unix socket path must stay
+// under about 104 bytes on macOS (108 on Linux).
+const demoRoot = process.env.PATHKEEP_DEMO_ROOT
+  ? path.resolve(process.env.PATHKEEP_DEMO_ROOT)
+  : path.join(repoRoot, 'var', 'demo')
 const fresh = process.argv.includes('--fresh')
 const firstRun = process.argv.includes('--first-run')
 const backendFlag = process.argv.indexOf('--backend')

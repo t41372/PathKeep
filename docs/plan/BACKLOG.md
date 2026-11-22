@@ -502,6 +502,10 @@
     - 擱置的 `WORK-AH-EVIDENCE-LINEAGE`：重新開始時才審。
   - 審查報告與當時的決定在交接資料夾 `merge-1118/`（`review-*.report.md`、`NOTES-lead.md`）。
 
+- [ ] **WORK-OWNER-SOCKET-LONG-PATH** — 存檔資料夾的路徑太長時，app 一啟動就結束（2026-11-22 跑 `dev:demo` 時碰到，只記錄）
+  - 現況：app 的 owner 端點是資料夾裡的 Unix socket（`ipc/owner.sock`，`vault-owner-ipc/src/unix.rs`）。socket 路徑在 macOS 不能超過約 104 個位元組（Linux 108），資料夾路徑長過約 88 個字元時 bind 失敗，日誌寫 `owner endpoint unavailable: path must be shorter than SUN_LEN`，app 結束。預設位置（`~/Library/Application Support/…`）不會碰到；使用者把資料夾放在很深的地方、或 checkout 很深的 `dev:demo` 會碰到。`dev:demo` 已可用 `PATHKEEP_DEMO_ROOT` 換到短路徑。
+  - 要做時：socket 放在與資料夾無關的短路徑（例如以資料夾路徑雜湊命名、放在使用者自己的執行目錄），並在選資料夾時不必再顧慮長度。
+
 - [ ] **WORK-AH-READ-MODEL-SIZE** — 對話的讀取模型比來源大很多（2026-11-20 量到，只記錄）
   - Linux release 實測（`docs/architecture/research/agent-history/preview-growth.md`）：每位元組的工具原始檔，原始證據 0.29、讀取模型 4.1、搜尋索引 0.43；工具自己用 zstd 壓過的檔，讀取模型是壓縮後大小的 17.7 倍。2 GB 的 Claude Code 紀錄大約多出 9.7 GB。
   - 要查：讀取模型裡哪些欄位或索引佔最多、能不能壓縮或改成按需重建。正常使用就會碰到（磁碟），但不影響正確性；等 v0.6.0 功能做完、跟審查一起排。
