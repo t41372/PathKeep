@@ -51,7 +51,12 @@ impl OnboardingChoices {
         // Browsing is the initial active kind. Agent-only setup turns browsing off after
         // the reviewed first save starts. Until then it has no selected browser profiles.
         Ok(CapturePolicy {
-            explicitly_off: !agent,
+            // Leaving Agent conversations unticked at setup is not turning them off: the
+            // card is unticked by default when no tool is found, and the home page offers
+            // them later. So this device has made no Agent choice, and conversations a move
+            // file brings in are paused (readable, not backed up), not hidden
+            // (data-spaces.md, the move-file check). Only an explicit turn-off sets it.
+            explicitly_off: false,
             // The tools are a choice only when Agent conversations are chosen. The draft keeps
             // them for a resumed setup either way, but a setup without Agent leaves no tool choice
             // behind, so turning Agent on later starts from the enable dialog's defaults.
