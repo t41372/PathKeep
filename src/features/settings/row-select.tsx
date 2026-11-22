@@ -1,4 +1,4 @@
-/** The compact select the prototype puts at the right of a settings row. */
+/** The compact select at the right of a settings row. */
 import {
   Select,
   SelectContent,

@@ -1,5 +1,5 @@
 /**
- * The prototype's bordered option cards (encryption, schedule, AI), built on
+ * Bordered option cards (encryption, schedule, AI), built on
  * a radio group so arrow keys and screen readers treat them as one choice.
  */
 import type { ReactNode } from 'react'

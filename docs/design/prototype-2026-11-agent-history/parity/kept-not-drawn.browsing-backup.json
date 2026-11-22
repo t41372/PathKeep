@@ -1,0 +1,12 @@
+[
+  { "key": "backup.sources.rescanFailed", "reason": "toast when rescanning the browsers fails" },
+  { "key": "backup.sources.saveFailed", "reason": "toast when a source switch cannot be saved" },
+  { "key": "backup.sources.grantFailed", "reason": "toast when System Settings cannot be opened from 授權" },
+  { "key": "backup.import.pickFailed", "reason": "toast when the system file picker cannot be opened" },
+  { "key": "backup.import.stopFailed", "reason": "toast when a running import cannot be stopped" },
+  { "key": "backup.import.batches.revertFailed", "reason": "error line in the review dialog when an undo fails" },
+  { "key": "backup.import.batches.restoreFailed", "reason": "error line in the review dialog when a restore fails" },
+  { "key": "backupImport.batches.loadFailed", "reason": "error line in the review dialog when the import's detail cannot be loaded" },
+  { "key": "backupSchedule.change.copyFailed", "reason": "toast when the clipboard refuses a copied path" },
+  { "key": "backupSchedule.verify.revealFailed", "reason": "toast when a path cannot be shown in the file manager" }
+]

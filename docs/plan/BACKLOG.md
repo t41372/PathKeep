@@ -35,7 +35,7 @@
   - 讀先：`docs/features/agent-history.md` 第一部分、`docs/features/data-spaces.md`、`docs/design/data-spaces-tradeoff.md`；`docs/design/` 核心四份。
   - 版面與文案從設計原型搬進 `src/`，資料改成透過 typed client 向後端要：清單虛擬化、頁面先出骨架、重的計算不在主執行緒。每個畫面的空、載入、錯誤狀態照規格補齊，三語一起交付。
   - 示範資料與 E2E 用的假資料改成各工具原生格式的合成檔，走真的備份流程（`dev:demo` 與 E2E 都用它）。每個畫面至少一個中等以上難度的 E2E。
-  - 收工條件：`docs/design/prototype-2026-11-agent-history/` 連同 `.prettierignore`、`eslint.config.js` 裡的排除項刪掉，這個分支才進 `main`。2026-11-22 刪了：畫面都在 `src/`，設計的決定以 `docs/features/` 為準。
+  - 收工條件：`docs/design/prototype-2026-11-agent-history/` 連同 `.prettierignore`、`eslint.config.js` 裡的排除項刪掉，這個分支才進 `main`。2026-11-22 我刪過一次、當天放回：用戶還沒驗收 Agent 空間，原型要留到驗收之後才刪。程式碼裡不引用任何設計原型（同日把 `src/` 裡提到原型的註解都改掉了）。
   - 還原對話框（設定 › 儲存空間、存檔打不開時的恢復畫面）的說明要改：現在寫「存檔會回到副本保存時的狀態；密碼和加密方式維持現在的樣子」，有了 Agent 對話之後要加「Agent 對話保持現在的樣子」（用戶 2026-11-15 的決定），三語一起改。這一版還沒有存對話的介面，所以現在的文字仍然正確。
   - 用戶 2026-11-15 決定：匯入搬家檔時，這台電腦的 Agent 對話留著，檔案裡的加進來，同一段只留一份；瀏覽紀錄照舊換成檔案裡的（做法在 `WORK-IMPORT-KEEPS-CONVERSATIONS`）。匯入對話框要照這個說。
 

@@ -1,7 +1,7 @@
 /**
  * What a topic the user keeps coming back to is, at a glance: a page shows
- * its site's icon, a search the search icon. (The rows used coloured dots,
- * copied from the prototype; their colours meant nothing.)
+ * its site's icon, a search the search icon. (The rows once used coloured
+ * dots whose colours meant nothing.)
  */
 import { FileText, Search } from 'lucide-react'
 import { SiteIcon } from '@/features/history/site-icon'

@@ -1,4 +1,4 @@
-/** The prototype's card: title, optional subtitle and action, then content. */
+/** A settings-style card: title, optional subtitle and action, then content. */
 import { Component, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
@@ -138,7 +138,7 @@ export function PageHeader({
   )
 }
 
-/** Scrollable page column with the prototype's width and padding. */
+/** Scrollable page column with the app's page width and padding. */
 export function PageScroll({
   children,
   wide,

@@ -1,0 +1,14 @@
+[
+  {
+    "key": "settingsBackground.previews.off",
+    "reason": "the two switches move from 一般 to 設定 › 瀏覽紀錄, so the sentence and its button point there (and name the switch 頁面摘要, as its own row does)"
+  },
+  {
+    "key": "settingsBackground.summaries.off",
+    "reason": "the two switches move from 一般 to 設定 › 瀏覽紀錄, so the sentence and its button point there (and name the switch 頁面摘要, as its own row does)"
+  },
+  {
+    "key": "settingsBackground.summaries.openGeneral",
+    "reason": "the two switches move from 一般 to 設定 › 瀏覽紀錄, so the sentence and its button point there (and name the switch 頁面摘要, as its own row does)"
+  }
+]

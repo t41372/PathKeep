@@ -1,0 +1,102 @@
+[
+  {
+    "key": "settings.general.desktop.changeFailed",
+    "reason": "failure: the OS refused to change open-at-login or the menu bar icon"
+  },
+  {
+    "key": "settings.security.keychain.removeFailed",
+    "reason": "failure toast: the password could not be removed from the keychain"
+  },
+  {
+    "key": "settings.security.keychain.saveFailed",
+    "reason": "failure: the password could not be stored in the keychain"
+  },
+  {
+    "key": "settings.security.passcode.removeFailed",
+    "reason": "failure toast: the App Lock passcode could not be removed"
+  },
+  {
+    "key": "settings.security.passcode.saveFailed",
+    "reason": "failure: the App Lock passcode could not be saved"
+  },
+  {
+    "key": "settings.security.rekey.failed",
+    "reason": "failure: the re-encryption stopped with an error other than a wrong current password"
+  },
+  {
+    "key": "settings.security.rekey.previewFailed",
+    "reason": "failure: the re-encryption preview could not be built"
+  },
+  {
+    "key": "settings.security.rekey.keychainFailed",
+    "reason": "failure toast: the archive changed but the keychain could not be updated"
+  },
+  {
+    "key": "shell.lock.needsPasscode",
+    "reason": "refusal toast when locking with no passcode; in Settings the 立即鎖定 row only shows while App Lock is on, which needs a passcode, so here it is only reachable through ⌘L in the shell"
+  },
+  {
+    "key": "settingsStorage.location.failed",
+    "reason": "failure toast: the folder could not be opened"
+  },
+  {
+    "key": "settingsStorage.usage.failed",
+    "reason": "failure: disk usage could not be read"
+  },
+  {
+    "key": "settingsStorage.freeSpace.loadFailed",
+    "reason": "failure: the free-space preview could not be built"
+  },
+  {
+    "key": "settingsStorage.freeSpace.failed",
+    "reason": "failure: deleting the chosen items failed"
+  },
+  {
+    "key": "settingsStorage.move.exportFailed",
+    "reason": "failure: the bundle file could not be written"
+  },
+  {
+    "key": "settingsStorage.move.checkFailed",
+    "reason": "failure: the chosen file is not a usable bundle"
+  },
+  {
+    "key": "settingsStorage.move.importFailed",
+    "reason": "failure: opening the bundle failed with an error other than a wrong password"
+  },
+  {
+    "key": "settingsStorage.restore.loadFailed",
+    "reason": "failure: the safety copies could not be listed"
+  },
+  {
+    "key": "settingsStorage.wipe.previewFailed",
+    "reason": "failure: the delete-all preview could not be built"
+  },
+  {
+    "key": "settingsStorage.wipe.failed",
+    "reason": "failure: deleting all data failed"
+  },
+  {
+    "key": "settingsAbout.update.openFailed",
+    "reason": "failure toast: the releases page could not be opened"
+  },
+  {
+    "key": "settingsAbout.update.restartFailed",
+    "reason": "failure toast: PathKeep could not restart after the update"
+  },
+  {
+    "key": "settingsAbout.logs.failed",
+    "reason": "failure toast: the logs folder could not be opened"
+  },
+  {
+    "key": "settingsAbout.crashes.failed",
+    "reason": "failure toast: the crash reports folder could not be opened"
+  },
+  {
+    "key": "settingsAbout.health.failed",
+    "reason": "failure: the health check could not run"
+  },
+  {
+    "key": "settingsAbout.health.repairFailed",
+    "reason": "failure toast: the repair did not finish"
+  }
+]

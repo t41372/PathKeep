@@ -1,6 +1,6 @@
 /**
  * Site badge: a stored favicon when we have one, otherwise the first letter
- * of the domain on a color derived from the domain (as in the prototype).
+ * of the domain on a color derived from the domain.
  * The letter is drawn by CSS, not written as text, so it is not part of the
  * row it sits in when that is read or copied.
  */

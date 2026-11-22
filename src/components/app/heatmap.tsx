@@ -1,5 +1,5 @@
 /**
- * Tile heatmap in the prototype's orange scale, used for the year calendar
+ * Tile heatmap in the orange heat scale (`--heat-*`), used for the year calendar
  * and the weekly rhythm. EvilCharts has no heatmap, and the amicro one is a
  * fixed-data dither demo, so this is a small grid of our own.
  *

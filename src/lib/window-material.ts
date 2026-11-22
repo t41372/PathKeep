@@ -1,7 +1,7 @@
 /**
  * What the window is made of. Solid, the default, paints the soft gradient the
  * app has always had. Glass is the system's own translucent, blurred window
- * material, as in the design prototype: vibrancy on macOS, Mica on Windows 11.
+ * material: vibrancy on macOS, Mica on Windows 11.
  * Linux has no such material, so the choice is offered on macOS and Windows
  * only. A display preference, stored and applied before the first render like
  * the theme.

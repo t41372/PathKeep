@@ -1,0 +1,16 @@
+[
+  { "key": "onboarding.saveFailed", "reason": "failure: saving the source choice when leaving a step fails" },
+  { "key": "onboarding.storage.revealFailed", "reason": "failure: the archive folder cannot be shown in Finder" },
+  { "key": "onboarding.done.alreadyRunning", "reason": "failure detail when the first backup cannot start because another backup runs (the drawn backup failure uses the Full Disk Access detail)" },
+  { "key": "settingsAi.semantic.actionFailed", "reason": "failure: a semantic search action (start, pause, cancel) did not go through" },
+  { "key": "settingsAi.semantic.failed", "reason": "toast when the auto-update switch cannot be saved" },
+  { "key": "settingsAi.semantic.needsBuildCounting", "reason": "in-between: the page count for a new index is not known yet (the counted wording is drawn)" },
+  { "key": "settingsAi.semantic.switch.newIndexCounting", "reason": "in-between: the page count is not known yet when the switch dialog opens (the counted wording is drawn)" },
+  { "key": "settingsAi.semantic.switch.newIndexLaterCounting", "reason": "in-between: as above, with semantic search off" },
+  { "key": "settingsAi.rebuild.dialogBodyUnknown", "reason": "in-between: the rebuild dialog before the page count is known, or when it is 0" },
+  { "key": "settingsAi.rebuild.failed", "reason": "toast when a rebuild cannot start" },
+  { "key": "settingsAi.provider.selectFailed", "reason": "toast when choosing another AI service cannot be saved" },
+  { "key": "settingsAi.provider.removeFailed", "reason": "toast when a service cannot be removed" },
+  { "key": "settingsAi.provider.saveFailed", "reason": "failure inside the add / edit dialog when saving the service fails" },
+  { "key": "settingsAi.mcpLog.moreFailed", "reason": "failure: loading older MCP requests while scrolling fails" }
+]

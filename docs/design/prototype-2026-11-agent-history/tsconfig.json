@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": null,
+    "paths": {
+      "@/*": ["../../../src/*"],
+      "~/*": ["./src/*"]
+    }
+  },
+  "include": ["src"],
+  "exclude": []
+}

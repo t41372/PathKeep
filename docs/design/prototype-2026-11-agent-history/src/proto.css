@@ -1,0 +1,110 @@
+/* The app's own stylesheet, plus the folders Tailwind must scan for this prototype. */
+@import '../../../../src/index.css';
+@source '../../../../src/components';
+@source '../../../../src/features';
+@source './';
+/* Streamdown ships its own utility classes (code blocks, tables); the app should scan them too. */
+@source '../../../../node_modules/streamdown/dist';
+
+/* The app sets its own font size on body; the prototype window has no glass material. */
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+/* Hits from search inside a conversation or the result list. */
+mark.hit {
+  background: color-mix(in oklab, var(--brand) 28%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+mark.hit[data-current='true'] {
+  background: color-mix(in oklab, var(--brand) 60%, transparent);
+  outline: 1.5px solid var(--brand);
+}
+
+/* Find in a conversation (CSS Custom Highlight API). */
+::highlight(find) {
+  background-color: color-mix(in oklab, var(--brand) 30%, transparent);
+}
+::highlight(find-current) {
+  background-color: color-mix(in oklab, var(--brand) 70%, transparent);
+  color: var(--foreground);
+}
+
+/* Thin scrollbars for side lists. */
+.thin-scroll {
+  scrollbar-width: thin;
+}
+
+/* Chart series per harness: fixed hues near each vendor's own colour, never the space accent. */
+:root {
+  --harness-claude: oklch(0.66 0.13 38);
+  --harness-codex: oklch(0.42 0.02 260);
+  --harness-pi: oklch(0.64 0.09 230);
+  --harness-deepseek: oklch(0.56 0.18 268);
+}
+.dark {
+  --harness-claude: oklch(0.72 0.13 40);
+  --harness-codex: oklch(0.8 0.01 260);
+  --harness-pi: oklch(0.72 0.09 230);
+  --harness-deepseek: oklch(0.66 0.16 268);
+}
+
+/*
+ * Spaces (round 3): each data type tints the window background and moves the
+ * accent family to its hue. The content panel stays neutral. Browsing keeps
+ * PathKeep's own orange and wall. `--space-h` is set on <html> from kinds.tsx.
+ */
+html[data-space]:not([data-space='browsing']) {
+  --brand: oklch(0.6 0.11 var(--space-h));
+  --brand-soft: oklch(0.6 0.11 var(--space-h) / 0.13);
+  --ring: oklch(0.6 0.11 var(--space-h) / 0.5);
+  --heat-1: oklch(0.92 0.04 var(--space-h));
+  --heat-2: oklch(0.84 0.07 var(--space-h));
+  --heat-3: oklch(0.72 0.1 var(--space-h));
+  --heat-4: oklch(0.6 0.12 var(--space-h));
+  --window: oklch(0.975 0.014 var(--space-h) / 0.6);
+  --wall: radial-gradient(
+    120% 90% at 20% 10%,
+    oklch(0.92 0.04 calc(var(--space-h) - 25)) 0%,
+    oklch(0.95 0.025 var(--space-h)) 45%,
+    oklch(0.92 0.045 calc(var(--space-h) + 18)) 85%,
+    oklch(0.89 0.055 calc(var(--space-h) + 25)) 100%
+  );
+}
+html.dark[data-space]:not([data-space='browsing']) {
+  --brand: oklch(0.74 0.11 var(--space-h));
+  --brand-soft: oklch(0.74 0.11 var(--space-h) / 0.16);
+  --ring: oklch(0.74 0.11 var(--space-h) / 0.5);
+  --heat-1: oklch(0.36 0.05 var(--space-h));
+  --heat-2: oklch(0.48 0.08 var(--space-h));
+  --heat-3: oklch(0.6 0.1 var(--space-h));
+  --heat-4: oklch(0.74 0.11 var(--space-h));
+  --window: oklch(0.23 0.02 var(--space-h) / 0.62);
+  --wall: radial-gradient(
+    120% 90% at 30% 10%,
+    oklch(0.3 0.05 calc(var(--space-h) - 20)) 0%,
+    oklch(0.21 0.025 var(--space-h)) 45%,
+    oklch(0.22 0.035 calc(var(--space-h) + 20)) 80%,
+    oklch(0.26 0.045 calc(var(--space-h) + 25)) 100%
+  );
+}
+/* Glass: the desktop shows through, so the tint has to live in the window layer. */
+html[data-window-material='glass'] {
+  background: linear-gradient(135deg, #5d7fa3 0%, #9fb2c4 35%, #c8a483 65%, #6f5d7c 100%);
+}
+html[data-window-material='glass'][data-space]:not([data-space='browsing']) {
+  --window: oklch(0.96 0.035 var(--space-h) / 0.3);
+}
+html.dark[data-window-material='glass'][data-space]:not([data-space='browsing']) {
+  --window: oklch(0.25 0.04 var(--space-h) / 0.35);
+}
+
+/* Switching spaces: the window tint eases over instead of snapping. */
+.space-tint {
+  transition: background-color 320ms ease;
+}

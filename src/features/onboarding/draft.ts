@@ -111,7 +111,7 @@ export function choicesToSave(
 
 /**
  * Starts from whatever an earlier, unfinished setup saved; otherwise every
- * readable browser is picked and the prototype's defaults apply.
+ * readable browser is picked and the defaults below apply.
  */
 export function initialDraft(snapshot: AppSnapshot): Draft {
   const { config } = snapshot

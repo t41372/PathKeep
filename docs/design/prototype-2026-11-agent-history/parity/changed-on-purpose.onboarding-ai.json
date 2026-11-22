@@ -1,0 +1,22 @@
+[
+  {
+    "key": "onboarding.steps.welcome.title",
+    "reason": "§3.3 歡迎: the title becomes 「留住會被自動刪掉的東西」"
+  },
+  {
+    "key": "onboarding.steps.welcome.body",
+    "reason": "§3.3 歡迎: the body becomes the line about tools deleting their own records"
+  },
+  {
+    "key": "onboarding.welcome.retentionTitle",
+    "reason": "§3.3 歡迎: the figure is 「各家自己會留多久」 over tools as well as browsers"
+  },
+  {
+    "key": "onboarding.steps.browsers",
+    "reason": "Task item 2 / §3.3: today's 瀏覽器 step is replaced by 要保存什麼 and 來源"
+  },
+  {
+    "key": "onboarding.done.onlineValue",
+    "reason": "the link-preview switch moves from 一般 to 設定 › 瀏覽紀錄, so the summary row points there"
+  }
+]

@@ -1,7 +1,7 @@
 /*
- * Global styles. The palette comes from the 2026-10 prototype
- * (docs/design/prototype-2026-10) and is exposed through the variable names
- * shadcn/ui expects, so stock components pick it up without overrides.
+ * Global styles. The palette (docs/design/design-tokens.md) is exposed
+ * through the variable names shadcn/ui expects, so stock components pick it
+ * up without overrides.
  */
 @import 'tailwindcss';
 @import 'tw-animate-css';

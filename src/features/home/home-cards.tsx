@@ -92,7 +92,7 @@ export function TrendCard() {
             className="h-full aspect-auto"
             curveType="monotone"
           >
-            {/* The prototype's fill is stronger than evilcharts' built-in fade. */}
+            {/* A stronger fill than evilcharts' built-in fade. */}
             <defs>
               <linearGradient id="home-trend-fill" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.35} />
