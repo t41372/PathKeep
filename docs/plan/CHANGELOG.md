@@ -3203,3 +3203,5 @@ Move imports preserve local Agent conversations, saved text locators, site overr
 - 2026-11-22：第 5 組的畫面接上後端。存檔打不開時，整個視窗換成復原畫面，每種原因各有說明和能做的事：重建設定檔、建空的 Ask 或洞察檔、從安全副本還原、把 PathKeep 0.5 沒做完的「刪除所有資料」做完（要輸入 `DELETE`）。「設定 › 儲存」可以準備回到 PathKeep 0.5.0，之後再開這一版時選要不要拿回對話。匯入搬家檔留著這台的 Agent 對話，匯錯了可以撤回（先留副本再移到垃圾桶）。刪除所有資料沒做完時，下次打開會說明發生了什麼。存檔在 FAT32 或 exFAT 磁碟上時會提醒。四個 E2E 專案（`import-keeps-conversations`、`wipe-notice`、`rollback-v05`、`archive-refusal`）接在 `upgrade-v05` 後面，下一輪在 boxd 上跑；E2E 通過前 STATUS 不勾。[復原畫面](../features/archive.md#打不開存檔時復原畫面)
 
   背景任務頁的三處改動，用戶 2026-11-22 照做出來的樣子接受：「今天完成」的列保留後端給的操作（例如 `再試一次`）；沒有下次排程時間的種類只寫間隔、不顯示警告；讀不到排程狀態時寫 `沒能檢查自動備份。`，並提供 `再試一次`。[背景任務](../features/data-spaces.md)
+
+- 2026-11-22：刪掉 v0.6 的設計原型 `docs/design/prototype-2026-11-agent-history/`，以及 `.prettierignore`、`eslint.config.js` 裡排除它的兩行。Agent 空間的畫面都已做進 `src/`，設計的決定寫在 `docs/features/agent-history.md`、`data-spaces.md` 與 `docs/design/data-spaces-tradeoff.md`，不以原型為準。2026-10 的原型（`WORK-PROTOTYPE-2026-10-REMOVE`）另外處理。
