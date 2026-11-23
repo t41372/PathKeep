@@ -261,7 +261,10 @@ test('with an index built, the model switch says what it takes on disk and Cance
   })
   await expect(indexBox).toBeDisabled()
   await expect(indexBox).not.toBeChecked()
-  const row = dialog.getByRole('listitem').filter({ has: indexBox })
+  // `has` looks inside each row, so its locator must not start at the dialog.
+  const row = dialog.getByRole('listitem').filter({
+    has: page.getByRole('checkbox', { name: /^Semantic search index/ }),
+  })
   await expect(row).toContainText(size!)
   await expect(row).toContainText(
     'Turn off semantic search in Settings › AI first.',
