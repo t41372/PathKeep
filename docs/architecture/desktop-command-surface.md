@@ -963,6 +963,8 @@ First-run choices contain kinds, the tool checklist and the Git preference. Setu
 
 Debug builds honor `PATHKEEP_TEST_AGENT_INDEX_DELAY_US` once per Agent backup, after publishing the `index` phase. The delay checks cancellation and lets an E2E exercise the ordinary pause/resume commands on small fixtures. Release builds use zero delay.
 
+In debug builds, `PATHKEEP_TEST_NO_MAIN_WINDOW=1` skips the main window on startup. The dev bridge serves the Playwright page, which can then consume one-shot startup notices. Pass the variable to `killAndRestartApp` to apply it to a single launch. The normal foreground lifecycle still applies. Release builds ignore the switch.
+
 ## Group 5 archive recovery commands
 
 Call `get_archive_access` before hydrating the ordinary shell. It returns `state`, `recoveryOnly`, `code`, `detail`, `root`, `buildLevel` and the optional `archive` stamp with `revision`, `minReader` and `minWriter`. When `recoveryOnly` is true, offer the recovery actions and restart after success. Use the code for translation. Keep the technical detail available to copy.

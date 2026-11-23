@@ -3215,3 +3215,5 @@ Move imports preserve local Agent conversations, saved text locators, site overr
 - 2026-11-22：初次設定時沒勾 Agent 對話，不再被記成「使用者關掉了」。之後打開帶有對話的搬家檔時，對話照規格是「可以看，不備份」（暫停），不是「保留，不顯示」。o13 的 `view-only` 從這裡失敗（`upgrade` 是它連帶的），原因追到 cd44cfab 把沒勾當成明確關閉。
 
 - 2026-11-22：搬家匯入的新增、可撤回與已移到垃圾桶數量都以主對話計算。子代理仍和主對話一起存進撤回副本、移到垃圾桶。
+
+- 2026-11-22：E2E 重啟 debug app 時可以用 `PATHKEEP_TEST_NO_MAIN_WINDOW=1` 省略主視窗。「刪除所有資料」中斷後重啟的測試用這個開關，讓 Playwright 頁面收到只會顯示一次的復原提醒。

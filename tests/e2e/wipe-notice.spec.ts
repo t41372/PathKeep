@@ -142,7 +142,8 @@ test('a delete cut short is put back at the next start, and the app says so once
   expect(existsSync(path.join(dataRoot(), WIPE_RECORD))).toBe(true)
   expect(readControl().initialized).toBeFalsy()
 
-  await killAndRestartApp()
+  // The Playwright page must be the first window to take the one-shot notice.
+  await killAndRestartApp({ PATHKEEP_TEST_NO_MAIN_WINDOW: '1' })
   await openStorage(page)
   // Put back before the archive opened; said once it is open.
   const toast = noticeToast(page)

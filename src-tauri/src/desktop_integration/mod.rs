@@ -77,8 +77,8 @@ pub(crate) use quit::{
 // Only the macOS Dock "reopen" handler in lib.rs needs it from outside.
 #[cfg(not(test))]
 pub(crate) use window::show_main_window;
-// The dev bridge's debug quit closes this window as its close button would.
-#[cfg(all(feature = "devtools-bridge", debug_assertions))]
+// Debug startup and the dev bridge use the configured main window label.
+#[cfg(all(debug_assertions, any(not(test), feature = "devtools-bridge")))]
 pub(crate) use window::MAIN_WINDOW;
 
 /// How often the "12 min ago" text is redrawn (no I/O).
@@ -159,7 +159,7 @@ pub(crate) fn restrict_to_recovery() {
 #[cfg(not(test))]
 pub(crate) fn enter_recovery<R: Runtime>(app: &AppHandle<R>) {
     restrict_to_recovery();
-    show_main_window(app);
+    window::apply_startup_window(app, window::StartupWindow::Show);
 }
 
 pub(crate) fn archive_wiped<R: Runtime>(app: &AppHandle<R>) {
