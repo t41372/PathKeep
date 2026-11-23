@@ -342,5 +342,7 @@ test('Continue copies the checked resume command, or else the session ID', async
       otherHeader.nativeSessionId,
     )
     await page.keyboard.press('Escape')
+    // The next copy's toast must be the only one: wait until this one goes.
+    await expect(toast(page, 'Session ID copied')).toHaveCount(0)
   }
 })
