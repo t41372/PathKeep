@@ -369,9 +369,13 @@ export default defineConfig({
       ],
       'builtin-model',
     ),
+    // Browsing history's semantic index built, then freed: from Settings › AI
+    // and with Free up space. After agent-ai, whose first spec builds one too;
+    // it puts back the AI settings and leaves no browsing index on disk.
+    project('semantic-free', ['semantic-free.spec.ts'], 'agent-ai'),
     // Large imports, after the semantic index is built so it does not embed
     // their pages (a project runs its files in name order, so not in restart).
-    project('stop', ['import-stop.spec.ts'], 'agent-ai'),
+    project('stop', ['import-stop.spec.ts'], 'semantic-free'),
     // Opening the moved file replaces the archive and its password, so it runs
     // after every test that relies on the archive first-run created.
     project('move', ['move.spec.ts'], 'stop'),

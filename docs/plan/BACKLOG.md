@@ -175,6 +175,7 @@
   - 現象：舊前端的 Clear index（`onClearIndex`）在 2026-10-04 換成 shadcn 版時沒有帶過來，之後沒有任何地方送 `clearOnly: true`；後端的清除還在，Settings → 背景工作也還認得「清除搜尋索引」這種工作。關掉語意搜尋只改設定。移除嵌入服務也只改設定，它的索引要等下一次索引工作開始（`forget_unconfigured_indexes`）才刪，語意搜尋關著就沒有那次工作；內建模型的索引連這條路都沒有，只能換模型並建完新的。Storage 的「釋放空間」只列快照、匯出、暫存、隔離區。
   - 功能文件仍要求 clear-only 與清除入口，看起來不是刻意拿掉的；要不要加回來、放在哪裡由用戶決定。
   - 方向（待用戶決定）：Settings → AI 的「重建搜尋索引」旁，或 Storage「釋放空間」多一個類別；走 Preview → 確認 → 執行，先說會刪多少、之後語意搜尋要重建才能用。清除後的狀態已是 `empty`（2026-11-08 修過，不再說成要重建的損壞索引）。E2E：建好索引、清除、檔案與 Storage 的大小都不見、Settings 說還沒有建立任何索引。
+  - 2026-11-22：用戶要回三處，做好了：Settings › AI 語意搜尋關著時的「釋放…」、釋放空間的語意搜尋索引一列、換模型確認裡的磁碟空間（後端 `preview_free_semantic_index` / `free_semantic_index`，只在語意搜尋關著時能釋放）。語意搜尋關著時 Settings › AI 不顯示索引狀態，所以「還沒有建立任何索引」由 E2E 從後端與換模型的確認（不再有磁碟空間那一行）確認。E2E 專案 `semantic-free` 在 boxd 跑過才勾。見 [intelligence.md](../features/intelligence.md#1-語義搜尋semantic-search)。
 
 - [ ] **WORK-SEMANTIC-REMAP-CHANGED-CONTENT** — 造訪的內容變了、重新 embedding 之後，語意搜尋仍拿舊內容比對（2026-11-03 PR #16 第七輪審查找到；main 就有）
   - 讀碼看到的：增量建置從頭掃，內容 hash 變了的造訪會重新 embedding、provenance 換成新的 key；但 `indexing/backfill.rs` 的 `DedupTracker::take_unmapped` 只看 `history_id` 有沒有映射過，已有的不再 append，`.pkmap` 仍是舊 key，新 generation 的投影從 `.pkmap` 建（`read_all` 是同一 `history_id` 後寫的算數）。

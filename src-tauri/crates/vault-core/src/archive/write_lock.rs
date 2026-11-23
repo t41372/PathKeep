@@ -418,7 +418,7 @@ impl ArchiveOpGate {
 
     /// Live archive open can run inside maintenance. Try the gate so model recovery can
     /// leave the work to the next ordinary open instead of parking the owner on itself.
-    pub(crate) fn try_acquire(paths: &ProjectPaths) -> Option<ArchiveOpGate> {
+    pub fn try_acquire(paths: &ProjectPaths) -> Option<ArchiveOpGate> {
         let path = lock_file_path(paths);
         let (mutex, _condvar) = op_gate();
         let mut held = mutex.lock().expect("archive op-gate mutex poisoned");

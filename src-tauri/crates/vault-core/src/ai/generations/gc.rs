@@ -1,5 +1,6 @@
 //! Responsibilities: reserve unowned paths, revalidate ownership, and reclaim outside registry.
 //! Not responsible for: publishing indexes or inventing ownership from a dangling pointer.
+pub(crate) mod removal;
 use super::*;
 use std::fs;
 use vault_store::Priority;

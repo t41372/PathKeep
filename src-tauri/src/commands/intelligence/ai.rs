@@ -419,3 +419,29 @@ pub(crate) async fn enqueue_content_fetch_working_set(
     })
     .await
 }
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) async fn preview_free_semantic_index(
+    state: State<'_, SessionState>,
+    request: super::super::data_kinds::Request<vault_worker::data_kinds::Empty>,
+) -> Result<serde_json::Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("preview_free_semantic_index", move || {
+        worker_bridge::preview_free_semantic_index_impl(&session, request.0)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+pub(crate) async fn free_semantic_index(
+    state: State<'_, SessionState>,
+    request: super::super::data_kinds::Request<vault_worker::data_kinds::ConfirmFreeIndex>,
+) -> Result<serde_json::Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("free_semantic_index", move || {
+        worker_bridge::free_semantic_index_impl(&session, request.0)
+    })
+    .await
+}

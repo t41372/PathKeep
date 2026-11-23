@@ -55,6 +55,11 @@ export const settingsAi = defineMessages({
         static:
           'It is a static embedding model: very fast, but it finds pages by meaning less well than the usual contextual embedding models.',
         download: 'Building its index first downloads it once, about {size}.',
+        diskWhileBuilding:
+          'While it is built, both indexes are on this computer; the one you have now takes {size}.',
+        diskNow: 'The index on this computer takes {size} now.',
+        diskWhileOff:
+          'Semantic search is off, so no new index is built, and the one you have now stays on this computer: {size}. To get the space back, use Free… in Settings › AI, or Free up space in Settings › Storage.',
       },
       modelChange:
         'Another model needs its own index ({count} visits). Nothing starts until you build it in Settings → AI; until it is complete, semantic search keeps using {old}.',
@@ -67,6 +72,25 @@ export const settingsAi = defineMessages({
       description:
         'Find pages by meaning, not only by keywords. The model runs on this computer. It downloads once, about {size}.',
       offNote: 'Turning it off keeps the downloaded model.',
+      kept: {
+        line: 'The index is still on this computer, unused: {size}.',
+        free: 'Free…',
+        freeLabel: 'Free the semantic search index kept on this computer',
+        title: 'Free the semantic search index?',
+        reading: 'Reading the index’s size…',
+        body: 'This deletes the semantic search index from this computer, for every model it was built with: {size}. If you turn semantic search on later, the index is built again from the start, which can take a long time on a big archive. Your visits, full-text search and saved page text stay.',
+        nothing: 'There’s nothing to free: the index is already gone.',
+        changed:
+          'The index changed since its size was read. Here is its size now.',
+        confirm: 'Free {size}',
+        freeing: 'Freeing…',
+        done: 'Freed {size}',
+        busy: 'An index job or another archive task is running. Try again after it ends.',
+        inUse:
+          'Semantic search is on again, so the index is in use and can’t be freed.',
+        readFailed: 'Could not read the index’s size: {message}',
+        failed: 'Could not free the index: {message}',
+      },
       downloading: 'Downloading the language model…',
       downloadProgress: '{done} of {total}',
       cancel: 'Cancel',
@@ -386,6 +410,11 @@ export const settingsAi = defineMessages({
         static:
           '它是静态嵌入模型：非常快，但找意思相近的页面不如一般的上下文嵌入模型。',
         download: '建立索引前要先下载一次，约 {size}。',
+        diskWhileBuilding:
+          '建立期间，两份索引都在这台电脑上；现在这份占用 {size}。',
+        diskNow: '这台电脑上的索引现在占用 {size}。',
+        diskWhileOff:
+          '语义搜索已关闭，所以不会建立新索引，现在的索引会留在这台电脑上：{size}。要拿回这些空间，可以用“设置 › AI”里的“释放…”，或“设置 › 存储”里的“释放空间”。',
       },
       modelChange:
         '换成别的模型需要它自己的索引（{count} 条访问记录）。要在“设置 → AI”里建立才会开始；建好之前，语义搜索继续用 {old}。',
@@ -398,6 +427,23 @@ export const settingsAi = defineMessages({
       description:
         '按含义而不只是关键词来查找页面。模型在这台电脑上运行，只需下载一次，约 {size}。',
       offNote: '关闭后会保留已下载的模型。',
+      kept: {
+        line: '索引还留在这台电脑上，没有被用到：{size}。',
+        free: '释放…',
+        freeLabel: '释放留在这台电脑上的语义搜索索引',
+        title: '释放语义搜索索引？',
+        reading: '正在读取索引的大小…',
+        body: '这会从这台电脑删除语义搜索索引，包括用每个模型建立的：{size}。之后再打开语义搜索，索引会从头建立，存档大时可能要很久。你的访问记录、全文搜索和保存的网页正文都会保留。',
+        nothing: '没有可以释放的：索引已经不在了。',
+        changed: '读取大小之后索引有了变化。这是它现在的大小。',
+        confirm: '释放 {size}',
+        freeing: '正在释放…',
+        done: '已释放 {size}',
+        busy: '有索引任务或其他存档任务正在进行。等它结束再试。',
+        inUse: '语义搜索又打开了，索引正在使用，不能释放。',
+        readFailed: '无法读取索引的大小：{message}',
+        failed: '无法释放索引：{message}',
+      },
       downloading: '正在下载语言模型…',
       downloadProgress: '{done} / {total}',
       cancel: '取消',
@@ -699,6 +745,11 @@ export const settingsAi = defineMessages({
         static:
           '它是靜態嵌入模型：非常快，但找意思相近的頁面不如一般的上下文嵌入模型。',
         download: '建索引前要先下載一次，約 {size}。',
+        diskWhileBuilding:
+          '建立期間，兩份索引都在這台電腦上；現在這份佔用 {size}。',
+        diskNow: '這台電腦上的索引現在佔用 {size}。',
+        diskWhileOff:
+          '語意搜尋關著，所以不會建立新索引，現在的索引會留在這台電腦上：{size}。要拿回這些空間，可以用「設定 › AI」裡的「釋放…」，或「設定 › 儲存」裡的「釋放空間」。',
       },
       modelChange:
         '換成別的模型需要它自己的索引（{count} 次造訪）。要在「設定 → AI」裡建立才會開始；建好之前，語意搜尋繼續用 {old}。',
@@ -711,6 +762,23 @@ export const settingsAi = defineMessages({
       description:
         '依含義而不只是關鍵字來尋找頁面。模型在這台電腦上執行，只需下載一次，約 {size}。',
       offNote: '關閉後會保留已下載的模型。',
+      kept: {
+        line: '索引還留在這台電腦上，沒有被用到：{size}。',
+        free: '釋放…',
+        freeLabel: '釋放留在這台電腦上的語意搜尋索引',
+        title: '釋放語意搜尋索引？',
+        reading: '正在讀取索引的大小…',
+        body: '這會從這台電腦刪除語意搜尋索引，包括用每個模型建立的：{size}。之後再打開語意搜尋，索引會從頭建立，存檔大時可能要很久。你的造訪記錄、全文搜尋和儲存的網頁內文都會保留。',
+        nothing: '沒有可以釋放的：索引已經不在了。',
+        changed: '讀取大小之後索引有了變化。這是它現在的大小。',
+        confirm: '釋放 {size}',
+        freeing: '正在釋放…',
+        done: '已釋放 {size}',
+        busy: '有索引工作或其他存檔工作正在進行。等它結束再試。',
+        inUse: '語意搜尋又打開了，索引正在使用，不能釋放。',
+        readFailed: '無法讀取索引的大小：{message}',
+        failed: '無法釋放索引：{message}',
+      },
       downloading: '正在下載語言模型…',
       downloadProgress: '{done} / {total}',
       cancel: '取消',

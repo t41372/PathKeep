@@ -18,10 +18,7 @@
 
 use crate::{config::ProjectPaths, utils::sha256_hex};
 use anyhow::Result;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 /// Clears optional vector sidecar rows for one provider/model pair.
 ///
@@ -38,11 +35,13 @@ pub async fn clear_provider_embeddings(
 /// The bytes the semantic index takes on disk, for Settings → Storage: its vectors and visit
 /// maps, and anything earlier versions left in the old sidecar folder.
 pub fn sidecar_storage_bytes(paths: &ProjectPaths) -> u64 {
-    // Every layout's members: one this archive does not hold measures nothing.
+    storage_roots(paths).map(|root| artifact_size(&root)).sum()
+}
+
+pub(super) fn storage_roots(paths: &ProjectPaths) -> impl Iterator<Item = PathBuf> + '_ {
     vault_layout::usage_members(vault_layout::ArchiveLayout::NEWEST)
         .filter(|s| s.lifecycle.usage.bucket == Some(vault_layout::UsageBucket::Semantic))
-        .map(|s| artifact_size(&paths.artifact_path(s.id)))
-        .sum()
+        .map(|s| paths.artifact_path(s.id))
 }
 
 /// Returns the root directory reserved for optional vector sidecar tables.
@@ -68,17 +67,12 @@ pub fn provider_table_name(provider_id: &str, model: &str) -> String {
 
 /// Preserves the semantic reader's treatment of a root that is itself a regular file.
 pub(crate) fn artifact_size(path: &Path) -> u64 {
-    let Ok(metadata) = fs::metadata(path) else {
-        return 0;
-    };
-
-    if metadata.is_file() {
-        return metadata.len();
-    }
-
-    let Ok(entries) = fs::read_dir(path) else {
-        return 0;
-    };
-
-    entries.flatten().map(|entry| artifact_size(&entry.path())).sum()
+    walkdir::WalkDir::new(path)
+        .follow_root_links(false)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter_map(|entry| entry.metadata().ok())
+        .map(|meta| meta.len())
+        .sum()
 }

@@ -26,6 +26,7 @@ mod embedding_prompt;
 mod embedding_static;
 mod fingerprint;
 pub(crate) mod generations;
+pub use generations::{KeptIndex, RemovalRefusal, free_browsing_index, kept_browsing_index};
 mod indexing;
 mod llm;
 pub(crate) mod model_download;

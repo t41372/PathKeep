@@ -5,6 +5,7 @@
 //! Writers pin before preparing files; the pointer transaction needs no registry lock.
 mod build;
 mod gc;
+pub use gc::removal::{KeptIndex, RemovalRefusal, free_browsing_index, kept_browsing_index};
 mod legacy;
 mod partial;
 #[cfg(test)]
@@ -153,6 +154,9 @@ impl Drop for GenerationLease {
             *count -= 1;
             if *count == 0 {
                 registry.pins.remove(path);
+                if registry.pins.is_empty() {
+                    state.released.notify_all();
+                }
             }
         }
         if self.writer {

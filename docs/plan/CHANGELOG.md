@@ -3213,3 +3213,7 @@ Move imports preserve local Agent conversations, saved text locators, site overr
 - 2026-11-22：自動備份完成後，開著的首頁和備份頁會更新備份時間，歷史紀錄會顯示新造訪。選單列也會立即顯示備份結果。排程失敗或尚未到期時，視窗會更新狀態，不會跳出通知。
 
 - 2026-11-22：初次設定時沒勾 Agent 對話，不再被記成「使用者關掉了」。之後打開帶有對話的搬家檔時，對話照規格是「可以看，不備份」（暫停），不是「保留，不顯示」。o13 的 `view-only` 從這裡失敗（`upgrade` 是它連帶的），原因追到 cd44cfab 把沒勾當成明確關閉。
+
+- 2026-11-22：新增瀏覽語意索引的預覽與釋放命令。關閉語意搜尋後，一次確認即可清除所有模型的索引。Settings 的 `semanticSidecarBytes` 與 Storage 共用相同的檔案大小口徑；共用資料庫內可重用的頁面不列為已釋放的磁碟空間。[命令與拒絕原因](../architecture/desktop-command-surface.md#free-the-browsing-semantic-index)
+
+- 2026-11-22：瀏覽語意索引在畫面上可以釋放了（用戶 2026-11-22 要回來的三處，`WORK-SEMANTIC-INDEX-CLEAR-ENTRY`）。Settings › AI：語意搜尋關著而索引還在時，一行寫它占多大和「釋放…」，確認視窗寫會刪多少、之後再開要從頭建、造訪與全文搜尋不動；確認前索引變了就重讀再問。Settings › 儲存 › 釋放空間：多一列語意搜尋索引，預設不勾，語意搜尋開著時不能勾。換模型（含移除目前用的嵌入服務）的確認在有索引時多一行大小（建立期間兩份都在、語意搜尋關著時它留在磁碟上與去哪裡釋放，或只說現在多大）。釋放空間同時勾了索引和其他項目時，先釋放索引再刪其他的：刪除會把執行記進存檔，那之後打開時讀的預覽一定過期。確認視窗與 Agent 對話的「釋放…」共用 `kept-index.tsx`，Agent 那邊的文字與畫面不變。E2E 新專案 `semantic-free`（`agent-ai` 之後、`stop` 之前）：建索引、換模型的提示與取消、開著時釋放空間那一列停用、關掉後在 Settings › AI 釋放（含預覽被換掉後重讀再問）、Storage 的搜尋索引用量下降、再建一次後在釋放空間連同暫存檔一起釋放並確認先後順序；還沒在 boxd 上跑。[功能說明](../features/intelligence.md#1-語義搜尋semantic-search)
