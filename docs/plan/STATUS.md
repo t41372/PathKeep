@@ -42,10 +42,10 @@
 
 ### 2. 存檔角色收尾（`WORK-VAULT-STORE-ROLES`，細節在下面那一塊）
 
-- [ ] 程式庫接上存檔：`agent_history::Archive::attach` 用 owner 開好的 Store 與存檔的金鑰；`Vault::agent_history()` 每一代存檔一個。方案第五步明列，之前沒做也沒記。現在 app 存檔裡的兩個 Agent 資料庫永遠是空的。
+- [x] 程式庫接上存檔：`agent_history::Archive::attach` 用 owner 開好的 Store 與存檔的金鑰；`Vault::agent_history()` 每一代存檔一個。方案第五步明列，之前沒做也沒記。現在 app 存檔裡的兩個 Agent 資料庫永遠是空的。 E2E 通過：備份的對話寫進 app 的存檔、清單讀得到；搬家匯入、退回 0.5.0 再收回之後照樣讀得到（`agent-backup-1-first-save.spec`、`import-keeps-conversations.spec`、`rollback-v05.spec`；o16 Linux，2026-11-23）。
 - [ ] 生命週期測試用真正的對話資料（方案 T06）：用程式庫備份合成的工具檔（多段的大檔、之後消失的來源、星號、標題、垃圾桶），走過快照與還原、開關加密、改密碼、搬家匯出與匯入、重開；每一步之後對話清單、使用者狀態、原始位元組逐一相同、搜尋找得到，加密時資料夾裡沒有明文。現在只在每個資料庫放一個標記字串。
-- [ ] 對話資料庫壞掉時瀏覽紀錄照樣打開（方案 T12）。現在 `Vault::open` 一次開全部資料庫，對話的壞了整份打不開。
-- [ ] 拒絕的狀態交給前端（方案 T21）：能開／拒絕（讀不了、改不了分開）／需要復原／還沒初始化，指令與 dev bridge 一致。現在只有系統對話框。
+- [x] 對話資料庫壞掉時瀏覽紀錄照樣打開（方案 T12）。現在 `Vault::open` 一次開全部資料庫，對話的壞了整份打不開。 E2E 通過：清單用的檔案壞掉、存對話的檔案整個壞掉、其中一頁壞掉時，瀏覽紀錄照樣打開、造訪數不變（`repair-1-rebuild.spec`、`repair-2-from-copy.spec`、`repair-3-start-fresh.spec`；o16 Linux，2026-11-23）。
+- [x] 拒絕的狀態交給前端（方案 T21）：能開／拒絕（讀不了、改不了分開）／需要復原／還沒初始化，指令與 dev bridge 一致。現在只有系統對話框。 E2E 通過：讀不了、改不了、需要復原、還沒初始化四種狀態都經 dev bridge 的 `get_archive_access` 驗過，系統對話框換成了畫面（`archive-refusal.spec`；o16 Linux，2026-11-23）。
 - [ ] 升級進度照實回報（方案 T13）：查建立新資料庫那一步的回報，缺的補上。
 - [ ] 真正的 v0.4.0、v0.5.0 程式實測補上加密的存檔（方案 T19；2026-11-16 只做了 Linux 上不加密的）。
 - [ ] 這一塊的 CHANGELOG。
@@ -58,44 +58,44 @@
 
 ### 4. Agent 對話做進 app（每一步都要前端接上、E2E 證明）
 
-- [ ] 讀取模型與查詢（`WORK-AH-READ-MODEL`）：對話摘要、大綱、每一輪的事實、專案歸類；清單翻頁、閱讀器、搜尋、洞察。
-  - [ ] 紀錄與閱讀器後端：摘要和分組分頁、每輪事實、閱讀器視窗與標記操作（命令已寫好、Rust 測試通過；畫面的 E2E 在 Linux 通過才勾）。[命令與資料契約](../architecture/desktop-command-surface.md#conversation-list-and-reader)。畫面與 E2E 在 `WORK-AH-SCREENS`。
-- [ ] 接進 app（`WORK-AH-APP-SURFACE`）：啟用的預覽（PME）、每個空間的立即備份、進度與取消、背景任務共用的讀法、設定、排程與選單列。 背景任務推送與收起、初次設定草稿、匯出進度與取消的[後端契約](../architecture/desktop-command-surface.md#tasks-first-run-choices-and-export-control)已提供，畫面接線與 E2E 另驗。
-- [ ] 啟用預覽的「存檔預計多出」改用 Linux release 實測的分角色比例，普通檔與原生壓縮檔分開計算，保留「估計」（後端改好；啟用流程的 E2E 通過才勾）。[量測方法與結果](../architecture/research/agent-history/preview-growth.md)
-- [ ] 存檔裡已經有對話時，不必啟用備份就看得到（Claude 2026-11-18 定）。現在「Agent 對話開不開」是每台電腦自己的選擇，搬家檔與還原都不帶，新電腦預設關，關著時整個空間藏起來；啟用又要求這台電腦上讀得到工具資料夾。所以存檔搬到沒裝工具的新電腦，搬過去的對話會看不到。改成兩件事分開：從這台電腦備份（照舊，要走預覽與啟用）；看存檔裡已有的（跟著資料走：這台電腦沒做過選擇、存檔裡有對話，就是「暫停」：看得到、搜得到、不備份）。使用者自己關掉的維持關閉，匯入的預覽要講明對話會留著但藏起來。 後端的還原、搬家、換安裝與明確關閉已有 lifecycle 測試；畫面驗收留給 E2E。
-- [ ] Agent 空間的畫面（`WORK-AH-SCREENS`）：洞察、紀錄與閱讀器、專案、備份、設定、啟用流程、背景任務頁。
-  - [ ] 紀錄（對話清單）與閱讀器：清單、篩選、排序、分組、右鍵選單、閱讀器的目錄、資訊面板、原始紀錄、subagent、版本切換、標記操作。畫面做好了（150a24d0），E2E 專案 `agent-chats` 第一次在 Linux 跑就有失敗，全部通過才勾。
-  - [ ] 紀錄的搜尋與閱讀器的「在這段對話裡找」、⌘F（搜尋後端做好後；加星後的「搜尋還找得到」提示要等它）。
-  - [ ] 閱讀器 ⋯ 的「匯出 ▸」：要先有匯出單段對話的命令。
-  - [ ] 「在 Finder 顯示」要選中檔案，不只打開資料夾：後端加 reveal（macOS `open -R`、Windows `explorer /select,`、Linux FileManager1 `ShowItems`）。
-  - [ ] 「繼續對話」的接續指令：逐一確認各工具版本的指令（agent-history.md §9），之前只能複製工作階段 ID。
-  - [ ] 專案頁做好後：標頭和資訊面板的專案連到專案頁；篩選的專案清單改用列專案的命令（現在全部封存的專案會漏掉）。
-  - [ ] 側欄在全頁閱讀器時，「紀錄」也要設 `aria-current`（現在只有外觀亮起）。
+- [ ] 讀取模型與查詢（`WORK-AH-READ-MODEL`）：對話摘要、大綱、每一輪的事實、專案歸類；清單翻頁、閱讀器、搜尋、洞察。 o16 Linux，2026-11-23：清單、閱讀器、大綱、搜尋、專案、洞察的 E2E 通過（`agent-chats-1-list.spec`、`agent-chats-2-reader.spec`、`agent-chats-4-search.spec`、`agent-chats-6-projects.spec`、`agent-insights-1-report.spec`、`agent-insights-2-project.spec`）；缺：備份進行中清單翻頁不失效、搜尋照樣回答的 E2E；第 3 組併在這一塊，還開著。
+  - [x] 紀錄與閱讀器後端：摘要和分組分頁、每輪事實、閱讀器視窗與標記操作（命令已寫好、Rust 測試通過；畫面的 E2E 在 Linux 通過才勾）。[命令與資料契約](../architecture/desktop-command-surface.md#conversation-list-and-reader)。畫面與 E2E 在 `WORK-AH-SCREENS`。 畫面 E2E 通過（`agent-chats-1-list.spec`、`agent-chats-2-reader.spec`、`agent-chats-3-marks.spec`；o16 Linux，2026-11-23）。
+- [ ] 接進 app（`WORK-AH-APP-SURFACE`）：啟用的預覽（PME）、每個空間的立即備份、進度與取消、背景任務共用的讀法、設定、排程與選單列。 背景任務推送與收起、初次設定草稿、匯出進度與取消的[後端契約](../architecture/desktop-command-surface.md#tasks-first-run-choices-and-export-control)已提供，畫面接線與 E2E 另驗。 o16 Linux，2026-11-23：啟用預覽、每個空間與 ⌘K 的立即備份、進度與取消、背景任務頁、設定的 E2E 通過（`spaces-agent-preview.spec`、`agent-backup-1-first-save.spec` 到 `agent-backup-5-pause-off.spec`、`agent-sources-4-palette.spec`、`shell-1-tasks.spec`、`shell-5-ledger-tasks.spec`、`agent-chats-8-settings.spec`）；缺：選單列的備份涵蓋 Agent 對話、排程真的備份 Agent 對話（Linux 不裝排程，`shell-4-schedule.spec` 在 Linux 只走手動設定那條）、結束前詢問列出 Agent 的工作，這三樣沒有 E2E。
+- [x] 啟用預覽的「存檔預計多出」改用 Linux release 實測的分角色比例，普通檔與原生壓縮檔分開計算，保留「估計」（後端改好；啟用流程的 E2E 通過才勾）。[量測方法與結果](../architecture/research/agent-history/preview-growth.md) E2E 通過：三個角色各自照比例算、普通檔與原生壓縮檔分開、畫面寫「估計」（`spaces-agent-preview.spec`；o16 Linux，2026-11-23）。
+- [ ] 存檔裡已經有對話時，不必啟用備份就看得到（Claude 2026-11-18 定）。現在「Agent 對話開不開」是每台電腦自己的選擇，搬家檔與還原都不帶，新電腦預設關，關著時整個空間藏起來；啟用又要求這台電腦上讀得到工具資料夾。所以存檔搬到沒裝工具的新電腦，搬過去的對話會看不到。改成兩件事分開：從這台電腦備份（照舊，要走預覽與啟用）；看存檔裡已有的（跟著資料走：這台電腦沒做過選擇、存檔裡有對話，就是「暫停」：看得到、搜得到、不備份）。使用者自己關掉的維持關閉，匯入的預覽要講明對話會留著但藏起來。 後端的還原、搬家、換安裝與明確關閉已有 lifecycle 測試；畫面驗收留給 E2E。 o16 Linux，2026-11-23：沒選過的電腦打開帶對話的搬家檔，對話是暫停：看得到、搜得到、不備份，匯入檢查事先講明（`agent-view-only.spec`）；缺：使用者自己關掉時，匯入檢查寫「保留，不顯示」、匯入後維持關閉的 E2E。
+- [ ] Agent 空間的畫面（`WORK-AH-SCREENS`）：洞察、紀錄與閱讀器、專案、備份、設定、啟用流程、背景任務頁。 o16 Linux，2026-11-23：洞察、專案、備份、設定、啟用流程、背景任務頁的 E2E 通過（`agent-insights-1-report.spec` 到 `agent-insights-4-alerts.spec`、`agent-chats-6-projects.spec`、`agent-backup-1-first-save.spec` 到 `agent-backup-9-replaced-folder.spec`、`agent-chats-8-settings.spec`、`spaces-agent-preview.spec`、`onboarding-agent.spec`、`shell-1-tasks.spec`）；下面還有四項沒勾。
+  - [x] 紀錄（對話清單）與閱讀器：清單、篩選、排序、分組、右鍵選單、閱讀器的目錄、資訊面板、原始紀錄、subagent、版本切換、標記操作。畫面做好了（150a24d0），E2E 專案 `agent-chats` 第一次在 Linux 跑就有失敗，全部通過才勾。 E2E 通過（`agent-chats-1-list.spec`、`agent-chats-2-reader.spec`、`agent-chats-3-marks.spec`；o16 Linux，2026-11-23）。
+  - [ ] 紀錄的搜尋與閱讀器的「在這段對話裡找」、⌘F（搜尋後端做好後；加星後的「搜尋還找得到」提示要等它）。 o16 Linux，2026-11-23：紀錄的搜尋、對話裡找、⌘F 的 E2E 通過（`agent-chats-4-search.spec`、`agent-chats-5-find.spec`）；缺：封存的對話在紀錄的搜尋裡照樣找得到、標「已封存」的 E2E（⌘K 用標題找得到已由 `shell-2-palette.spec` 驗過），封存通知裡「搜尋還找得到」那句也沒有驗。
+  - [x] 閱讀器 ⋯ 的「匯出 ▸」：要先有匯出單段對話的命令。 E2E 通過：Markdown、HTML、JSON Lines、原始檔、停止匯出（`agent-chats-7-actions.spec`；o16 Linux，2026-11-23）。
+  - [ ] 「在 Finder 顯示」要選中檔案，不只打開資料夾：後端加 reveal（macOS `open -R`、Windows `explorer /select,`、Linux FileManager1 `ShowItems`）。 o16 Linux，2026-11-23：畫面送出帶檔案路徑的 `reveal_file`（`agent-chats-7-actions.spec`）；那個測試在傳輸層就回答，後端真的叫檔案管理員選中檔案沒有 E2E，留給 macOS 那一輪看。
+  - [ ] 「繼續對話」的接續指令：逐一確認各工具版本的指令（agent-history.md §9），之前只能複製工作階段 ID。 o16 Linux，2026-11-23：Claude Code CLI 確認過的版本複製接續指令、Claude 桌面版與 Codex 桌面版只複製工作階段 ID，E2E 通過（`agent-chats-7-actions.spec`）；缺 Codex CLI 確認過的版本（`CODEX_HOME=…`）的 E2E。
+  - [ ] 專案頁做好後：標頭和資訊面板的專案連到專案頁；篩選的專案清單改用列專案的命令（現在全部封存的專案會漏掉）。 o16 Linux，2026-11-23：標頭的專案連到專案頁、篩選的專案清單列出全部專案，E2E 通過（`agent-chats-2-reader.spec`、`agent-chats-1-list.spec`）；缺資訊面板的專案連到專案頁的 E2E。
+  - [x] 側欄在全頁閱讀器時，「紀錄」也要設 `aria-current`（現在只有外觀亮起）。 E2E 通過（`agent-chats-2-reader.spec`；o16 Linux，2026-11-23）。
   - 只記錄、不修：清單的 `viewToken` 沒用來判斷過期；讀到一半發布換了，舊的視窗留給快取回收；專案下拉要先讀完全部才會顯示「沒有這個專案」；有「復原」的通知只停 4 秒；提示的語氣由前端依代碼決定。
-- [ ] Agent 對話的 AI 存取（agent-history.md §7「AI 存取」三個開關）：助理回答時引用 Agent 對話、對話的語意搜尋索引、MCP 讀 Agent 對話。後端已接入三項各自的權限、可定位到記錄的引用、可暫停與取消的語意索引工作及讀取審計；設定頁、Ask 引用與紀錄的搜尋模式已合併。後端另提供語意結果續頁、索引釋放預覽與確認、退出時的工作種類和拒絕原因，待畫面接入並以 E2E 驗證。[命令與權限](../architecture/desktop-command-surface.md#agent-conversation-ai-access)。
-- [ ] 背景任務做成 dashboard（`WORK-BACKGROUND-DASHBOARD`）：設計原型裡的背景任務頁（`#/tasks`），設定裡的工作清單搬過去，設定只留排程與限制。是上面兩塊的一部分，單獨列出來免得漏。
+- [ ] Agent 對話的 AI 存取（agent-history.md §7「AI 存取」三個開關）：助理回答時引用 Agent 對話、對話的語意搜尋索引、MCP 讀 Agent 對話。後端已接入三項各自的權限、可定位到記錄的引用、可暫停與取消的語意索引工作及讀取審計；設定頁、Ask 引用與紀錄的搜尋模式已合併。後端另提供語意結果續頁、索引釋放預覽與確認、退出時的工作種類和拒絕原因，待畫面接入並以 E2E 驗證。[命令與權限](../architecture/desktop-command-surface.md#agent-conversation-ai-access)。 o16 Linux，2026-11-23：Ask 引用對話、對話的語意索引與搜尋（含續頁與拒絕原因）、索引建置的暫停繼續取消、關掉後索引釋放的預覽與確認，E2E 通過（`agent-ai-1-semantic.spec`、`agent-ai-2-ask.spec`、`agent-ai-3-index-tasks.spec`；這是對話的索引，和瀏覽紀錄的 `semantic-free.spec` 無關）；缺：MCP 讀 Agent 對話（`agent-chats-8-settings.spec` 只驗開關存得下來）、索引建置中結束 app 時詢問的 E2E。
+- [x] 背景任務做成 dashboard（`WORK-BACKGROUND-DASHBOARD`）：設計原型裡的背景任務頁（`#/tasks`），設定裡的工作清單搬過去，設定只留排程與限制。是上面兩塊的一部分，單獨列出來免得漏。 E2E 通過（`shell-1-tasks.spec`、`shell-5-ledger-tasks.spec`、`spaces-shell-tasks.spec`、`agent-ai-3-index-tasks.spec`；o16 Linux，2026-11-23）。
 - [ ] 刪掉原型資料夾（`WORK-PROTOTYPE-2026-10-REMOVE`）。
 
 ### 5. 保護資料與能退回
 
 Group 5 後端交接（2026-11-20，`track/group5`）。匯入撤回、拒絕與復原、降版交接、跨磁碟限制和儲存空間的指令與欄位見 [desktop-command-surface](../architecture/desktop-command-surface.md#group-5-archive-recovery-commands)。畫面接好且使用者流程通過 E2E 再勾選。新增的極端情況列在 BACKLOG 的「Group 5 — Recorded, not handled」。
 
-- [ ] 匯入搬家檔時保留這台的對話，匯錯可以撤回（`WORK-IMPORT-KEEPS-CONVERSATIONS`）。
-- [ ] 從安全副本修復對話（`WORK-AH-REPAIR-FROM-COPY`）。包含 2026-11-18 補上的兩件：對話讀不了的期間安全副本與還原照樣能做（現在會拒絕）；沒有可用副本時把壞掉的對話資料收成副本、從空的重新開始。
-- [ ] 存檔打不開時的拒絕畫面（`WORK-ARCHIVE-REFUSAL-SCREEN`）。
-- [ ] 把存檔轉回 v0.5.0 能開的樣子（`WORK-UPGRADE-ROLLBACK`）。
-- [ ] `raw-snapshots/` 連到別的磁碟（`WORK-LINKED-SNAPSHOTS-FOLDER`）。
+- [x] 匯入搬家檔時保留這台的對話，匯錯可以撤回（`WORK-IMPORT-KEEPS-CONVERSATIONS`）。 E2E 通過：匯入前講明、兩邊的對話都留、儲存空間裡撤回與還原時勾選撤回都只移到垃圾桶（`import-keeps-conversations.spec`、`agent-view-only.spec`；o16 Linux，2026-11-23）。
+- [ ] 從安全副本修復對話（`WORK-AH-REPAIR-FROM-COPY`）。包含 2026-11-18 補上的兩件：對話讀不了的期間安全副本與還原照樣能做（現在會拒絕）；沒有可用副本時把壞掉的對話資料收成副本、從空的重新開始。 o16 Linux，2026-11-23：從副本修復、壞掉期間照樣做安全副本、從還驗得過的重新開始並把換下的收成副本，E2E 通過（`repair-1-rebuild.spec`、`repair-2-from-copy.spec`、`repair-3-start-fresh.spec`、`repair-4-access-denied.spec`）；缺：對話讀不了的期間真的做一次還原的 E2E（`repair-2-from-copy.spec` 只在修好之後打開還原對話框看說明）。
+- [ ] 存檔打不開時的拒絕畫面（`WORK-ARCHIVE-REFUSAL-SCREEN`）。 o16 Linux，2026-11-23：較新版本讀不了與改不了、設定檔不見時重建、0.5 的存檔少了 Ask 對話檔時建空的、0.5 沒做完的刪除要打 DELETE 才做完，E2E 通過（`archive-refusal.spec`）；缺：在這個畫面上真的從安全副本還原（含輸入目前密碼那一步）、安裝或刪除紀錄對不上（`archive-control-invalid`）的畫面的 E2E；「立即檢查」更新只驗了按鈕在（開發版沒有更新器）。
+- [ ] 把存檔轉回 v0.5.0 能開的樣子（`WORK-UPGRADE-ROLLBACK`）。 o16 Linux，2026-11-23：準備、下次啟動先問、密碼錯拒絕、收回後造訪與對話都在、帶走的副本照樣列出，E2E 通過（`rollback-v05.spec`）；E2E 裡沒有 0.5.0 的執行檔，0.5.0 真的打開準備好的存檔只有 Rust 測試；再開時選「不帶回對話」只驗了選項在畫面上。
+- [ ] `raw-snapshots/` 連到別的磁碟（`WORK-LINKED-SNAPSHOTS-FOLDER`）。 o16 Linux，2026-11-23：匯入在檢查時就拒絕、什麼都沒動，E2E 通過（`import-keeps-conversations.spec`）；缺：還原與切換加密遇到同樣的連結的 E2E。
 - [ ] Windows 上模型換檔（`WORK-WINDOWS-MODEL-REPLACE`）。
 - [ ] 搬家丟掉使用者改過的網站分類與搜尋引擎規則、已存網頁文字搬過去找不到，以及 `WORK-VAULT-FOLLOWUPS-2026-11` 其餘各項。
 - [ ] 存檔的不變量測試（`WORK-ARCHIVE-INVARIANTS`）。
-- [ ] `WORK-WIPE-UNDONE-NOTICE`、`WORK-FAT-DATA-FOLDER-NOTICE`、`WORK-FAT-TWO-NAMES-EXPORT-SWEEP`、`WORK-MOVE-FILE-APP-VERSION`、`WORK-WRITE-LOCK-WINDOWS`、`WORK-WIPE-WAITS-FOR-BACKUP`。
+- [ ] `WORK-WIPE-UNDONE-NOTICE`、`WORK-FAT-DATA-FOLDER-NOTICE`、`WORK-FAT-TWO-NAMES-EXPORT-SWEEP`、`WORK-MOVE-FILE-APP-VERSION`、`WORK-WRITE-LOCK-WINDOWS`、`WORK-WIPE-WAITS-FOR-BACKUP`。 o16 Linux，2026-11-23：`WORK-WIPE-UNDONE-NOTICE`（`wipe-notice.spec`）與 `WORK-MOVE-FILE-APP-VERSION`（`import-keeps-conversations.spec`、`upgrade-v05.spec`）E2E 通過；`WORK-FAT-DATA-FOLDER-NOTICE` 只驗了不在 FAT 上時不出現；其餘三項沒有 E2E。
 
 ### 6. 其他分支留下、還沒做的，與 BACKLOG 其餘每一項
 
 2026-11-22 逐項分了類（95 項；分類表與每項的證據在交接資料夾 `merge-1118/group6-triage.md`）：正常使用會碰到、要修的 3 項，已經修好的 16 項，只記錄的 75 項，要用戶決定的 1 項。
 
 - 要修：毛玻璃幾乎看不出來（905a1009 修了，桌面視窗上的樣子在發布前 macOS 那一輪看）；排程備份跑完，開著的視窗不知道，「上次備份」停在舊的時間、過了兩倍間隔圓點變色（`track/schedule-refresh`，先寫會紅的 E2E 再修）；KDE Plasma 的 Wayland 上可能有兩條標題列（`WORK-WAYLAND-UNDECORATED`，只從 tao 的程式推出來，先在 KWin 上重現再修）。
-- 要用戶決定：`WORK-SEMANTIC-INDEX-CLEAR-ENTRY`，關掉語意搜尋後索引留在磁碟上（14.4M 造訪時 4–59 GB），app 裡沒有刪它的地方；要不要加回來、放在哪裡。
+- 要用戶決定：`WORK-SEMANTIC-INDEX-CLEAR-ENTRY`，關掉語意搜尋後索引留在磁碟上（14.4M 造訪時 4–59 GB），app 裡沒有刪它的地方；要不要加回來、放在哪裡。 用戶 2026-11-22 要回來，畫面已做（見 CHANGELOG 同日）；`semantic-free.spec` 在 o16 的第 2 個測試失敗（spec 的預期寫錯，已改），第 3 個因此沒跑，等 o17 重跑通過才算完成。
 - 其餘只記錄，留在 BACKLOG，v0.6.0 不做。
 
 合併進來的分支自己記下的：
@@ -107,7 +107,7 @@ BACKLOG 原有的，依領域：
 
 - [ ] 讀取與回應：`WORK-INSIGHTS-COLD-READS`、`WORK-UNBOUNDED-READS`、`WORK-SLOW-READ-ALARM`、`WORK-STALE-WHEN-BACKEND-SILENT`、`WORK-EMPTY-WRITE-CHECKPOINT`、`WORK-TURSO-MINMAX-WRAPPER-AUDIT`、`WORK-TURSO-COMPOSITE-KEY-PLANS`、`WORK-RECLASSIFY-STALL`、`WORK-SCALE-BENCH-RERUN`。
 - [ ] 備份與匯入：`WORK-STAGING-BUSY-WAIT`、`WORK-URL-TITLE-REFRESH`、`WORK-WINDOWS-RAW-COPY-CHECK`、`WORK-SAME-VISIT-UNDONE-STAND-IN`、`WORK-INSIGHTS-LATE-OPENERS`。
-- [ ] 語意索引：`WORK-SEMANTIC-INDEX-CLEAR-ENTRY`、`WORK-SEMANTIC-VISIT-SIDECAR`、`WORK-INDEX-SEARCH-WHILE-BUILDING`、`WORK-INDEX-ROW-CLEANUP-OFF-JOB`、`WORK-INDEX-RESOLVE-RETRY-LIMIT`、`WORK-INTELLIGENCE-MIGRATION-OPEN`。
+- [ ] 語意索引：`WORK-SEMANTIC-INDEX-CLEAR-ENTRY`、`WORK-SEMANTIC-VISIT-SIDECAR`、`WORK-INDEX-SEARCH-WHILE-BUILDING`、`WORK-INDEX-ROW-CLEANUP-OFF-JOB`、`WORK-INDEX-RESOLVE-RETRY-LIMIT`、`WORK-INTELLIGENCE-MIGRATION-OPEN`。 `WORK-SEMANTIC-INDEX-CLEAR-ENTRY` 已做，等 o17（見上面「要用戶決定」那一條）。
 - [ ] 搜尋：`WORK-SEARCH-OR-OPERATORS`、`WORK-SEARCH-ACCENT-GRAMS`、`WORK-SEARCH-TYPO-WALK`、`WORK-SEARCH-QUOTED-LITERALS`、`WORK-SEARCH-NEAR-DUPLICATES`、`WORK-SEARCH-FAMILY-ACROSS-PROFILES`、`WORK-HISTORY-SEARCH-NOTES-E2E`、`WORK-INSIGHTS-TITLE-QUERY`。
 - [ ] 介面與行為：`WORK-QUIT-FOLLOWUPS`、`WORK-TAG-SAVE-FAILURE-STALE`、`WORK-PERF-OG-QUEUE-A`。
 - [ ] AI：`WORK-AI-MAPREDUCE-A`、`WORK-AI-CTX-BUDGET-A`、`WORK-TEST-REAL-IO-A`。
@@ -136,7 +136,7 @@ BACKLOG 原有的，依領域：
 
 ## CURRENT FOCUS
 
-- [ ] **WORK-VAULT-STORE-ROLES** — Agent 對話的資料庫併進 PathKeep 的存檔，並把「存檔裡有哪些資料庫和資料夾」集中到一張表（v0.6.0；2026-11-14 從 BACKLOG 搬上）
+- [ ] **WORK-VAULT-STORE-ROLES** — Agent 對話的資料庫併進 PathKeep 的存檔，並把「存檔裡有哪些資料庫和資料夾」集中到一張表（v0.6.0；2026-11-14 從 BACKLOG 搬上）（o16 Linux，2026-11-23：程式庫接上存檔、T12、T21 的 E2E 通過，已在第 2 組勾；其餘還開著。）
   - 進度（2026-11-14）：方案階段。GPT astra 讀完程式寫了方案，另有一份獨立寫的方案對比過，審過一輪後修訂。兩份的主要決定一致：Agent 對話用同一個 Store 的新角色（不是第二個 Store）、一張有型別而且編譯期就完整的表、自己的金鑰標籤、先把現在的行為釘住再重構。修訂後定下的：
     - 新資料庫在 v0.6 第一次打開存檔時就建空的（不是等使用者開啟 Agent 對話），所以每個 v0.6 存檔的檔案都一樣，少了就是壞了。
     - 已發布的 v0.5 打開 v0.6 寫過的存檔會出事（開關加密時只重新加密它認得的檔案，Agent 對話留在一把不存在的金鑰底下）。v0.5 唯一會擋的是資料庫版本號，而它的還原與搬移匯入連這個都不檢查。方案建議把 `config.json` 裡 `archiveMode` 的寫法換成 v0.5 解析不了的新格式：v0.5 在啟動任何服務之前讀設定，讀不了就起不來（讀 v0.5.0 的 `src-tauri/src/lib.rs` 與 `vault-core/src/config.rs` 確認過，不會退回預設值）。瀏覽紀錄的資料庫、金鑰、遷移都不動。用戶 2026-11-14 同意（「按你和 gpt 的建議修吧」），並要求不能再這樣臨時才發現：每個存下來的檔案都要寫版本號或註明哪些版本讀得了，先把不同版本互相打開會出的事想清楚、參考別的專案踩過的坑，定出一套以後加欄位、改資料庫都適用的做法。這份設計由 GPT 先出，審過後這一塊的擋舊版機制照它做，成為那套做法的第一個用例。
@@ -333,7 +333,7 @@ BACKLOG 原有的，依領域：
   - 兩個守門測試：刪除所有資料後，資料根目錄裡沒有這張表不認得的東西；at-rest 檢查遇到不認得的檔案就失敗。漏刪某一種資料是這次工作最不能出的錯。
   - 名稱避開 `agent.db`／`Db::Agent`，那是助理自己的對話。
 
-- [ ] **WORK-AH-READ-MODEL** — Agent 對話的讀取模型與查詢：對話摘要、大綱、每一輪的事實、專案歸類；清單、閱讀器、搜尋、洞察要的查詢（v0.6.0；2026-11-14 從 BACKLOG 搬上）
+- [ ] **WORK-AH-READ-MODEL** — Agent 對話的讀取模型與查詢：對話摘要、大綱、每一輪的事實、專案歸類；清單、閱讀器、搜尋、洞察要的查詢（v0.6.0；2026-11-14 從 BACKLOG 搬上）（o16 Linux，2026-11-23：清單、閱讀器、搜尋、專案、洞察的 E2E 通過，見第 4 組第一項；還開著的原因也寫在那裡。）
   - 做法（用戶 2026-11-13）：先由 GPT 讀完所有相關的程式與文件、寫出技術方案與實作路線，審過才寫程式；驗收情境由定設計的人先寫成測試。會影響備份成不成功、資料完不完整的部分用 astra xhigh，其餘用 6.1 sol xhigh。
   - 開工時一併做 `WORK-AH-REVIEW-FOLLOWUPS` 的項目（用戶 2026-11-13）。
   - 讀先：`docs/architecture/agent-history-product-design.md` §3（專案與區塊）、§6–§9；`docs/features/agent-history.md` 第一部分每個數字的定義；`docs/architecture/research/agent-history/` 各工具的用量與時間紀錄方式。
