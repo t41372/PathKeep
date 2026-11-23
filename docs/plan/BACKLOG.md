@@ -507,6 +507,10 @@
   - 現況：app 的 owner 端點是資料夾裡的 Unix socket（`ipc/owner.sock`，`vault-owner-ipc/src/unix.rs`）。socket 路徑在 macOS 不能超過約 104 個位元組（Linux 108），資料夾路徑長過約 88 個字元時 bind 失敗，日誌寫 `owner endpoint unavailable: path must be shorter than SUN_LEN`，app 結束。預設位置（`~/Library/Application Support/…`）不會碰到；使用者把資料夾放在很深的地方、或 checkout 很深的 `dev:demo` 會碰到。`dev:demo` 已可用 `PATHKEEP_DEMO_ROOT` 換到短路徑。
   - 要做時：socket 放在與資料夾無關的短路徑（例如以資料夾路徑雜湊命名、放在使用者自己的執行目錄），並在選資料夾時不必再顧慮長度。
 
+- [ ] **WORK-SEMANTIC-FREE-BUSY-AFTER-BUILD** — 語意索引建好後約一秒內，「釋放」說有工作在跑（2026-11-23 o17 碰到，只記錄）
+  - 現況：索引工作在佇列裡已經標成成功、狀態也說沒有東西在跑，worker 還握著索引執行的鎖做收尾（`forget_unconfigured_indexes`、`collect_index_generations`，`ai_queue.rs` 的 drain）。這段時間 `preview_free_semantic_index` 照規則回 `archive-busy`，「釋放空間」和「設定 › AI › 釋放…」顯示「有索引工作或其他存檔工作正在進行」。「釋放空間」對話框不會在工作結束時重新檢查，要關掉再開。
+  - 要剛建完就關掉語意搜尋、並在那一秒內打開對話框才碰得到，正常使用碰不到。要做時：工作結束的通知等收尾做完才發，或對話框在收到通知時重讀。
+
 - [ ] **WORK-AH-READ-MODEL-SIZE** — 對話的讀取模型比來源大很多（2026-11-20 量到，只記錄）
   - Linux release 實測（`docs/architecture/research/agent-history/preview-growth.md`）：每位元組的工具原始檔，原始證據 0.29、讀取模型 4.1、搜尋索引 0.43；工具自己用 zstd 壓過的檔，讀取模型是壓縮後大小的 17.7 倍。2 GB 的 Claude Code 紀錄大約多出 9.7 GB。
   - 要查：讀取模型裡哪些欄位或索引佔最多、能不能壓縮或改成按需重建。正常使用就會碰到（磁碟），但不影響正確性；等 v0.6.0 功能做完、跟審查一起排。
