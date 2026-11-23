@@ -360,7 +360,11 @@ test('off, Settings › AI frees the index after showing its size, and asks agai
   // No index is left: the backend has none, and the switch prompt has no
   // disk space to speak of.
   expect(await indexBytes()).toBe(0)
-  expect((await queueStatus()).semanticIndex.serving).toBeNull()
+  // With no index ready, `serving` names the chosen model's, empty
+  // (semantic-index-control.md); the ledger says none is ready.
+  const { semanticIndex } = await queueStatus()
+  expect(semanticIndex.chosenComplete).toBe(false)
+  expect(semanticIndex.build).toBeNull()
   const picker = page.getByRole('combobox', { name: 'Model' })
   await picker.click()
   await page.getByRole('option', { name: 'In-app static model' }).click()
