@@ -153,7 +153,8 @@ async function buildIndex(page: Page) {
         return (
           queue.semanticIndex.chosenComplete &&
           queue.semanticIndex.build === null &&
-          queue.running === 0
+          queue.running === 0 &&
+          queue.queued === 0
         )
       },
       { timeout: 240_000, intervals: [500, 1_000, 2_000] },

@@ -100,9 +100,28 @@ export function SwitchConsequences({
   const model = shortModel(target.model)
   const lines: { text: string; bytes?: number }[] = []
   const say = (text: string) => lines.push({ text })
+  // The disk space: every model's index files, the 4–59 GB a big archive's
+  // index takes. A build keeps the complete index beside the new one; while
+  // semantic search is off nothing is built and it all stays until freed.
+  const kept = snapshot.aiStatus.semanticSidecarBytes
+  const sayDisk = (beside: boolean) => {
+    if (kept <= 0) return
+    lines.push({
+      text: t(
+        !on
+          ? 'settingsAi.semantic.switch.diskWhileOff'
+          : beside
+            ? 'settingsAi.semantic.switch.diskWhileBuilding'
+            : 'settingsAi.semantic.switch.diskNow',
+        { size: format.bytes(kept) },
+      ),
+      bytes: kept,
+    })
+  }
 
   if (isTarget(complete, target)) {
     say(t('settingsAi.semantic.switch.ready', { model }))
+    sayDisk(false)
   } else {
     const count = estimate.data?.pageCount ?? 0
     say(
@@ -127,23 +146,9 @@ export function SwitchConsequences({
           })
         : t('settingsAi.semantic.meanwhilePartial'),
     )
-    // The disk space: every model's index files, the 4–59 GB a big archive's
-    // index takes. Building the new one keeps the complete one beside it;
-    // while semantic search is off nothing is built and it all stays until
-    // freed. Without a complete index, search has nothing it keeps using
-    // meanwhile, and an unfinished one is `dropsUnfinished`'s line.
-    const kept = snapshot.aiStatus.semanticSidecarBytes
-    if (kept > 0 && (!on || complete)) {
-      lines.push({
-        text: t(
-          on
-            ? 'settingsAi.semantic.switch.diskWhileBuilding'
-            : 'settingsAi.semantic.switch.diskWhileOff',
-          { size: format.bytes(kept) },
-        ),
-        bytes: kept,
-      })
-    }
+    // Without a complete index, search has nothing it keeps using while the
+    // new one is built; an unfinished one is `dropsUnfinished`'s line.
+    sayDisk(complete !== null)
     if (complete) {
       say(
         t('settingsAi.semantic.switch.replaces', {

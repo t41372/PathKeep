@@ -57,6 +57,7 @@ export const settingsAi = defineMessages({
         download: 'Building its index first downloads it once, about {size}.',
         diskWhileBuilding:
           'While it is built, both indexes are on this computer; the one you have now takes {size}.',
+        diskNow: 'The index on this computer takes {size} now.',
         diskWhileOff:
           'Semantic search is off, so no new index is built, and the one you have now stays on this computer: {size}. To get the space back, use Free… in Settings › AI, or Free up space in Settings › Storage.',
       },
@@ -411,6 +412,7 @@ export const settingsAi = defineMessages({
         download: '建立索引前要先下载一次，约 {size}。',
         diskWhileBuilding:
           '建立期间，两份索引都在这台电脑上；现在这份占用 {size}。',
+        diskNow: '这台电脑上的索引现在占用 {size}。',
         diskWhileOff:
           '语义搜索已关闭，所以不会建立新索引，现在的索引会留在这台电脑上：{size}。要拿回这些空间，可以用“设置 › AI”里的“释放…”，或“设置 › 存储”里的“释放空间”。',
       },
@@ -745,6 +747,7 @@ export const settingsAi = defineMessages({
         download: '建索引前要先下載一次，約 {size}。',
         diskWhileBuilding:
           '建立期間，兩份索引都在這台電腦上；現在這份佔用 {size}。',
+        diskNow: '這台電腦上的索引現在佔用 {size}。',
         diskWhileOff:
           '語意搜尋關著，所以不會建立新索引，現在的索引會留在這台電腦上：{size}。要拿回這些空間，可以用「設定 › AI」裡的「釋放…」，或「設定 › 儲存」裡的「釋放空間」。',
       },

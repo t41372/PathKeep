@@ -1,8 +1,10 @@
 /**
  * The panel under a chosen AI service, for the assistant's or semantic
  * search's: where its requests go, what saving it found (its model list), its
- * connection test, and edit and remove. The actions come from
- * `useAiProviders` for that purpose.
+ * connection test, and edit and remove. Removing semantic search's service
+ * switches it to the in-app model, so its confirmation says what happens to
+ * the index, and how much stays on disk while semantic search is off. The
+ * actions come from `useAiProviders` for that purpose.
  */
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -21,7 +23,8 @@ import { ProviderDialog } from '@/features/ai-setup/provider-dialog'
 import { isLocalProvider } from '@/features/ai-setup/providers'
 import type { useAiProviders } from '@/features/ai-setup/use-ai-providers'
 import { describeError } from '@/lib/errors'
-import { useI18n } from '@/lib/i18n'
+import { useFormat, useI18n } from '@/lib/i18n'
+import { useSnapshot } from '@/lib/queries/app'
 import type {
   AiProviderConfig,
   AiProviderConnectionTestReport,
@@ -73,10 +76,19 @@ export function ProviderDetails({
   hasIndex?: boolean
 }) {
   const { t } = useI18n()
+  const format = useFormat()
+  const snapshot = useSnapshot()
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [editing, setEditing] = useState(false)
   const local = isLocalProvider(provider)
   const embedding = providers.purpose === 'embedding'
+  // Removing the chosen embeddings service switches semantic search to the
+  // in-app model. While semantic search is off no index work starts, so no
+  // index is deleted: what is on disk stays until it is freed.
+  const ai = snapshot.config.ai
+  const searchOn = ai.enabled && ai.semanticIndexEnabled
+  const kept = embedding ? snapshot.aiStatus.semanticSidecarBytes : 0
+  const keptWhileOff = !searchOn && kept > 0
   const report = providers.reports[provider.id]
   const testing = providers.testing === provider.id
 
@@ -197,14 +209,28 @@ export function ProviderDetails({
             <AlertDialogTitle>
               {t('settingsAi.provider.removeTitle', { name: provider.name })}
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t(
-                embedding
-                  ? hasIndex
-                    ? 'settingsAi.semantic.serviceRemoveBodyIndexed'
-                    : 'settingsAi.semantic.serviceRemoveBody'
-                  : 'settingsAi.provider.removeBody',
-              )}
+            <AlertDialogDescription asChild>
+              <div className="flex flex-col gap-2">
+                <p>
+                  {t(
+                    embedding
+                      ? hasIndex && !keptWhileOff
+                        ? 'settingsAi.semantic.serviceRemoveBodyIndexed'
+                        : 'settingsAi.semantic.serviceRemoveBody'
+                      : 'settingsAi.provider.removeBody',
+                  )}
+                </p>
+                {kept > 0 && (
+                  <p data-index-bytes={kept}>
+                    {t(
+                      searchOn
+                        ? 'settingsAi.semantic.switch.diskNow'
+                        : 'settingsAi.semantic.switch.diskWhileOff',
+                      { size: format.bytes(kept) },
+                    )}
+                  </p>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

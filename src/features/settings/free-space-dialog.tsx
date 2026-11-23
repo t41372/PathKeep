@@ -100,8 +100,13 @@ function useIndexRow() {
   // Once a free went through, the status reads 0 and the last preview is spent.
   const bytes =
     on || statusBytes === 0 ? statusBytes : (previewBytes ?? statusBytes)
+  // A read again that failed leaves the spent receipt in `data`: not usable.
   const receipt =
-    !on && !preview.isFetching && previewBytes !== null && previewBytes > 0
+    !on &&
+    !preview.isFetching &&
+    !preview.isError &&
+    previewBytes !== null &&
+    previewBytes > 0
       ? preview.data
       : null
   return {
