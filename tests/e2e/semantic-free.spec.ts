@@ -163,7 +163,7 @@ async function buildIndex(page: Page) {
   expect(await indexBytes(), 'the index is on disk').toBeGreaterThan(0)
 }
 
-/** Turns semantic search off and waits for the index work to be idle. */
+/** Turns semantic search off and waits until the index work has let go of it. */
 async function turnOff(page: Page) {
   await semanticSwitch(page).click()
   await expect(semanticSwitch(page)).not.toBeChecked()
@@ -176,6 +176,20 @@ async function turnOff(page: Page) {
       return queue.running + queue.queued
     })
     .toBe(0)
+  // The queue reports a build done before its worker has retired the other
+  // indexes and collected their files (semantic-index-control.md); until it
+  // has, previewing a free answers archive-busy. A later preview replaces
+  // this one.
+  await expect
+    .poll(
+      () =>
+        backend('preview_free_semantic_index', { request: {} }).then(
+          () => 'previewed',
+          (error: Error) => error.message,
+        ),
+      { timeout: 60_000 },
+    )
+    .toBe('previewed')
 }
 
 async function openFreeUpSpace(page: Page) {
