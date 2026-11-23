@@ -90,8 +90,14 @@ fn run_app() -> Result<()> {
     let launches = owner::LaunchState::default();
     let owner_session = session_state.clone();
     let mut context = tauri::generate_context!();
-    if background {
-        for window in &mut context.config_mut().app.windows {
+    for window in &mut context.config_mut().app.windows {
+        if background {
+            window.create = false;
+        }
+        #[cfg(debug_assertions)]
+        if window.label == desktop_integration::MAIN_WINDOW
+            && std::env::var("PATHKEEP_TEST_NO_MAIN_WINDOW").as_deref() == Ok("1")
+        {
             window.create = false;
         }
     }

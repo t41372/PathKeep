@@ -148,13 +148,42 @@ pub(super) fn combine(
     Ok(Combined { batch_id: id, incoming: Some(donor) })
 }
 
-/// Lists only imports that introduced a conversation, even after its browsing safety copy is freed.
+// A conversation can have several source files. Count its receipt row once if any
+// source identifies it as a root. Undo and its safety copy still need the child rows.
+const IMPORTED_ROOTS: &str = "SELECT c.import_id, c.eligible FROM ah_import_conversations c
+    WHERE EXISTS (SELECT 1 FROM ah_source_conversations s
+                  WHERE s.conversation_id = c.conversation_id AND s.is_child = 0)";
+
+/// Lists only imports that introduced a root, even after its browsing safety copy is freed.
 pub fn imports(vault: &Vault) -> Result<Vec<serde_json::Value>> {
     vault.recheck_root()?;
-    Ok(vault.store().read(E, |s| s.query(
-        "SELECT i.id,i.imported_at,i.previous_copy,count(*),sum(c.eligible) FROM ah_move_imports i JOIN ah_import_conversations c ON c.import_id=i.id GROUP BY i.id ORDER BY i.imported_at DESC",
-        (), |r| Ok(serde_json::json!({"id":r.get::<String>(0)?,"importedAt":r.get::<String>(1)?,"previousCopy":r.get::<Option<String>>(2)?,"added":r.get::<i64>(3)?,"eligible":r.get::<i64>(4)?})),
-    ))?)
+    Ok(vault.store().read(E, |s| {
+        s.query(
+            &format!(
+                "SELECT i.id, i.imported_at, i.previous_copy, count(*), sum(r.eligible)
+                 FROM ah_move_imports i JOIN ({IMPORTED_ROOTS}) r ON r.import_id = i.id
+                 GROUP BY i.id ORDER BY i.imported_at DESC"
+            ),
+            (),
+            |r| {
+                Ok(serde_json::json!({
+                    "id": r.get::<String>(0)?,
+                    "importedAt": r.get::<String>(1)?,
+                    "previousCopy": r.get::<Option<String>>(2)?,
+                    "added": r.get::<i64>(3)?,
+                    "eligible": r.get::<i64>(4)?,
+                }))
+            },
+        )
+    })?)
+}
+
+fn eligible_roots(s: &vault_store::Session<'_>, id: &str) -> vault_store::Result<i64> {
+    s.query_one(
+        &format!("SELECT count(*) FROM ({IMPORTED_ROOTS}) WHERE import_id = ?1 AND eligible = 1"),
+        [id],
+        |r| Ok(r.get::<i64>(0)?),
+    )
 }
 
 /// Keep a safety copy before moving the still-eligible conversations into Trash. A single
@@ -165,19 +194,13 @@ pub fn undo(vault: &Vault, id: String) -> Result<serde_json::Value> {
     let archive = vault.agent_history()?;
     let _producers = vault.pause_conversations();
     let selected = id.clone();
-    let eligible = vault.store().read(E, move |s| {
-        s.query_one(
-            "SELECT count(*) FROM ah_import_conversations WHERE import_id=?1 AND eligible=1",
-            [selected],
-            |r| Ok(r.get::<i64>(0)?),
-        )
-    })?;
+    let eligible = vault.store().read(E, move |s| eligible_roots(s, &selected))?;
     if eligible == 0 {
         return Ok(serde_json::json!({"moved":0,"copyPath":null}));
     }
     let copy = super::undo_copy::publish(vault, &id)?;
     let count = vault.store().write(E, Priority::Interactive, move |s| {
-        let n = s.query_one("SELECT count(*) FROM ah_import_conversations WHERE import_id=?1 AND eligible=1", [id.as_str()], |r| Ok(r.get::<i64>(0)?))?;
+        let n = eligible_roots(s, &id)?;
         if n == 0 { return Ok(0); }
         s.execute("UPDATE ah_state_generation SET generation=generation+1 WHERE id=1", ())?;
         s.execute("INSERT INTO ah_user_state(conversation_id,trashed_at) SELECT conversation_id,?2 FROM ah_import_conversations WHERE import_id=?1 AND eligible=1 ON CONFLICT(conversation_id) DO UPDATE SET trashed_at=coalesce(ah_user_state.trashed_at,excluded.trashed_at)",vault_store::params![id.clone(),chrono::Utc::now().timestamp_millis()])?;

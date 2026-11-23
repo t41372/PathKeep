@@ -61,16 +61,15 @@ pub(crate) fn startup_window(
 
 /// Carries out [`startup_window`] for this launch.
 pub(crate) fn apply_startup_window<R: Runtime>(app: &AppHandle<R>, startup: StartupWindow) {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW) else { return };
     match startup {
-        StartupWindow::Show => show_main_window(app),
+        StartupWindow::Show => focus(&window),
         StartupWindow::StayHidden => {}
         StartupWindow::Minimized => {
-            if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-                frame(&window);
-                let _ = window.minimize();
-                let _ = window.show();
-                let _ = window.minimize();
-            }
+            frame(&window);
+            let _ = window.minimize();
+            let _ = window.show();
+            let _ = window.minimize();
         }
     }
 }
@@ -86,11 +85,15 @@ pub(crate) fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
             .ok()
     });
     if let Some(window) = window {
-        frame(&window);
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
+        focus(&window);
     }
+}
+
+fn focus<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+    frame(window);
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
 }
 
 /// Off macOS, the window without the system's title bar (see the module header). macOS keeps its
